@@ -709,7 +709,8 @@ func (s *Server) taskRoutes() {
 			return
 		}
 		peers, _ := s.M.Peers(t.Hash)
-		OK(w, map[string]any{"peers": peers})
+		// The task's own rates come with the peers so the detail chart samples both at once
+		OK(w, map[string]any{"peers": peers, "down_rate": t.DownRate, "up_rate": t.UpRate})
 	})
 	s.Route("GET /tasks/{id}/log", "tasks:read", 0, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		t := s.visibleTask(w, p, r.PathValue("id"))

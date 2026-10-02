@@ -76,10 +76,9 @@
 		}
 	}
 	function renderTabs(){
-		var t = task(), tabs = [['info', DC.t('概要')], ['files', DC.t('檔案')], ['preview', DC.t('預覽')], ['peers', DC.t('連線')], ['log', DC.t('紀錄')]], i;
+		var tabs = [['info', DC.t('概要')], ['files', DC.t('檔案')], ['preview', DC.t('預覽')], ['peers', DC.t('連線')], ['log', DC.t('紀錄')]], i;
 		clear(D.tabs);
 		for(i = 0; i < tabs.length; i++){
-			if(tabs[i][0] === 'peers' && t.proto !== 'bt') continue;
 			D.tabs.appendChild(h('button', {'class':'tab' + (D.tab === tabs[i][0] ? ' on' : ''), role:'tab', type:'button', 'aria-selected':D.tab === tabs[i][0] ? 'true' : 'false',
 				onclick:(function(id){ return function(){ D.tab = id; renderTabs(); renderBody(); if(id === 'log') loadExtra(); }; })(tabs[i][0])}, tabs[i][1]));
 		}
@@ -295,33 +294,220 @@
 		}, function(e){ clear(D.body); D.body.appendChild(h('p', {'class':'note warn', text:DC.errText(e)})); });
 	}
 
-	function peersTab(t){
-		var id = t.id;
-		function load(){
-			DC.api.get('tasks/' + id + '/peers', null, {quiet:true}).then(function(r){
-				if(D.tab !== 'peers' || D.id !== id) return;
-				var ps = r.peers || [], list, i, p, tk = (D.extra && D.extra.trackers) || [];
-				clear(D.body);
-				D.body.appendChild(h('dl', {'class':'kv num'}, [
-					h('dt', {text:DC.t('已連線')}), h('dd', {text:DC.t('{n} 位使用者', {n:ps.length})}),
-					h('dt', {text:DC.t('完整來源')}), h('dd', {text:DC.t('{n} 個', {n:t.seeds || 0})}),
-					tk.length ? h('dt', {text:DC.t('額外 tracker')}) : null, tk.length ? h('dd', {'class':'mono pre', text:tk.join('\n')}) : null
-				]));
-				if(ps.length){
-					list = h('div', {'class':'items peers'}, h('div', {'class':'item phead', 'aria-hidden':'true'}, [h('span'), h('span', {text:DC.t('使用者與用戶端')}),
-						h('em', null, [h('span', {text:'↓'}), h('span', {text:'↑'}), h('span', {text:DC.t('進度')})])]));
-					for(i = 0; i < ps.length && i < 200; i++){
-						p = ps[i];
-						list.appendChild(h('div', {'class':'item'}, [icon(p.seeder ? 'seed' : 'user'), h('span', null, [h('b', {'class':'mono', text:p.ip}), p.client ? h('small', {text:p.client}) : null]),
-							h('em', {'class':'num'}, [h('span', {text:DC.fspeed(p.down_rate)}), h('span', {text:DC.fspeed(p.up_rate)}), h('span', {text:Math.floor((p.progress || 0) * 100) + '%'})])]));
-					}
-					D.body.appendChild(list);
-				}
-				D.peerTimer = setTimeout(load, 3000);
-			}, function(){ D.peerTimer = setTimeout(load, 5000); });
+	/* ---------- connections: live traffic, recorded from the moment the tab opens ----------
+	   Download rises above the middle line and upload hangs below it, each half with its own labelled scale.
+	   Torrents also get one strip per peer; all strips share one scale so an idle peer reads as flat. */
+	var NS = 'http://www.w3.org/2000/svg', WIN = 120000, POLL = 1000, MAXPEERS = 200;
+	var UNITS = [['KB', 1024], ['MB', 1048576], ['GB', 1073741824]], STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+	function svg(tag, attrs, kids){
+		var el = document.createElementNS(NS, tag), k;
+		for(k in attrs) if(attrs.hasOwnProperty(k) && attrs[k] !== null && attrs[k] !== undefined) el.setAttribute(k, attrs[k]);
+		return add(el, kids);
+	}
+	/* The scale only moves between round values, so it holds still while the speed wobbles */
+	function nice(v, floor){
+		var i, j, m;
+		v = Math.max(v, floor);
+		for(i = 0; i < UNITS.length; i++){
+			m = v / UNITS[i][1];
+			for(j = 0; j < STEPS.length; j++) if(m <= STEPS[j]) return {v:STEPS[j] * UNITS[i][1], label:STEPS[j] + ' ' + UNITS[i][0] + '/s'};
 		}
+		return {v:v, label:DC.fspeed(v)};
+	}
+	function peak(list, key){ var m = 0, i; for(i = 0; i < list.length; i++) if(list[i][key] > m) m = list[i][key]; return m; }
+	/* Line and area paths of one series; a gap (hidden page, failed request) breaks the line instead of bridging it */
+	function trace(list, key, x, y, base){
+		var line = '', area = '', run = [], i;
+		function flush(){
+			var s, k;
+			if(!run.length) return;
+			s = 'M' + run[0][0] + ' ' + run[0][1];
+			for(k = 1; k < run.length; k++) s += 'L' + run[k][0] + ' ' + run[k][1];
+			line += s;
+			area += s + 'L' + run[run.length - 1][0] + ' ' + base + 'L' + run[0][0] + ' ' + base + 'Z';
+			run = [];
+		}
+		for(i = 0; i < list.length; i++){
+			if(i && list[i].t - list[i - 1].t > POLL * 2.5) flush();
+			run.push([x(list[i].t).toFixed(1), y(list[i][key]).toFixed(1)]);
+		}
+		flush();
+		return {line:line, area:area};
+	}
+	/* Draws samples into a series set {dA, dL, uA, uL}; returns the y functions for the head dots */
+	function plot(s, list, W, H, pad, sd, su, last){
+		var mid = su ? H / 2 : H - 1, half = mid - pad, r;
+		function x(t){ return W - (last - t) / WIN * W; }
+		function yd(v){ return mid - Math.min(v / sd.v, 1) * half; }
+		function yu(v){ return mid + Math.min(v / su.v, 1) * half; }
+		r = trace(list, 'd', x, yd, mid);
+		s.dA.setAttribute('d', r.area); s.dL.setAttribute('d', r.line);
+		if(su){
+			r = trace(list, 'u', x, yu, mid);
+			s.uA.setAttribute('d', r.area); s.uL.setAttribute('d', r.line);
+		}
+		return {x:x, yd:yd, yu:yu, mid:mid, half:half};
+	}
+	function series(bt, grad){
+		return {
+			dA:svg('path', {'class':'area d', fill:grad ? 'url(#dcFlowD)' : null}), dL:svg('path', {'class':'line d'}),
+			uA:bt ? svg('path', {'class':'area u', fill:grad ? 'url(#dcFlowU)' : null}) : null, uL:bt ? svg('path', {'class':'line u'}) : null
+		};
+	}
+	function readout(cls, label){
+		var v = h('b', {'class':'rdv num'});
+		return {v:v, el:h('div', {'class':'rd ' + cls}, [h('span', {'class':'rdl'}, [h('i', {'aria-hidden':'true'}), label]), v])};
+	}
+	function setSpeed(el, b){
+		var p = DC.fspeedParts(b);
+		clear(el); add(el, [p[0], h('small', {text:p[1]})]);
+	}
+	function flowChart(bt){
+		var c = {bt:bt, H:bt ? 132 : 96};
+		c.s = series(bt, true);
+		c.grid = svg('g', {'class':'grid'});
+		c.mark = svg('line', {'class':'mark', y1:0, y2:c.H});
+		c.markText = svg('text', {'class':'mark', y:12, 'text-anchor':'end'}, DC.t('開始記錄'));
+		c.dP = svg('circle', {'class':'head d', r:3.5});
+		c.uP = bt ? svg('circle', {'class':'head u', r:3.5}) : null;
+		c.svg = svg('svg', {'class':'flowsvg', height:c.H, role:'img', 'aria-label':bt ? DC.t('最近兩分鐘的下載與上傳速度') : DC.t('最近兩分鐘的下載速度')}, [
+			svg('defs', null, [
+				svg('linearGradient', {id:'dcFlowD', x1:0, y1:0, x2:0, y2:1}, [svg('stop', {offset:0, 'class':'g0'}), svg('stop', {offset:1, 'class':'g1'})]),
+				bt ? svg('linearGradient', {id:'dcFlowU', x1:0, y1:1, x2:0, y2:0}, [svg('stop', {offset:0, 'class':'g0'}), svg('stop', {offset:1, 'class':'g1'})]) : null
+			]),
+			c.grid, c.mark, c.markText, c.s.dA, c.s.uA, c.s.dL, c.s.uL, c.dP, c.uP
+		]);
+		c.top = h('span', {'class':'flowlbl top num', 'aria-hidden':'true'});
+		c.bot = bt ? h('span', {'class':'flowlbl bot num', 'aria-hidden':'true'}) : null;
+		c.dn = readout('d', DC.t('下載速度'));
+		c.up = bt ? readout('u', DC.t('上傳速度')) : null;
+		c.el = h('div', {'class':'flow'}, [
+			h('div', {'class':'flowread'}, [c.dn.el, c.up ? c.up.el : null]),
+			h('div', {'class':'flowplot'}, [c.svg, c.top, c.bot]),
+			h('div', {'class':'flowaxis', 'aria-hidden':'true'}, [h('span', {text:DC.t('2 分鐘前')}), h('span', {text:DC.t('現在')})])
+		]);
+		return c;
+	}
+	function drawFlow(c, list, t0){
+		var W = c.svg.getBoundingClientRect().width, H = c.H, last, p, sd, su = null, g, xs, cur;
+		if(!W || !list.length) return;
+		last = list[list.length - 1].t; cur = list[list.length - 1];
+		sd = nice(peak(list, 'd'), 64 * 1024);
+		if(c.bt) su = nice(peak(list, 'u'), 64 * 1024);
+		c.svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+		p = plot(c.s, list, W - 4, H, 8, sd, su, last);
+		clear(c.grid);
+		g = function(y, cls){ c.grid.appendChild(svg('line', {'class':cls, x1:0, x2:W, y1:y, y2:y})); };
+		g(Math.round(p.mid - p.half) + 0.5, 'cap');
+		g(Math.round(p.mid) - 0.5, 'base');
+		if(su) g(Math.round(p.mid + p.half) - 0.5, 'cap');
+		c.dP.setAttribute('cx', W - 4); c.dP.setAttribute('cy', p.yd(cur.d));
+		if(su){ c.uP.setAttribute('cx', W - 4); c.uP.setAttribute('cy', p.yu(cur.u)); }
+		/* Where recording began: everything left of it is before the tab was opened */
+		xs = Math.round(p.x(t0)) + 0.5;
+		c.mark.setAttribute('x1', xs); c.mark.setAttribute('x2', xs);
+		c.mark.style.display = xs > 0 ? '' : 'none';
+		c.markText.setAttribute('x', xs - 6);
+		c.markText.style.display = xs > 96 ? '' : 'none';
+		c.top.textContent = sd.label;
+		if(su) c.bot.textContent = su.label;
+		setSpeed(c.dn.v, cur.d);
+		if(c.up) setSpeed(c.up.v, cur.u);
+	}
+
+	function peersTab(t){
+		var id = t.id, bt = t.proto === 'bt', gen = D.flowGen = (D.flowGen || 0) + 1, t0 = Date.now();
+		var chart = flowChart(bt), samples = [], kvBox = h('div'), list = null, note = null, rows = {}, order = [], sorted = false;
 		clear(D.body);
-		D.body.appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('讀取中…')]));
+		add(D.body, [chart.el, kvBox]);
+		if(bt){
+			list = h('div', {'class':'items peers'}, h('div', {'class':'item phead', 'aria-hidden':'true'}, [h('span'), h('span', {text:DC.t('使用者與用戶端')}),
+				h('em', null, [h('span', {text:'↓'}), h('span', {text:'↑'}), h('span', {text:DC.t('進度')})])]));
+			note = h('p', {'class':'note', text:DC.t('每位使用者的線圖共用同一個刻度，下載往上、上傳往下。')});
+			list.hidden = note.hidden = true;
+			add(D.body, [list, note]);
+		}
+		function current(){ return D.tab === 'peers' && D.id === id && D.flowGen === gen; }
+		function trim(a, now){ while(a.length && a[0].t < now - WIN - POLL * 3) a.shift(); }
+		function peerRow(){
+			var r = {list:[], seed:null, s:series(true, false)};
+			r.ip = h('b', {'class':'mono'}); r.client = h('small');
+			r.dn = h('span'); r.up = h('span'); r.pct = h('span');
+			r.mid = svg('line', {'class':'mid', x1:0, y1:12, y2:12});
+			r.svg = svg('svg', {'class':'spark', height:24, 'aria-hidden':'true'}, [r.mid, r.s.dA, r.s.uA, r.s.dL, r.s.uL]);
+			r.ic = icon('user');
+			r.el = h('div', {'class':'item'}, [r.ic, h('span', null, [r.ip, r.client]), h('em', {'class':'num'}, [r.dn, r.up, r.pct]), r.svg]);
+			return r;
+		}
+		function updPeers(ps, now){
+			var seen = {}, i, k, p, r, all = [], sd, su, W;
+			ps = ps.slice();
+			/* The first answer is ordered by traffic; later peers join at the end so rows never jump while being read */
+			if(!sorted){ ps.sort(function(a, b){ return (b.down_rate + b.up_rate) - (a.down_rate + a.up_rate); }); sorted = true; }
+			for(i = 0; i < ps.length; i++){
+				p = ps[i]; k = p.ip + ':' + p.port;
+				if(seen[k]) continue;
+				seen[k] = true;
+				r = rows[k];
+				if(!r){
+					if(order.length >= MAXPEERS) continue;
+					r = rows[k] = peerRow(); order.push(k); list.appendChild(r.el);
+					r.ip.textContent = p.ip;
+				}
+				if(r.seed !== !!p.seeder){
+					r.seed = !!p.seeder;
+					var ic = icon(r.seed ? 'seed' : 'user');
+					r.el.replaceChild(ic, r.ic); r.ic = ic;
+				}
+				if(r.client.textContent !== (p.client || '')) r.client.textContent = p.client || '';
+				r.dn.textContent = DC.fspeed(p.down_rate); r.up.textContent = DC.fspeed(p.up_rate);
+				r.pct.textContent = Math.floor((p.progress || 0) * 100) + '%';
+				r.list.push({t:now, d:p.down_rate || 0, u:p.up_rate || 0});
+				trim(r.list, now);
+			}
+			for(i = order.length - 1; i >= 0; i--){
+				if(seen[order[i]]) continue;
+				DC.remove(rows[order[i]].el); delete rows[order[i]]; order.splice(i, 1);
+			}
+			list.hidden = note.hidden = !order.length;
+			if(!order.length) return;
+			for(i = 0; i < order.length; i++) all = all.concat(rows[order[i]].list);
+			sd = nice(peak(all, 'd'), 16 * 1024); su = nice(peak(all, 'u'), 16 * 1024);
+			W = rows[order[0]].svg.getBoundingClientRect().width;
+			if(!W) return;
+			for(i = 0; i < order.length; i++){
+				r = rows[order[i]];
+				r.svg.setAttribute('viewBox', '0 0 ' + W + ' 24');
+				r.mid.setAttribute('x2', W);
+				plot(r.s, r.list, W, 24, 1, sd, su, now);
+			}
+		}
+		function updKv(n){
+			var x = task(), tk = (D.extra && D.extra.trackers) || [];
+			clear(kvBox);
+			if(!bt) return;
+			kvBox.appendChild(h('dl', {'class':'kv num'}, [
+				h('dt', {text:DC.t('已連線')}), h('dd', {text:DC.t('{n} 位使用者', {n:n})}),
+				h('dt', {text:DC.t('完整來源')}), h('dd', {text:DC.t('{n} 個', {n:(x && x.seeds) || 0})}),
+				tk.length ? h('dt', {text:DC.t('額外 tracker')}) : null, tk.length ? h('dd', {'class':'mono pre', text:tk.join('\n')}) : null
+			]));
+		}
+		function load(){
+			if(!current()) return;
+			/* Nothing is sampled while the page is hidden; the chart shows that stretch as a gap */
+			if(document.hidden){ D.peerTimer = setTimeout(load, POLL); return; }
+			var asked = Date.now();
+			DC.api.get('tasks/' + id + '/peers', null, {quiet:true}).then(function(r){
+				if(!current()) return;
+				var now = Date.now(), ps = r.peers || [];
+				samples.push({t:now, d:r.down_rate || 0, u:r.up_rate || 0});
+				trim(samples, now);
+				if(bt){ updKv(ps.length); updPeers(ps, now); }
+				drawFlow(chart, samples, t0);
+				D.peerTimer = setTimeout(load, Math.max(250, POLL - (Date.now() - asked)));
+			}, function(){ if(current()) D.peerTimer = setTimeout(load, POLL * 3); });
+		}
+		updKv(t.peers || 0);
 		load();
 	}
 
