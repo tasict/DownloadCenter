@@ -1,343 +1,346 @@
-# Download Center 介面 UX/UI 規劃
+# Download Center UX/UI design
 
-可操作原型：`docs/prototype/index.html`（範例資料、無後端、ES5，可移植到 `shared/web/`）。原型涵蓋範圍見文末。
+Clickable prototype: `docs/prototype/index.html` (sample data, no backend, ES5, portable to `shared/web/`). What the prototype covers is listed at the end.
 
-## 對象與主要任務
+UI copy is written in Traditional Chinese, which is the translation source; this document quotes the English UI strings.
 
-- **對象**：家中或小辦公室的 NAS 使用者，管理員以外的一般使用者也會用；常在手機上用。多數人不懂 BT 術語，也不想先選「這是什麼類型的下載」。
-- **主要任務**（依頻率）：
-  1. 貼上一個或一串網址、磁力連結，或丟一個 `.torrent` 進來。
-  2. 看一眼：還在跑嗎、多快、還要多久。
-  3. 下載完找到檔案。
-  4. 暫停、繼續、刪除，偶爾調整先後順序。
-  5. 選種子裡要哪些檔案、暫存在哪、完成後移到哪。
-  6. 偶爾改設定：速限、排程、網站帳號、權杖、通知。
-  7. 一次性：從官方 Download Station 匯入。
+## Audience and main tasks
 
-## 官方版的痛點
+- **Audience**: NAS users at home or in a small office, including regular users, not only administrators; often on a phone. Most do not know BitTorrent terms and do not want to pick "what kind of download this is" first.
+- **Main tasks** (by frequency):
+  1. Paste one or a batch of URLs or magnet links, or drop a `.torrent` in.
+  2. Take a glance: is it still running, how fast, how long to go.
+  3. Find the files once they are done.
+  4. Pause, resume, delete, occasionally reorder.
+  5. Choose which files of a torrent to get, where they are kept while downloading and where they go when finished.
+  6. Occasionally change settings: speed limits, schedule, site accounts, tokens, notifications.
+  7. Once: import from the official Download Station.
 
-| 官方版 | 本設計 |
+## Pain points of the official package
+
+| Official package | This design |
 |---|---|
-| 必須先登入 QTS 桌面才能開；手機上幾乎不能用 | **獨立登入頁**，直接輸入網址就能用；手機與桌面同一套 RWD 介面 |
-| 加入任務要先選「網址 / BT / 磁力」不同對話框 | **一個輸入框**，貼什麼都行，自動判斷；整頁可拖放 `.torrent` |
-| 種子加入後才發現要選檔案 | 按「加入」後**在對話框裡**一次決定：要哪些檔案、暫存在哪、完成後移到哪、用哪個網站帳號 |
-| ExtJS 表格密密麻麻 | 一列一個任務，細線分隔；其餘資訊放詳細面板 |
-| 排程是 168 個勾選格 | 可拖曳塗色的 7×24 格，下方即時寫出白話摘要 |
-| 無法給其他程式使用 | 存取權杖、REST API、Webhook、聊天機器人（見 `docs/INTEGRATION.md`） |
+| Opens only after signing in to the QTS desktop; barely usable on a phone | **Own sign-in page**, reachable by typing the address; one responsive UI for phones and desktops |
+| Adding a task starts by choosing between separate URL / BT / magnet dialogs | **One input box** that takes anything and works out the type; `.torrent` files can be dropped anywhere on the page |
+| You find out you have to pick files only after the torrent was added | After "Add", **one dialog** settles everything: which files, where to keep them while downloading, where to move them when finished, which site account to use |
+| Dense ExtJS grids | One row per task, hairline separators; everything else lives in the details panel |
+| The schedule is 168 checkboxes | A 7×24 grid you paint by dragging, with a plain-language summary written underneath as you go |
+| Nothing for other programs | Access tokens, REST API, webhooks, chat bots (see `docs/INTEGRATION.md`) |
 
-## 設計方向：Liquid Glass（參考 macOS／iOS 27）
+## Design direction: Liquid Glass (after macOS / iOS 27)
 
-2026-10-02 起取代原本的「極簡文青」。參考 Apple 在 iOS 27／macOS 27 修正後的 Liquid Glass：玻璃材質只用在浮在內容上方的控制層，背景擴散更強、層次分明、文字可讀；內容本身維持實心的分組清單。
+Replaced the earlier minimalist look on 2026-10-02. It follows Apple's revised Liquid Glass in iOS 27 / macOS 27: glass is used only for the control layer floating above the content, with stronger background diffusion, clear layering and readable text; the content itself stays in solid grouped lists.
 
-畫面上有三個記憶點，其他部分保持系統原生的樸素：
+Three things on screen are memorable; everything else stays plain and system-native:
 
-1. **浮動的玻璃層**：側欄、工具列、貼上欄、批次操作列、對話框、詳細面板、通知訊息都是半透明玻璃（模糊 30px、飽和度 180%、上緣細高光、柔和陰影），彼此和視窗邊緣留距離，像浮在內容上。
-2. **BT 碎片進度條**：種子任務的進度條是 48 格圓角碎片，點亮順序不連續；網址任務是一條圓角連續進度條。
-3. **會動的符號**：線條粗細比照 SF Symbols（1.7），動作只代表狀態或回應操作，對應 Apple 的符號動畫類型（bounce、pulse、rotate、wiggle、draw）。
+1. **Floating glass layers**: the sidebar, toolbar, paste bar, bulk-action bar, dialogs, details panel and toasts are translucent glass (30px blur, 180% saturation, a thin highlight on the top edge, soft shadow), kept apart from each other and from the window edges so they float over the content.
+2. **BT piece progress bar**: a torrent's progress bar is 48 rounded pieces that light up out of order; a URL task has one continuous rounded bar.
+3. **Animated symbols**: stroke weight follows SF Symbols (1.7); motion only shows state or answers an action, matching Apple's symbol animation types (bounce, pulse, rotate, wiggle, draw).
 
-### 色彩（系統色）
+### Color (system colors)
 
-| Token | 淺色 | 深色 | 用途 |
+| Token | Light | Dark | Use |
 |---|---|---|---|
-| `--bg` | `#F2F2F7` | `#000000` | 分組背景；頂端有一圈很淡的強調色光暈，讓玻璃有東西可以折射 |
-| `--surface` | `#FFFFFF` | `#1C1C1E` | 分組清單、卡片 |
-| `--label` / `--label2` / `--label3` | `#1D1D1F` / `#6E6E73` / `#AEAEB2` | `#F5F5F7` / `#98989F` / `#636366` | 主要、次要、提示文字 |
-| `--fill` / `--fill2` | 灰 12% / 20% | 灰 24% / 36% | 次要按鈕、輸入框、進度條底色 |
-| `--accent` | `#007AFF` | `#0A84FF` | 主要動作、下載中、選取 |
+| `--bg` | `#F2F2F7` | `#000000` | Grouped background; a very faint accent glow at the top gives the glass something to refract |
+| `--surface` | `#FFFFFF` | `#1C1C1E` | Grouped lists, cards |
+| `--label` / `--label2` / `--label3` | `#1D1D1F` / `#6E6E73` / `#AEAEB2` | `#F5F5F7` / `#98989F` / `#636366` | Primary, secondary and hint text |
+| `--fill` / `--fill2` | gray 12% / 20% | gray 24% / 36% | Secondary buttons, inputs, progress bar tracks |
+| `--accent` | `#007AFF` | `#0A84FF` | Primary actions, downloading, selection |
 
-狀態色：等待 `#8E8E93`、暫停橘 `#FF9500`／`#FF9F0A`、做種青 `#00A6B4`／`#40C8E0`、完成綠 `#34C759`／`#30D158`、檢查與搬移紫 `#AF52DE`／`#BF5AF2`、錯誤紅 `#FF3B30`／`#FF453A`。
+State colors: waiting `#8E8E93`, paused orange `#FF9500` / `#FF9F0A`, seeding teal `#00A6B4` / `#40C8E0`, finished green `#34C759` / `#30D158`, checking and moving purple `#AF52DE` / `#BF5AF2`, error red `#FF3B30` / `#FF453A`.
 
-玻璃：`rgba(255,255,255,α)`／`rgba(30,30,32,α)`。α 由「外觀 › 玻璃」滑桿調整（0.30 到 0.95），比照 iOS 27 新增的透明度滑桿。系統開啟「降低透明度」或瀏覽器不支援模糊時，α 固定為 0.97，變成實心材質。
+Glass: `rgba(255,255,255,α)` / `rgba(30,30,32,α)`. α is set by the Appearance › Glass slider (0.30 to 0.95), after the transparency slider iOS 27 added. With the system's Reduce Transparency on, or a browser without backdrop blur, α is fixed at 0.97 and the glass becomes a solid material.
 
-### 字體
+### Type
 
-- 系統字：`-apple-system, "SF Pro Text"`，中文 `"PingFang TC"`，其他平台退回 `"Noto Sans TC"`、`"Microsoft JhengHei"`。NAS 可能離線，不載入外部字型。
-- 大標題（清單標題）28px 粗體、字距 -0.02em；區段標題 15px 半粗體；內文 14px。
-- 速度、驗證碼等數字用圓體 `ui-rounded`，所有數字 `tabular-nums`。
-- 網址、路徑、權杖用 `ui-monospace, "SF Mono"`。
+- System fonts: `-apple-system, "SF Pro Text"`, Chinese `"PingFang TC"`, falling back to `"Noto Sans TC"` and `"Microsoft JhengHei"` on other platforms. The NAS may be offline, so no web fonts are loaded.
+- Large title (list title) 28px bold, letter spacing -0.02em; section titles 15px semibold; body 14px.
+- Numbers such as speeds and verification codes use the rounded face `ui-rounded`; all numbers are `tabular-nums`.
+- URLs, paths and tokens use `ui-monospace, "SF Mono"`.
 
-### 元件語彙
+### Component vocabulary
 
-- **側欄**：浮動玻璃面板，圓角 22px；選取項目用灰色膠囊底，圖示用狀態色。窄視窗時變成頂端可橫向捲動的膠囊列；手機上不含「設定」，也不顯示沒有任務的篩選。
-- **底部列**（只在手機）：「任務 / 設定」玻璃膠囊分頁列，旁邊一顆圓形強調色「+」加入按鈕；選取模式時換成有文字的批次操作列。
-- **工具列**：浮動玻璃膠囊，放速度、排程、帳號頭像。
-- **清單**：inset 分組（實心、圓角 16px），分隔線從圖示右側開始；狀態圖示放在淡色圓底裡；多選時是圓形勾選。
-- **按鈕**：膠囊形；主要動作是實心強調色，次要動作是灰色填色。
-- **開關**：所有開／關都是 iOS 開關（開時綠色）；只有「選取」用圓形勾選。
-- **分段控制**：詳細面板的分頁、設定的分頁、外觀的淺色／深色／自動。
-- **設定**：像 iOS 設定 App，每個區段有彩色圓角方塊圖示（藍、橘、綠、紫、青、紅、灰依序循環），內容是分組清單，標籤靠左、控制項靠右。
-- **對話框**：標題、可捲動的內容、固定在底部的按鈕三段。桌面置中、圓角 28px、從 94% 放大淡入；手機改為從底部升起的浮動 sheet，左右與底部各留 6px，頂端有拖拉把手，往下拉可關閉，鍵盤出現時跟著上移。對話框裡還有沒送出的輸入（例如貼上的網址）時，點外面、`Esc` 或往下拉只會晃一下並提示，要按「取消」才關閉。主要按鈕是刪除這類危險操作時，開啟時焦點在「取消」，按 Enter 不會誤刪。
-- **詳細面板**：右側浮動 inspector，四周留 10px、圓角 26px；底部按鈕第一顆是主要操作（暫停、繼續、重試）。視窗寬度 1320px 以上時停靠在清單旁邊（不加遮罩，清單仍可點，點別列直接換內容）；較窄時蓋在清單上。手機改為從底部升起、幾乎全螢幕的 sheet，往下拉可關閉。
-- **通知訊息**：底部玻璃膠囊，彈性進場；手機上浮在底部列上方。
-- **登入頁**：帶柔和色塊的背景（只在登入頁使用），中間一張玻璃卡片，上方是 64px 的 App 圖示。
+- **Sidebar**: floating glass panel, 22px radius; the selected item has a gray capsule background, icons use state colors. In narrow windows it becomes a horizontally scrolling capsule bar at the top; on phones it leaves out Settings and hides filters with no tasks.
+- **Bottom bar** (phones only): a glass capsule tab bar "Tasks / Settings" with a round accent "+" add button beside it; in selection mode it turns into a labelled bulk-action bar.
+- **Toolbar**: floating glass capsule holding speeds, schedule and the account avatar.
+- **Lists**: inset groups (solid, 16px radius), separators start right of the icon; state icons sit in a tinted circle; multiple selection uses round checkmarks.
+- **Buttons**: capsules; primary actions are solid accent, secondary actions gray fill.
+- **Switches**: every on/off is an iOS switch (green when on); only selection uses round checkmarks.
+- **Segmented controls**: details panel tabs, settings tabs, Light / Dark / Auto in Appearance.
+- **Settings**: like the iOS Settings app, each section has a colored rounded-square icon (blue, orange, green, purple, teal, red, gray in turn); content is grouped lists with labels on the left and controls on the right.
+- **Dialogs**: three parts: title, scrolling content, buttons pinned to the bottom. On desktops centered, 28px radius, scaling up from 94% while fading in; on phones a floating sheet rising from the bottom, 6px from the sides and bottom, with a grabber at the top, closed by pulling down, moving up with the keyboard. While a dialog still holds unsent input (such as pasted URLs), clicking outside, `Esc` or pulling down only nudges it with a hint; only "Cancel" closes it. When the primary button is dangerous, such as delete, focus starts on "Cancel" so Enter cannot delete by mistake.
+- **Details panel**: a floating inspector on the right, 10px from the edges, 26px radius; the first footer button is the main action (pause, resume, retry). In windows 1320px wide or more it docks beside the list (no dimming, the list stays clickable, clicking another row swaps the content); in narrower ones it overlays the list. On phones it is a nearly full-screen sheet rising from the bottom, closed by pulling down.
+- **Toasts**: glass capsules at the bottom with a springy entrance; on phones they float above the bottom bar.
+- **Sign-in page**: a background with soft color blobs (only on this page), a glass card in the middle, a 64px app icon above it.
 
-## 版面
+## Layout
 
-### 登入頁
+### Sign-in page
 
-流程照 QTS `authLogin.cgi` 的實際回應設計。只做 QTS 網頁登入裡會用到的部分：帳密、兩步驟驗證（驗證器、備援信箱、安全問題）、密碼過期、必須設定兩步驟驗證。自己的登入頁不做 QNAP Authenticator 的掃碼／核准登入、Azure SSO（轉址登入可行時交給「用 QTS 登入頁登入」）、語言選單與「保持登入」（`remme`／`qtoken`）。
+The flow follows what QTS `authLogin.cgi` actually answers. It covers only what QTS web sign-in uses: user name and password, 2-step verification (authenticator, backup email, security question), expired passwords, required 2-step enrolment. The package's own page does not do QNAP Authenticator scan/approve sign-in, Azure SSO (left to "Sign in with the QTS page" when redirect sign-in works), a language menu or "stay signed in" (`remme` / `qtoken`).
 
-**套件的後端不經手帳號密碼，登入狀態就是 QTS 的登入 cookie**：登入頁的 JS 直接向同一個網址下的 QTS `/cgi-bin/authLogin.cgi` 登入（和 QTS 自己的登入頁一樣），成功後照 QTS 的做法設定 `NAS_SID`、`NAS_USER`、`NAS_PW_STATUS` cookie。所以失敗鎖定、兩步驟、有效期限全部由 QTS 處理，鎖定記在使用者的瀏覽器 IP 上；而且同一個瀏覽器只有一份 NAS 登入：先在 QTS 網頁登入過，開 Download Center 就直接進去；用 Download Center 登入後，QTS 網頁也是已登入。
+**The package backend never handles credentials; the session is QTS's sign-in cookie**: the page's JS signs in directly against QTS `/cgi-bin/authLogin.cgi` on the same origin (as QTS's own sign-in page does) and on success sets the `NAS_SID`, `NAS_USER` and `NAS_PW_STATUS` cookies the way QTS does. Lockout after failures, 2-step verification and session lifetime are all handled by QTS, and lockout is recorded against the browser's IP. A browser has only one NAS session: after signing in to the QTS web UI, Download Center opens straight away; after signing in to Download Center, the QTS web UI is signed in too.
 
-- 打開頁面時已有有效的 `NAS_SID` 就跳過登入頁；`NAS_PW_STATUS` 表示密碼要變更時，直接顯示「密碼已過期」畫面。
-- 帳號選單的「登出」會同時登出這個瀏覽器上的 QTS，按鈕旁寫明「也會登出這個瀏覽器上的 QTS」。
-- 帳號選單在桌面是頭像下方的彈出面板（不變暗背景），手機是底部 sheet；外觀一選就套用並記住，不需要「儲存」。工具列頭像和選單裡一樣，用 QTS 大頭貼，沒有時顯示帳號首字。
-- **使用聲明**：每個帳號第一次登入時出現一次（不能點外面或按 `Esc` 關閉，只有「我了解並同意」），說明本軟體只依使用者提供的連結下載、請只下載有權取得的內容、BitTorrent 會分享並露出 IP、使用責任與免責、與 QNAP 無關。同意紀錄存在使用者設定；之後可以從設定頁頁尾的「使用聲明」再看。頁尾另有「授權資訊」（套件內附的第三方授權聲明）。
-- **更新**（只給系統管理者）：有新版本時工具列出現藍色小標籤「新版本 x.y.z」（手機只有圖示），不跳視窗；點開是純文字的更新說明、「略過這個版本」「稍後」「立即更新」。更新時顯示進度（下載、檢查簽章、備份資料庫、安裝），套件重新啟動後頁面自動重新整理，並提示一次結果。設定 ›「關於與更新」列出所有版本，可以更新或「降回這一版」（危險按鈕，預設焦點在取消；跨資料庫格式時說明會改用哪一天的備份、之後的變更會消失）。
-- **贊助入口**只放在使用者自己會去的地方：帳號選單最下方與設定頁最下方，都只是一行淡色頁尾（版本、小珍奶圖示的「請我喝珍奶」、「用 PayPal 贊助」）。不跳出提醒、不加徽章、不出現在任務清單與加入流程。連結在新分頁開啟；珍奶圖示放在套件內（`img/boba.png`），不從外部載入。
+- With a valid `NAS_SID` when the page opens, the sign-in page is skipped; when `NAS_PW_STATUS` says the password must change, the "password expired" screen is shown directly.
+- "Sign out" in the account menu also signs QTS out in this browser, and says so next to the button.
+- The account menu is a popover under the avatar on desktops (no dimming) and a bottom sheet on phones; an appearance choice applies and is remembered immediately, without "Save". The toolbar avatar, like the one in the menu, is the QTS profile picture, or the first letter of the account name when there is none.
+- **Terms of use**: shown once per account at first sign-in (cannot be closed by clicking outside or `Esc`, only with "I understand and agree"). It says the software only downloads links the user provides, to download only content one has the right to, that BitTorrent shares data and exposes the IP address, who is responsible, the disclaimer, and that it has nothing to do with QNAP. The consent is stored in the user's settings; the text can be read again from "Terms of use" in the settings footer. The footer also has "Licenses" (the third-party license notices shipped in the package).
+- **Updates** (administrators only): when a new version exists, a small blue tag "New version x.y.z" appears in the toolbar (icon only on phones); nothing pops up. Opening it shows the release notes as plain text with "Skip this version", "Later" and "Update now". During an update, progress is shown (download, signature check, database backup, install); after the package restarts, the page reloads by itself and reports the result once. Settings › "About and updates" lists every release, each with update or "Go back to this version" (a dangerous button, focus starts on Cancel; across database formats it explains which day's backup will be used and that later changes will be lost).
+- **Support links** live only where users go on their own: the bottom of the account menu and the bottom of the settings page, each a single muted footer line (version, "Buy me a boba" with a small boba icon, "Support with PayPal"). No reminders, no badges, nothing in the task list or the add flow. Links open in a new tab; the boba icon ships with the package (`img/boba.png`) rather than being loaded from outside.
 
 ```
-            [圖示] Download Center
-            用 NAS 帳號登入
- ┌──────────────────────────────────────────┐
- │ 目前是未加密的連線，密碼會以明文傳送。 改用加密連線 │   只在 http:// 開啟時出現
- └──────────────────────────────────────────┘
-            帳號  ________________
-            密碼  ______________ (眼)
-            記住帳號                     (開關)
-            [          登入          ]
-            用 QTS 登入頁登入                 轉址登入實測可行才出現
-            與 QTS 使用同一組帳號。從 QTS 桌面開啟時會直接登入。
-            [ 淺色 | 深色 | 自動 ]
+            [icon] Download Center
+            Sign in with your NAS account
+ ┌───────────────────────────────────────────────────────────┐
+ │ This connection is not encrypted; the password is sent    │   only when opened over http://
+ │ in plain text.                 Use encrypted connection   │
+ └───────────────────────────────────────────────────────────┘
+            User name  ________________
+            Password   ______________ (eye)
+            Remember user name             (switch)
+            [          Sign in          ]
+            Sign in with the QTS page          only if redirect sign-in works
+            Same account as QTS. Opening from the QTS desktop signs you in directly.
+            [ Light | Dark | Auto ]
 ```
 
-**畫面與分支**（依 QTS 回應的判斷順序）：
+**Screens and branches** (in the order QTS's answer is checked):
 
-| QTS 回應 | 畫面 |
+| QTS answer | Screen |
 |---|---|
-| `authPassed=1` | 再查使用者清單：在清單上就進入；不在就留在登入頁，顯示「這個帳號還沒有 Download Center 的使用權限，請聯絡系統管理者。」 |
-| `user_pw_expiry=1` 或 `pw_status=1` | 「這個帳號的密碼已過期，要先變更密碼才能登入。」與「到 QTS 變更密碼」按鈕（新分頁開 QTS 登入頁）。套件不自己做改密碼 |
-| `need_2_step_verification=1` | 兩步驟驗證畫面（見下） |
-| `force_2sv=1` | 「系統管理者要求這個帳號使用兩步驟驗證，但還沒有設定。」與「開啟 QTS」按鈕 |
-| 其他（密碼錯、帳號停用或過期、被 QTS 封鎖） | 照 QTS 用語，只有一句「登入認證不正確，或是帳戶已不再有效。」，不透露是哪一項錯 |
+| `authPassed=1` | Then the user list is checked: listed users go in; others stay on the sign-in page with "This account has no access to Download Center yet. Contact your administrator." |
+| `user_pw_expiry=1` or `pw_status=1` | "The password of this account has expired. Change it before signing in." with a "Change password in QTS" button (opens the QTS sign-in page in a new tab). The package does not change passwords itself |
+| `need_2_step_verification=1` | 2-step verification screen (below) |
+| `force_2sv=1` | "Your administrator requires 2-step verification for this account, but it is not set up yet." with an "Open QTS" button |
+| Anything else (wrong password, disabled or expired account, blocked by QTS) | In QTS's words, a single sentence "The login credentials are incorrect or the account is no longer valid." that does not reveal which one it was |
 
-**兩步驟驗證**：
+**2-step verification**:
 
-- 預設是驗證器的 6 位數：一個欄位（`inputmode=numeric`、`autocomplete=one-time-code`，手機可以從簡訊或驗證器自動填入），輸入滿 6 位就自動送出。
-- 驗證碼錯時寫出 NAS 目前的時間：「驗證碼不正確，請再試一次。NAS 目前時間是 09:41，驗證器的時間要和它一致。」驗證器時間不同步是最常見的原因。
-- 畫面左下角倒數（驗證器 3 分鐘、備援信箱與安全問題 5 分鐘，照 QTS），時間到回到第一步並說明「驗證時間已過，請重新登入。」
-- 「換個方式驗證」列出這個帳號有設定的方式：驗證器、寄驗證碼到備援信箱（信箱只顯示遮罩過的位址）、回答安全問題。備援信箱寄出後，同一個欄位輸入信中的驗證碼；安全問題答錯太多次就停用並請使用者聯絡系統管理者。
-- 「在這台裝置上不要再驗證」開關，對應 QTS 的 `dont_verify_2sv_again`；QTS 發的 vtoken 照 QTS 登入頁的做法存在這個瀏覽器（localStorage），下次同一台裝置登入就不用第二步。
-- 每個畫面都有「使用其他帳號」回到第一步。
+- The default is the authenticator's 6-digit code: one field (`inputmode=numeric`, `autocomplete=one-time-code`, so phones can fill it from a text message or the authenticator) that submits by itself once 6 digits are in.
+- A wrong code shows the NAS's current time: "The code is incorrect. Try again. The NAS time is 09:41; your authenticator's clock must match it." An out-of-sync authenticator clock is the most common cause.
+- A countdown at the bottom left (3 minutes for the authenticator, 5 for backup email and security question, as in QTS); when it runs out, the page returns to the first step with "Verification timed out. Sign in again."
+- "Verify another way" lists the methods set up for this account: authenticator, send a code to the backup email (shown masked), answer the security question. After the email is sent, its code goes into the same field; too many wrong security answers disable the method and ask the user to contact the administrator.
+- A "Don't verify again on this device" switch maps to QTS's `dont_verify_2sv_again`; the vtoken QTS issues is kept in this browser (localStorage) as the QTS sign-in page does, so the next sign-in on the same device skips the second step.
+- Every screen has "Use another account" to go back to the first step.
 
-**其他規則**：
+**Other rules**:
 
-- 直接開 `https://<NAS>:<埠>/DownloadCenter/` 就是這頁；從 QTS 桌面開啟時沿用 QTS 的登入狀態，跳過此頁。
-- 開頁時先問 QTS 是否強制 HTTPS：是就直接轉到 `https://` 的同一頁（瀏覽器要和 QTS 的登入 CGI 同源才能呼叫它）；否則用 `http://` 開啟時（`localhost` 除外），頂端出現一行警告與「改用加密連線」。
-- 送出時按鈕變成「登入中…」並停用，避免重複送出。
-- **連續失敗**由 QTS 處理，套件不另外計數。QTS 封鎖時不會說明原因，畫面就是同一句失敗訊息。
-- 「記住帳號」只把帳號名稱存在這個瀏覽器，不存密碼。不做「保持登入」，登入有效期限照 QTS。
-- 密碼只留在登入頁的記憶體裡，兩步驟的第二步要再送一次給 QTS；登入成功、逾時或離開頁面就清掉。
-- 「用 QTS 登入頁登入」：QTS 轉址登入（`redirect_uri`）實測可行才出現，讓 QTS 處理 QNAP Authenticator、SSO 等套件沒做的方式。
-- 密碼欄右側的眼睛按鈕可以顯示或隱藏密碼（手機上打密碼容易打錯）。
-- 帳號、密碼欄位有 `autocomplete=username`／`current-password`，讓瀏覽器與密碼管理員能自動填入。
-- 登入頁底部也能選淺色、深色或自動，登入前就能切換。
+- Opening `https://<NAS>:<port>/DownloadCenter/` lands on this page; opening from the QTS desktop reuses the QTS session and skips it.
+- On load, the page asks QTS whether HTTPS is enforced: if so, it goes straight to the same page on `https://` (the browser must share an origin with QTS's sign-in CGI to call it); otherwise, when opened over `http://` (except `localhost`), a warning line with "Use encrypted connection" appears at the top.
+- While submitting, the button reads "Signing in…" and is disabled to prevent double submits.
+- **Repeated failures** are QTS's business; the package keeps no count. QTS gives no reason when it blocks, so the screen shows the same failure sentence.
+- "Remember user name" keeps only the user name in this browser, never the password. There is no "stay signed in"; session lifetime follows QTS.
+- The password stays only in the sign-in page's memory, because the second step must send it to QTS again; it is cleared on success, timeout or leaving the page.
+- "Sign in with the QTS page": appears only if QTS redirect sign-in (`redirect_uri`) works in testing, so QTS handles QNAP Authenticator, SSO and other methods the package does not.
+- The eye button at the right of the password field shows or hides the password (passwords are easy to mistype on phones).
+- The user name and password fields carry `autocomplete=username` / `current-password` so browsers and password managers can fill them.
+- Light, Dark or Auto can be chosen at the bottom of the sign-in page too, before signing in.
 
-### 主畫面（桌面）
-
-```
-Download Center                      ↓ 18.6 MB/s  ↑ 1.2 MB/s  ◷ 全速，18:00 起限速  admin
-──────────────────────────────────────────────────────────────────────────────────────
-全部       9     [⛓] 貼上網址或磁力連結 ______________________________ [種] [ 加入 ]
-下載中     3     試一個網址  磁力連結  多個網址  也可以把 .torrent 檔拖進視窗
-等待中     1
-已暫停     1     全部  9 個任務
-做種中     1     ─────────────────────────────────────────────────────────────
-已完成     1     ↓  ubuntu-24.04.3-desktop-amd64.iso
-錯誤       1        ▮▮▯▮▮▮▯▮▮▮▮▯▮▮▮▮▮▯▮▮▮  62%  3.66 GB / 5.90 GB  9.2 MB/s  剩 4 分
-                 ─────────────────────────────────────────────────────────────
-設定             ↓  LibreOffice_25.8.1_Linux_x86-64_deb.tar.gz              alice
-                    ─────────────────────                41% …
-```
-
-- 側欄篩選項目有狀態色圖示與計數；目前所在的項目用灰色膠囊底與粗體標示。
-- **排序**：清單標題右側「排序」選單：佇列順序（預設）、狀態、下載進度、剩餘時間、已下載時間；旁邊的箭頭切換方向，各排序有合理的預設方向（狀態：需要注意的在前，錯誤 → 下載中 → 檢查 → 搬移 → 做種 → 等待 → 暫停 → 完成；進度：大到小；剩餘時間：短到長，沒有剩餘時間的排最後；已下載時間：長到短）。
-  - 數值每秒在變，排序後最多每 10 秒重排一次，避免列在游標底下跳動。
-  - 依進度或已下載時間排序時，列上會顯示該數值；已下載時間只累計真正在下載的時間。
-  - 只有「佇列順序」能用上移、下移；其他排序時批次列不顯示這兩個按鈕。
-  - 排序選擇是每個人的偏好，下次開啟時沿用。
-- 列首勾選框 hover 才出現；一旦有勾選，清單標題換成批次操作列（開始、暫停、上移、下移、刪除、取消）。
-- 列尾的主要操作（暫停、繼續、重試、開啟資料夾）一直顯示；「詳細」按鈕 hover 才出現。列上的資訊（百分比、大小、速度、剩餘時間）各自分開排列；剩餘時間超過 30 天顯示「剩超過 30 天」。
-- 點一列打開右側詳細抽屜：概要（合併的來源列在這裡）、檔案（勾選要不要下載）、預覽、連線（BT）、紀錄。
-- **預覽**：影音顯示播放器，進度條分成「可以播放的連續部分」和「已下載但不連續的部分」，種子可以開「邊下邊看」改為依序下載；壓縮檔列出目前讀得到的目錄；光碟映像等無法預覽的類型說明原因。
-
-### 手機（≤ 560px）
-
-原則：單手操作。手機上最常做的兩件事是「丟一個連結進來」和「看一眼進度」，所以清單一打開就在畫面上，常用的按鈕都在拇指搆得到的下半部；頂端只放要看的資訊。
+### Main screen (desktop)
 
 ```
-╭ ↓ 18.6  ↑ 1.2 MB/s  ◷ 全速，18:00 起限速…  (人) ╮   工具列：一行，捲動後離開
-[全部 9][下載中 3][已暫停 1][錯誤 1]…                  篩選列：黏在頂端；沒有任務的篩選不顯示
-全部  10 個任務                    [佇列順序▾] [選取]
-┌───────────────────────────────────────────────┐
-│ ↓  ubuntu-24.04.3-desktop-amd64.iso      (⏸) │   列尾一個 44px 主要操作
-│    ▮▮▯▮▮▮▯▮▮▮▮▯▮▮▮▮  62%  9.2 MB/s  剩 4 分   │   點列的其他地方開詳細
-├───────────────────────────────────────────────┤
-│ ✓  Sintel (Blender Open Movie)           (📁) │
-└───────────────────────────────────────────────┘
-
-╭──────[ ↓ 任務 ][ ⚙ 設定 ]──────╮   ( + )            底部：玻璃膠囊分頁列 + 圓形加入按鈕
+Download Center                     ↓ 18.6 MB/s  ↑ 1.2 MB/s  ◷ Full speed, limited from 18:00  admin
+──────────────────────────────────────────────────────────────────────────────────────────────────
+All          9     [⛓] Paste a URL or magnet link _____________________________ [tor] [ Add ]
+Downloading  3     Try a URL  Magnet link  Several URLs   You can also drag .torrent files into the window
+Waiting      1
+Paused       1     All  9 tasks
+Seeding      1     ──────────────────────────────────────────────────────────────────
+Finished     1     ↓  ubuntu-24.04.3-desktop-amd64.iso
+Error        1        ▮▮▯▮▮▮▯▮▮▮▮▯▮▮▮▮▮▯▮▮▮  62%  3.66 GB / 5.90 GB  9.2 MB/s  4 min left
+                   ──────────────────────────────────────────────────────────────────
+Settings           ↓  LibreOffice_25.8.1_Linux_x86-64_deb.tar.gz                    alice
+                      ─────────────────────                     41% …
 ```
 
-- **工具列**縮成一行：速度、排程狀態（太長時以「…」截斷，點了到排程設定）、帳號頭像。不顯示品牌名稱，App 名稱已在主畫面圖示與分頁標題上。
-- **篩選列**黏在頂端、可左右滑；沒有任務的篩選先藏起來（目前所在的除外），常見情況下一行放得下。「設定」不放在篩選列，移到底部分頁列。
-- **底部列**比照 iOS 27 的 Liquid Glass 分頁列：左邊是「任務 / 設定」兩個分頁的玻璃膠囊，右邊分開一顆 60px 的圓形強調色「+」。再點一次「任務」回到清單頂端。
-- **加入**：主畫面不放貼上欄。點「+」從底部升起「加入下載」面板，輸入框自動聚焦、鍵盤跟著出現，可以直接長按貼上；網頁是 HTTPS 時多一顆「貼上剪貼簿」（瀏覽器只在安全連線下允許讀剪貼簿）。下面是「選擇 .torrent 檔」。按「加入」後換成和桌面相同的加入對話框。貼上的內容沒有連結時「加入」不能按。
-- **列**：列尾只留一個主要操作（暫停、繼續、重試、開啟資料夾），做成 44px 圓形按鈕；「詳細」按鈕拿掉，點列的其他地方就是開詳細。下載中的列只寫百分比、速度、剩餘時間，已下載大小留給詳細面板。按下時列有底色回饋。
-- **多選**：清單標題旁有「選取」；長按一列也會進入選取模式，並勾選那一列。選取模式中：
-  - 列首出現圓形勾選，點列就是勾選或取消，不會打開詳細。
-  - 標題列換成「全選 ／ 已選 3 個 ／ 完成」。
-  - 底部分頁列換成批次操作列：開始、暫停、上移、下移、刪除，圖示下面都有文字；一個都沒勾時按鈕停用。
-  - 按「完成」或刪除後離開選取模式。
-- **對話框**從底部升起，左右與底部留 6px。標題與按鈕固定，只有中間內容捲動，所以檔案清單再長，「開始下載」都在拇指下；按鈕撐滿寬度、高度 50px。往下拉把手或標題可以關閉。鍵盤出現時對話框跟著上移，不會被鍵盤蓋住。加入對話框裡的「暫存位置 / 完成後移至 / 網站帳號 / 完成後」改成標籤在上、選單在下。
-- **詳細面板**也是從底部升起、幾乎全螢幕的 sheet，可往下拉關閉；底部第一顆是主要操作（暫停、繼續、重試、停止做種），接著是開啟資料夾與刪除。
-- **設定**比照 iOS「設定」App：先是一份分組清單（彩色圖示、名稱、一句說明、›），點進去才是該區段的內容，左上角「‹ 設定」返回。不用七個分頁標籤橫向捲動。
-- **排程**格子在手機上轉向：星期幾在上方橫排、24 小時往下排，七天剛好放得下，不必橫向捲動。手指從格子上開始拖曳就是塗色，從左邊的時間欄開始拖曳就是捲動頁面。
-- **輸入框**字級 16px，避免 iOS 聚焦時把頁面放大；欄位高度至少 40px。
-- 視埠設定 `viewport-fit=cover`，工具列、底部列、對話框都避開瀏海與 Home 指示條（`safe-area-inset`）。
-- 可「加入主畫面」（PWA manifest，正式版實作）。之後若有 HTTPS，可註冊為系統分享選單的目標。
+- Sidebar filters have state-colored icons and counts; the current one has a gray capsule background and bold text.
+- **Sort**: a "Sort" menu at the right of the list title: queue order (default), state, progress, time left, time downloading; the arrow beside it flips the direction, and each sort has a sensible default direction (state: what needs attention first, error → downloading → checking → moving → seeding → waiting → paused → finished; progress: high to low; time left: short to long, tasks without one last; time downloading: long to short).
+  - The values change every second, so a sorted list reorders at most every 10 seconds to keep rows from jumping under the pointer.
+  - Sorting by progress or time downloading shows that value on the rows; time downloading counts only time actually spent downloading.
+  - Move up and Move down work only in queue order; with other sorts the bulk bar hides those two buttons.
+  - The sort choice is a per-user preference, kept for the next visit.
+- Row checkboxes appear on hover; once something is checked, the list title turns into the bulk-action bar (start, pause, move up, move down, delete, cancel).
+- The main action at the end of a row (pause, resume, retry, open folder) is always shown; the "Details" button appears on hover. Row details (percentage, size, speed, time left) are laid out separately; more than 30 days left shows "More than 30 days left".
+- Clicking a row opens the details drawer on the right: Overview (merged sources are listed here), Files (choose what to download), Preview, Connections (BT), Log.
+- **Preview**: media gets a player, and its progress bar separates the contiguous part that can be played from what is downloaded but not contiguous; torrents can switch on "Watch while downloading" to download in order; archives list the directory as far as it can be read; disc images and other types that cannot be previewed say why.
 
-觸控裝置（不論寬度，`pointer: coarse`）：圖示按鈕 44px、膠囊與分頁按鈕加高；沒有 hover，所以列上的勾選框與操作一律顯示。選擇 `.torrent` 的檔案欄位不設 `accept` 篩選，因為 iOS 不認得 `.torrent` 類型會把檔案全部變灰；選完再檢查副檔名。
+### Phones (≤ 560px)
 
-### 加入流程
+Principle: one-handed use. The two most common things on a phone are "drop a link in" and "check progress", so the list is on screen as soon as the app opens and frequent buttons sit in the lower half within thumb reach; the top holds only information to read.
 
-1. 在輸入框貼上內容後即時判斷類型：`http(s)://`、`ftp://`、`magnet:?`、`.torrent` 網址；多行就是多筆。貼上的是一段文字時，從文字裡找出所有連結（「從文字中找到 3 個連結」）。網址結尾是 `/` 或 `.html` 時當作網頁，加入時會列出頁面裡的下載連結。免空網站的連結會提示「會用你的 1fichier 帳號登入後下載」或「MEGA 目前不支援」。左側圖示隨類型切換並播放一次進場動畫（網址：鏈環扣上；磁力：磁鐵吸引粒子；種子：紙張摺角翻開）。
-2. 按「加入」或 Enter 後跳出**對話框**，不在主畫面放資料夾選擇：
-   - 網址（一或多筆）、文字中找到的連結、網頁裡的連結：列出可勾選的清單，有「全選」「只要 .iso」這類依副檔名的快速篩選和「全不選」；每一列標示類型（網址、種子、磁力、網頁、某某免空帳號），網頁本身預設不勾。選「暫存位置」、「完成後移至」、「網站帳號」，按「開始下載」。
-   - **重複偵測**：已在清單中（同網址、同名稱，或目的地已有同名同大小的檔案）的項目標示「已在清單中」，預設不勾。
-   - **同一個種子**（同 infohash 的另一個磁力連結或 .torrent）：不跳加入對話框，改問「這個種子已經在清單中」，按「併入既有任務」只會把新的 tracker 加進去。不同 infohash、但內容相同的種子在詳細面板的「來源（已合併）」裡列出。
-   - **位置與帳號**（比照官方「新增任務」）：
-     - **暫存位置**：下載中的檔案放哪裡。網址任務實際放在這個共用資料夾的 `@DownloadCenterTemp/<任務>/`；種子直接在這裡下載與做種。
-     - **完成後移至**：第一個選項是「不移動（留在暫存位置）」。種子的標籤是「做種結束後移至」，做種結束才移。
-     - **網站帳號**（只在有網址任務時出現，種子與免空連結沒有）：「自動（依網站找預存帳號）」預設、「不使用」、預存帳號清單（網站與帳號名稱）、「手動輸入…」。選手動輸入時下面展開帳號與密碼，只用在這次的任務，不存進帳號清單。
-   - 每個對話框都有「完成後」：保留在清單、下載完成後移除、做種完成後移除（種子才有）。只從清單移除，檔案保留。
-   - 種子 / 磁力：列出檔案清單（全選、只要影片、全不選）、已選大小與資料夾剩餘空間，加上同樣的暫存位置與完成後移至。磁力連結要先取得檔案清單，這段時間「開始下載」不能按。
-   - 「暫存位置」預設帶入上次用的資料夾，再來是設定裡的預設值；「完成後移至」預設帶入設定裡的預設值。
-   - **一般使用者**沒有資料夾可選：對話框只寫「存放位置 home/Download」，沒有「完成後移至」；網站帳號只列自己的預存帳號。
-3. 整頁拖放 `.torrent`：浮出全頁投放提示，放開後進入同一個對話框。手機沒有拖放：點「+」，再點「選擇 .torrent 檔」，接著是同一個對話框。
-4. 加入成功：新任務從上方落入清單第一列。這是清單唯一的進場動畫。
+```
+╭ ↓ 18.6  ↑ 1.2 MB/s  ◷ Full speed, limited fr…  (person) ╮   toolbar: one line, scrolls away
+[All 9][Downloading 3][Paused 1][Error 1]…                    filter bar: sticks to the top; empty filters hidden
+All  10 tasks                          [Queue order▾] [Select]
+┌───────────────────────────────────────────────────────┐
+│ ↓  ubuntu-24.04.3-desktop-amd64.iso              (⏸) │   one 44px main action at the end of the row
+│    ▮▮▯▮▮▮▯▮▮▮▮▯▮▮▮▮  62%  9.2 MB/s  4 min left       │   tapping elsewhere on the row opens details
+├───────────────────────────────────────────────────────┤
+│ ✓  Sintel (Blender Open Movie)                   (📁) │
+└───────────────────────────────────────────────────────┘
 
-### 刪除
+╭──────[ ↓ Tasks ][ ⚙ Settings ]──────╮   ( + )          bottom: glass capsule tab bar + round add button
+```
 
-用頁內的對話框確認，不用 `confirm()`。選項「同時刪除已下載的檔案」預設不勾。刪除後 6 秒內可以復原，但勾了刪檔就不能復原。還沒下載完的網址任務，暫存檔一定會一起刪除，不受這個選項影響。
+- The **toolbar** shrinks to one line: speeds, schedule state (cut with "…" when too long; tapping it opens the schedule settings), account avatar. No brand name: the app name is already on the home screen icon and the tab title.
+- The **filter bar** sticks to the top and scrolls sideways; filters without tasks are hidden (except the current one), so it usually fits on one line. Settings is not in the filter bar; it moves to the bottom tab bar.
+- The **bottom bar** follows the iOS 27 Liquid Glass tab bar: a glass capsule with the Tasks and Settings tabs on the left and a separate 60px round accent "+" on the right. Tapping Tasks again scrolls the list back to the top.
+- **Adding**: the main screen has no paste bar. "+" raises the "Add download" panel from the bottom with the input focused and the keyboard up, ready for a long-press paste; when the page is on HTTPS there is also a "Paste clipboard" button (browsers allow reading the clipboard only over secure connections). Below it is "Choose .torrent file". "Add" then switches to the same add dialog as on desktops. "Add" is disabled while the pasted text holds no link.
+- **Rows**: only one main action at the end (pause, resume, retry, open folder), as a 44px round button; the "Details" button is gone, tapping anywhere else on the row opens details. Downloading rows show only percentage, speed and time left; downloaded size is left to the details panel. Rows get a background on press.
+- **Multiple selection**: "Select" next to the list title; a long press on a row also enters selection mode and checks that row. In selection mode:
+  - Round checkmarks appear at the start of rows; tapping a row checks or unchecks it instead of opening details.
+  - The title bar becomes "Select all / 3 selected / Done".
+  - The bottom tab bar turns into the bulk-action bar: start, pause, move up, move down, delete, each with a label under its icon; disabled while nothing is checked.
+  - "Done" or a delete leaves selection mode.
+- **Dialogs** rise from the bottom, 6px from the sides and bottom. Title and buttons stay put and only the middle scrolls, so however long the file list, "Start download" stays under the thumb; buttons are full width and 50px tall. Pulling the grabber or the title down closes it. The dialog moves up with the keyboard instead of being covered. In the add dialog, "Temporary location / Move to when finished / Site account / When finished" put the label above the menu.
+- The **details panel** is also a nearly full-screen sheet rising from the bottom, closed by pulling down; the first footer button is the main action (pause, resume, retry, stop seeding), followed by open folder and delete.
+- **Settings** follows the iOS Settings app: first a grouped list (colored icon, name, a one-line description, ›); tapping one opens that section, and "‹ Settings" at the top left goes back. No row of seven tabs scrolling sideways.
+- The **schedule** grid turns on phones: weekdays across the top, the 24 hours running down, so seven days fit without sideways scrolling. A drag that starts on the grid paints; a drag that starts on the hour column on the left scrolls the page.
+- **Inputs** use 16px text so iOS does not zoom the page on focus; fields are at least 40px tall.
+- The viewport is `viewport-fit=cover`; the toolbar, bottom bar and dialogs avoid the notch and the home indicator (`safe-area-inset`).
+- "Add to Home Screen" (PWA manifest, in the release build). With HTTPS, it could later register as a target of the system share sheet.
 
-### 檔案放在哪裡
+Touch devices (any width, `pointer: coarse`): icon buttons are 44px, capsules and tabs taller; there is no hover, so row checkboxes and actions are always shown. The file field for `.torrent` files has no `accept` filter, because iOS does not know the `.torrent` type and would gray out every file; the extension is checked after choosing.
 
-- 網址下載中的檔案放在同一個共用資料夾的 `@DownloadCenterTemp/<任務>/`，完成後才移到「完成後移至」（不移動時移到暫存位置）。共用資料夾裡不會出現下載到一半的網址檔案。詳細面板的「概要」顯示「暫存位置」與完成後的位置。
-- 種子直接下載到「暫存位置」並在那裡做種，下載中就看得到檔案；做種結束才移到「做種結束後移至」。
-- 設定 › 下載 › 資料夾的說明文字寫出這兩條規則；一般使用者看到的是自己家目錄的版本。
+### Add flow
 
-## 設定
+1. The type is detected as soon as something is pasted: `http(s)://`, `ftp://`, `magnet:?`, `.torrent` URLs; several lines are several items. When a block of text is pasted, every link in it is found ("Found 3 links in the text"). A URL ending in `/` or `.html` is treated as a web page, and adding it lists the download links on the page. File-hosting links get a hint such as "Downloads after signing in with your 1fichier account" or "MEGA is not supported yet". The icon on the left switches with the type and plays its entrance once (URL: chain links snap together; magnet: a magnet pulls in particles; torrent: a page corner folds open).
+2. "Add" or Enter opens a **dialog**; folder choice is not on the main screen:
+   - URLs (one or more), links found in text, links on a web page: a checklist with quick filters by extension such as "Select all", "Only .iso", and "Select none"; each row is labelled with its type (URL, torrent, magnet, web page, a file-hosting account), and web pages themselves are unchecked by default. Choose "Temporary location", "Move to when finished" and "Site account", then "Start download".
+   - **Duplicate detection**: items already in the list (same URL, same name, or a file of the same name and size already at the destination) are marked "Already in the list" and unchecked by default.
+   - **The same torrent** (another magnet link or .torrent with the same infohash): no add dialog; instead "This torrent is already in the list", where "Merge into existing task" only adds the new trackers. Torrents with a different infohash but the same content are listed under "Sources (merged)" in the details panel.
+   - **Locations and accounts** (as in the official "New task"):
+     - **Temporary location**: where files stay while downloading. URL tasks actually go into `@DownloadCenterTemp/<task>/` in that shared folder; torrents download and seed right there.
+     - **Move to when finished**: the first option is "Do not move (stay in the temporary location)". For torrents the label is "Move when seeding ends to", and the move happens only when seeding ends.
+     - **Site account** (only with URL tasks; not for torrents or file-hosting links): "Auto (look up a saved account by site)" by default, "None", the saved accounts (site and account name), "Enter manually…". Entering manually reveals user name and password fields below, used only for this task and not saved to the account list.
+   - Every dialog has "When finished": keep in the list, remove when the download finishes, remove when seeding finishes (torrents only). Only the list entry is removed; files stay.
+   - Torrents / magnets: the file list (Select all, Only videos, Select none), the selected size and the free space of the folder, plus the same temporary location and move-to choices. A magnet link must fetch its file list first, and "Start download" is disabled meanwhile.
+   - "Temporary location" defaults to the folder used last, then to the default in settings; "Move to when finished" defaults to the default in settings.
+   - **Regular users** have no folders to choose: the dialog just says "Saved to home/Download" and has no "Move to when finished"; site accounts list only their own saved accounts.
+3. Dropping a `.torrent` anywhere on the page shows a full-page drop hint and, on release, the same dialog. Phones have no drag and drop: tap "+", then "Choose .torrent file", then the same dialog.
+4. On success the new task drops into the list from the top as its first row. This is the list's only entrance animation.
 
-寬畫面是一頁加上分頁標籤。手機上先顯示 iOS「設定」式的區段清單，點進去是該區段，左上角「‹ 設定」返回。
+### Deleting
 
-**清單類設定一律用視窗新增與編輯**（2026-10-02）：使用者、帳號密碼、免空帳號、存取權杖、通知頻道、轉接器、代理都一樣。
+Confirmed in an in-page dialog, never `confirm()`. The option "Also delete downloaded files" is unchecked by default. A delete can be undone for 6 seconds, except when files were deleted too. For unfinished URL tasks the temporary files are always removed, whatever that option says.
 
-- 清單是空的時候，卡片中間放圖示、一句「還沒有…」與主要按鈕「＋ 新增…」，引導建立第一筆；有資料時，按鈕改到清單右下方。
-- 新增和編輯是同一個視窗：標題「新增…／編輯…」，主要按鈕「加入（建立）／儲存」。每一列右側是「編輯」（鉛筆）與「刪除」，其他動作（重新驗證、測試通知、重新產生）放在它們之間。
-- 整頁一起儲存的設定（下載、排程）：有修改時儲存列固定在視窗底部，顯示「有未儲存的變更」與「還原」；有未儲存的修改時切換分頁、離開設定或關閉頁面會先詢問。
-- 密碼、金鑰、權杖不回傳：編輯時欄位是空的，說明寫「已儲存；留空表示不變」。權杖編輯只改它能做的事，權杖本身不變；有效期限預設「維持目前的期限」。
-- 通知頻道新增時先在視窗裡選服務，再填欄位，可以「換一個服務」；編輯時服務固定。免空帳號同樣不能改服務。
-- 手機上視窗是從底部滑出的面板，欄位一律上下排列、控制項全寬，按鈕固定在底部。
+### Where files go
 
-| 分頁 | 內容 | 一般使用者 |
+- URL downloads in progress live in `@DownloadCenterTemp/<task>/` of the same shared folder and are moved to "Move to when finished" (or to the temporary location when nothing is set) only when complete. Half-downloaded URL files never show up in the shared folder. The details panel's Overview shows the "Temporary location" and the location after finishing.
+- Torrents download straight into the "Temporary location" and seed there, so their files are visible while downloading; they move to "Move when seeding ends to" only when seeding ends.
+- The help text of Settings › Download › Folders spells out both rules; regular users see the version about their own home folder.
+
+## Settings
+
+Wide screens show one page with tabs. Phones first show an iOS Settings style list of sections; tapping one opens it, and "‹ Settings" at the top left goes back.
+
+**List-type settings are always added and edited in a window** (2026-10-02): users, logins, file-hosting accounts, access tokens, notification channels, adapters and proxies alike.
+
+- When a list is empty, the card shows an icon, one line "No … yet" and a primary "+ Add …" button in the middle to lead to the first entry; once there is data, the button moves to the bottom right of the list.
+- Adding and editing use the same window: title "Add … / Edit …", primary button "Add (Create) / Save". Each row has "Edit" (pencil) and "Delete" on the right, with other actions (verify again, send test notification, regenerate) between them.
+- Settings saved as a whole page (Download, Schedule): when something changed, a save bar pinned to the bottom of the window shows "Unsaved changes" and "Revert"; switching tabs, leaving settings or closing the page with unsaved changes asks first.
+- Passwords, keys and tokens are never sent back: when editing, the field is empty and its help says "Saved; leave empty to keep it". Editing a token changes only what it may do, never the token itself; the expiry defaults to "Keep the current expiry".
+- A new notification channel starts by picking the service in the window, then its fields, with "Choose another service"; when editing, the service is fixed. File-hosting accounts cannot change service either.
+- On phones the window is a panel sliding up from the bottom, fields always stacked with full-width controls, buttons pinned to the bottom.
+
+| Tab | Contents | Regular users |
 |---|---|---|
-| 下載 | 預設暫存位置與完成後移至、完成的任務（完成後自動移除的預設值）、同時下載數、速度上限與限速時段的數值、種子（種子引擎、埠、UPnP（libtorrent 才有）、DHT/LSD/PEX、做種條件、測試連入埠）、代理伺服器（HTTP；種子引擎是 libtorrent 時多 SOCKS5）、登入（照 QTS 規則的說明、QTS 桌面直接登入） | 只顯示「檔案存到你家目錄的 home/Download，擁有者是你」 |
-| 使用者 | 誰能使用 Download Center、各是系統管理者或一般使用者。從 QTS 帳號挑選後加入；系統管理者只能選 QTS administrators 群組的成員，其他人的角色選單鎖在一般使用者並註明原因。安裝時已自動加入 QTS 管理員。家目錄服務沒啟用時顯示提醒 | — |
-| 排程 | 7×24 拖曳塗色：全速、限速、暫停；點星期幾塗滿整天，點時間塗滿整週；下方是白話摘要 | — |
-| 網站帳號 | 帳號密碼（HTTP/FTP 網站）與免空帳號（1fichier、Rapidgator、Real-Debrid、AllDebrid、其他網站用 Cookie）。免空帳號驗證後顯示方案、到期日、今天剩餘流量，可以重新驗證；MEGA 與需要驗證碼的免費下載不支援 | 自己的 |
-| 存取權杖 | 見下節 | 自己的 |
-| 通知與整合 | 見下節 | 自己的 |
-| 從官方版匯入 | 偵測結果與可勾選的項目（設定、未完成任務、已完成紀錄、網站帳號），接著是停止官方版、匯入與驗證。只在偵測到官方資料時出現 | — |
+| Download | Default temporary location and move-to folder, finished tasks (default for removing them automatically), concurrent downloads, speed limits and the values for limited hours, torrents (torrent engine, ports, UPnP (libtorrent only), DHT/LSD/PEX, seeding conditions, incoming port test), proxy servers (HTTP; SOCKS5 as well when the torrent engine is libtorrent), sign-in (an explanation of the QTS rules, direct sign-in from the QTS desktop) | Only "Files are saved to home/Download in your home folder, owned by you" |
+| Users | Who can use Download Center, each as administrator or regular user. Picked from QTS accounts; only members of the QTS administrators group can be administrators, and for everyone else the role menu is locked to regular user with the reason shown. The QTS administrator is added automatically at install. A reminder appears when the home folder service is off | — |
+| Schedule | 7×24 drag-to-paint: full speed, limited, paused; clicking a weekday paints the whole day, clicking an hour paints it across the week; a plain-language summary below | — |
+| Site accounts | Logins (HTTP/FTP sites) and file-hosting accounts (1fichier, Rapidgator, Real-Debrid, AllDebrid, cookies for other sites). Verified file-hosting accounts show their plan, expiry date and traffic left today, and can be verified again; MEGA and free downloads that need a captcha are not supported | Their own |
+| Access tokens | See below | Their own |
+| Notifications and integration | See below | Their own |
+| Import from the official package | What was detected and checkable items (settings, unfinished tasks, finished history, site accounts), then stopping the official package, importing and verifying. Shown only when official data is detected | — |
 
-目前引擎做不到的功能不放開關，也不寫「不支援」。只有使用者需要自己動手時才寫一行做法（例如引擎沒有 UPnP 時，連入埠的說明寫「請在路由器把這些埠轉到 NAS」）。選項依引擎的能力顯示，不寫死引擎名稱：代理類型有「不使用／HTTP／SOCKS5」，SOCKS5 時多了「由代理解析網域名稱」與「種子連線」。「由代理解析網域名稱」與「只經過代理」預設開啟。2026-10-02 起 aria2 移除，不再有種子引擎選項；這台 NAS 不能下載種子或 FTP 時，在「同時下載」對應的欄位下用一行說明原因。
+Features the current engine cannot do get no switch and no "not supported" text. A one-line instruction appears only when users must do something themselves (for example, without UPnP in the engine, the incoming port help says "Forward these ports on your router to the NAS"). Options follow the engine's capabilities, never a hard-coded engine name: proxy types are "None / HTTP / SOCKS5", and SOCKS5 adds "Resolve domain names through the proxy" and "Torrent connections". "Resolve domain names through the proxy" and "Proxy only" are on by default. Since aria2 was removed on 2026-10-02 there is no torrent engine choice any more; when this NAS cannot download torrents or FTP, one line under the matching concurrent-downloads field says why.
 
-「測試連入埠」要先勾選「允許用外部服務測試連入埠」（預設不勾，因為會把 NAS 的對外 IP 與埠告訴外部服務），結果用一句話寫出哪些埠可以連入、哪些要在路由器轉送。
+"Test incoming ports" requires checking "Allow an external service to test incoming ports" first (off by default, because it tells an outside service the NAS's public IP and ports); the result says in one sentence which ports are reachable and which need forwarding on the router.
 
-### 存取權杖
+### Access tokens
 
-- 列表：名稱、`dct_<id>_…`、權限標籤（「移除任務並刪除檔案」用朱色）、到期日、最近使用時間與 IP；可重新產生或撤銷。撤銷要再確認一次。
-- 建立：名稱 → 權限預設（唯讀／加入下載／完整控制（不含刪檔）／自訂，自訂時展開逐項勾選）→ 可操作的任務（我的／所有人的，後者僅管理員）→ 限定資料夾 → 允許 IP → 有效期限。
-- 建立後只顯示一次完整權杖，附「複製」按鈕。關閉後看不到完整權杖。
-- 底部「給開發者」：API 位址、驗證方式、文件位置。
+- List: name, `dct_<id>_…`, permission tags ("Remove tasks and delete files" in vermilion), expiry date, last use time and IP; can be regenerated or revoked. Revoking asks for confirmation.
+- Create: name → permission preset (read only / add downloads / full control (without deleting files) / custom, which expands to per-permission checkboxes) → which tasks it may act on (mine / everyone's, the latter for administrators only) → allowed folders → allowed IPs → expiry.
+- After creation the full token is shown once, with a "Copy" button. Once closed, the full token cannot be seen again.
+- "For developers" at the bottom: API address, authentication, where the documentation is.
 
-### 通知與整合
+### Notifications and integration
 
-通知和聊天室操作是同一個 Bot 頻道，不分成兩個功能。
+Notifications and chat control are one bot channel, not two features.
 
-- **頻道列表**：服務與名稱、通知哪些事件、勿擾時段與彙整方式。每列有一個「在頻道裡操作下載」開關：
-  - Telegram：可以開。
-  - LINE：NAS 能從外部用 HTTPS 連到時可以開。
-  - Discord、Slack、ntfy 等：開關停用，並註明「這個服務只能接收通知」。
-  - Webhook：註明由自己的服務呼叫 `/api/v1/commands`。
-  - 開啟後顯示「已連結 N 位使用者」，以及「連結我的帳號」：產生該頻道專用的 `/link 123456`，10 分鐘有效。
-- **新增頻道**：選服務、填該服務的欄位、要通知的事件、「在頻道裡操作下載」、範圍（管理員可選所有人的任務）、勿擾時段、彙整。開了操作的頻道，儲存後直接顯示配對碼。
-- **給開發者**：聊天指令端點、事件串流、Webhook 簽章、轉接器。
+- **Channel list**: service and name, which events it reports, quiet hours and how messages are batched. Each row has a "Control downloads in the channel" switch:
+  - Telegram: can be turned on.
+  - LINE: can be turned on when the NAS is reachable from outside over HTTPS.
+  - Discord, Slack, ntfy and the like: the switch is disabled with "This service can only receive notifications".
+  - Webhook: notes that your own service calls `/api/v1/commands`.
+  - When on, it shows "N users linked" and "Link my account", which generates a channel-specific `/link 123456`, valid for 10 minutes.
+- **Add channel**: pick the service, fill in its fields, the events to report, "Control downloads in the channel", scope (administrators can choose everyone's tasks), quiet hours, batching. A channel with control enabled shows its pairing code right after saving.
+- **For developers**: the chat command endpoint, event stream, webhook signatures, adapters.
 
-## 在 QTS 桌面中開啟
+## Inside the QTS desktop
 
-套件以桌面應用程式安裝（`QPKG_DESKTOP_APP=1`），QTS 會在桌面視窗裡用 iframe 載入同一個網址。預設視窗大小 1100 × 720（`QPKG_DESKTOP_APP_WIN_WIDTH` / `_HEIGHT`），使用者可以拖拉改變。
+The package installs as a desktop app (`QPKG_DESKTOP_APP=1`); QTS loads the same address in an iframe inside a desktop window. Default window size 1100 × 720 (`QPKG_DESKTOP_APP_WIN_WIDTH` / `_HEIGHT`), resizable by the user.
 
-- **偵測**：頁面在 iframe 裡（`window.self !== window.top`）時加上 `embedded` 樣式。QTS 是否會帶可辨識的參數或 referrer，實作時在 NAS 上確認，可作為第二個依據。
-- **不重複的標題列**：視窗標題列已經有圖示與「Download Center」，所以 embedded 時隱藏自己的品牌，頂列只留速度、排程、帳號，加上「在新分頁開啟」按鈕。外距縮小，內容寬度不設上限。
-- **登入**：沿用 QTS 的登入狀態，不顯示登入頁，帳號選單裡也不放「登出」，改說明要從 QTS 登出。若 QTS 的登入已失效，顯示一行說明與「重新整理」。
-- **視窗大小**：版面的斷點依「應用程式所在的框」計算（CSS container query），所以 QTS 視窗縮窄時，會和手機一樣切換成頂端篩選列、底部對話框，縮到 560px 以下就是完整的手機版（含底部列）；在一般分頁裡則依瀏覽器寬度。JS 需要分辨手機版時量同一個框的寬度，不用 `matchMedia`。
-- **對話框、詳細面板、通知訊息**都在視窗內出現，不會超出 QTS 視窗。
-- 從檔案總管把 `.torrent` 拖到 QTS 視窗上，一樣可以加入。
-- 「開啟資料夾」在桌面裡應該開 QTS 的 File Station 視窗；呼叫方式待在 NAS 上確認，做不到時改在新分頁開 File Station。
+- **Detection**: inside an iframe (`window.self !== window.top`) the page gets the `embedded` class. Whether QTS passes a recognizable parameter or referrer is to be checked on the NAS during implementation, as a second signal.
+- **No duplicate title bar**: the window title bar already shows the icon and "Download Center", so when embedded the page hides its own brand; the top bar keeps only speeds, schedule and account, plus an "Open in new tab" button. Margins shrink and the content width has no maximum.
+- **Sign-in**: the QTS session is reused, the sign-in page never shows, and the account menu has no "Sign out" but explains signing out from QTS instead. When the QTS session has expired, one line of explanation and "Reload" appear.
+- **Window size**: layout breakpoints are computed on the box the app lives in (CSS container queries), so a narrowed QTS window switches to the top filter bar and bottom-sheet dialogs like a phone, and below 560px it is the full phone layout (bottom bar included); in a normal browser tab they follow the browser width. Where JS needs to know about the phone layout, it measures the same box, not `matchMedia`.
+- **Dialogs, details panel and toasts** stay inside the window and never spill outside the QTS window.
+- Dragging a `.torrent` from the file manager onto the QTS window adds it as well.
+- "Open folder" inside the desktop should open a QTS File Station window; how to call it is to be checked on the NAS, and if that is not possible, File Station opens in a new tab.
 
-## 配色主題
+## Color themes
 
-三個選項：**淺色**、**深色**、**自動**（預設，跟著裝置的淺色或深色設定）。
+Three options: **Light**, **Dark**, **Auto** (default, following the device's light or dark setting).
 
-- 位置：帳號選單裡的「外觀」，登入頁底部也有，讓使用者登入前就能選。
-- 每個人各自的偏好，存在伺服器（使用者設定）。瀏覽器也會留一份，下次開啟時在畫面出現前套用，避免先閃一下另一種顏色。
-- 實作：所有顏色都是 CSS 變數。淺色定義在 `:root`；深色同時寫在 `@media (prefers-color-scheme: dark)`（排除 `[data-theme="light"]`）與 `[data-theme="dark"]` 底下。選「淺色」或「深色」時設定 `data-theme`，選「自動」時移除。深色版用 Apple 的深色系統色（背景 `#000000`、清單 `#1C1C1E`、強調色 `#0A84FF`），狀態色都用深色版本以維持對比。
-- 切換按鈕用三個會動的圖示：太陽（光芒轉動）、月亮（一歪、星星閃一下）、半圓（轉到另一側）。
-- 同一處還有「玻璃」滑桿，從透明到霧面，調整所有玻璃層的不透明度。
+- Where: "Appearance" in the account menu, and at the bottom of the sign-in page so it can be chosen before signing in.
+- A per-user preference stored on the server (user settings). The browser keeps a copy too, applied before the page paints on the next visit so the other theme never flashes first.
+- Implementation: every color is a CSS variable. Light is defined on `:root`; dark is written both under `@media (prefers-color-scheme: dark)` (excluding `[data-theme="light"]`) and under `[data-theme="dark"]`. Choosing Light or Dark sets `data-theme`; choosing Auto removes it. The dark set uses Apple's dark system colors (background `#000000`, lists `#1C1C1E`, accent `#0A84FF`), with the dark variants of all state colors to keep contrast.
+- The switch uses three animated icons: a sun (rays turning), a moon (a tilt and a star twinkling once), a half circle (turning to the other side).
+- The same place has the "Glass" slider, from clear to frosted, setting the opacity of every glass layer.
 
-## 圖示與動畫規格
+## Icons and animation
 
-24×24 inline SVG，線寬 1.7（比照 SF Symbols regular），圓角端點，`currentColor`。以 CSS keyframes 作用在 SVG 子元件（`transform-box: view-box`、`stroke-dashoffset`）。
+24×24 inline SVG, stroke width 1.7 (SF Symbols regular), round caps, `currentColor`. CSS keyframes act on SVG children (`transform-box: view-box`, `stroke-dashoffset`).
 
-| 類型 | 何時播 | 規則 |
+| Kind | When it plays | Rule |
 |---|---|---|
-| 狀態循環 | 狀態成立期間 | 週期 1.2–3 秒，幅度小 |
-| 轉場一次 | 狀態改變當下 | 0.4–0.7 秒彈性曲線，播完靜止；列節點會重複使用，所以只有狀態真的改變時才重播 |
-| 操作回應 | hover、鍵盤聚焦、`.play`（類型判斷） | 0.3–0.8 秒 |
+| State loop | While the state lasts | 1.2–3 s period, small amplitude |
+| One-shot transition | The moment the state changes | 0.4–0.7 s springy curve, then still; row nodes are reused, so it replays only when the state really changes |
+| Action response | Hover, keyboard focus, `.play` (type detection) | 0.3–0.8 s |
 
-篩選列、品牌、空狀態裡的圖示平時靜止，hover 時才動。
+Icons in the filter bar, the brand and empty states stay still and move only on hover.
 
-**狀態圖示**：下載中（箭頭落入托盤）、等待中（指針繞行）、已暫停（兩槓彈開後靜止）、做種中（芽苗擺動、漣漪擴散）、已完成（勾勾描出）、檢查中（放大鏡掃描）、搬移中（箭頭滑入資料夾）、錯誤（驚嘆號抖一下）。
+**State icons**: downloading (an arrow drops into a tray), waiting (clock hands sweep), paused (two bars spring apart, then rest), seeding (a sprout sways, ripples spread), finished (a checkmark draws itself), checking (a magnifier scans), moving (an arrow slides into a folder), error (an exclamation mark shakes once).
 
-**動作圖示**：加入（轉 90°）、網址（鏈環扣合）、磁力（磁鐵擺動、粒子被吸過來）、種子檔（摺角翻開）、開始（右推）、暫停（壓扁回彈）、刪除（桶蓋掀起）、上移/下移（彈跳）、資料夾（打開）、排程（日曆翻頁）、速度（指針甩動）、網站帳號（鑰匙轉動）、設定（齒輪轉動）、選擇檔案（依序打勾）、重試（轉一圈）、詳細（圓點跳動）、匯入（箭頭落下）、存取權杖（票券一歪）、通知（鈴鐺搖響）、聊天指令（對話中的圓點跳動）、Webhook（插頭插上）、複製（紙張錯開）、登入（鎖扣打開）。
+**Action icons**: add (turns 90°), URL (chain links snap together), magnet (the magnet swings and pulls particles in), torrent file (a corner folds open), start (pushes right), pause (squashes and springs back), delete (the bin lid lifts), move up / move down (bounce), folder (opens), schedule (a calendar page flips), speed (the needle swings), site accounts (a key turns), settings (the gear turns), choose files (checks in sequence), retry (one full turn), details (dots hop), import (an arrow drops), access tokens (a ticket tilts), notifications (a bell rings), chat commands (typing dots hop), webhook (a plug goes in), copy (sheets shift apart), sign in (a lock opens).
 
-**減少動態**：`prefers-reduced-motion: reduce` 時所有動畫停止；狀態仍靠形狀與顏色區分。
+**Reduced motion**: with `prefers-reduced-motion: reduce` all animation stops; states stay distinguishable by shape and color.
 
-## 文案原則
+## Copy principles
 
-- 動詞直接說會發生什麼：「加入」「開始下載」「暫停」「刪除」「開啟資料夾」。按鈕叫「刪除」，通知就說「已刪除 2 個任務」。
-- 錯誤要說原因與下一步：「FTP 登入失敗（530）。到 設定 › 網站帳號 確認 backup.lan 的帳號密碼。」
-- 空狀態是邀請：「還沒有下載。把網址貼在上面，或把 .torrent 檔拖進這個視窗。」
-- 對使用者說「種子」「網址」，不說「BT」「HTTP」；DHT、PEX 等術語只出現在種子設定，並附一句白話。
+- Verbs say what will happen: "Add", "Start download", "Pause", "Delete", "Open folder". The button is "Delete", so the toast says "Deleted 2 tasks".
+- Errors give the cause and the next step: "FTP sign-in failed (530). Check the login for backup.lan in Settings › Site accounts."
+- Empty states are invitations: "No downloads yet. Paste a URL above, or drag a .torrent file into this window."
+- Say "torrent" and "URL" to users, not "BT" or "HTTP"; terms such as DHT and PEX appear only in the torrent settings, each with a plain-language line.
 
-## 可及性
+## Accessibility
 
-- 鍵盤：`/` 聚焦輸入框、Tab 到列上後 `Enter` 開詳細、空白鍵勾選、`Esc` 關閉對話框或抽屜。
-- 所有圖示按鈕都有 `aria-label`；狀態圖示有 `title`，旁邊一定有文字。
-- 文字對比 ≥ 4.5:1；狀態除了顏色，還有不同的圖形。
-- 觸控：可點的目標至少 44 × 44px；手機上的主要按鈕在畫面下半部；所有手勢（長按多選、下拉關閉）都有可以點的替代按鈕（「選取」、關閉按鈕）。
+- Keyboard: `/` focuses the input, Tab to a row then `Enter` opens details, Space checks it, `Esc` closes a dialog or the drawer.
+- Every icon button has an `aria-label`; state icons have a `title` and always sit next to text.
+- Text contrast ≥ 4.5:1; states differ in shape as well as color.
+- Touch: tap targets at least 44 × 44px; on phones the main buttons are in the lower half of the screen; every gesture (long press to select, pull down to close) has a tappable alternative ("Select", a close button).
 
-## 原型涵蓋範圍
+## Prototype coverage
 
-| 有做 | 只在文件描述 |
+| Built | Described here only |
 |---|---|
-| 登入的各分支：admin（兩步驟，驗證碼 123456；可換成備援信箱或安全問題「小白」）、alice（直接登入）、expired（密碼過期）、enrol（必須先設定兩步驟）、密碼打 wrong 示範一般失敗、其他帳號示範「不在清單上」；「用 QTS 登入頁登入」連結；登出時說明會一起登出 QTS；驗證倒數；在這台裝置上不要再驗證；http 警告；顯示密碼。登出、切換 admin/alice 檢視、使用者清單 | 實際呼叫 `authLogin.cgi`、QTS 的封鎖、QTS 桌面直接登入 |
-| 貼上判斷、從文字與網頁擷取連結、副檔名篩選、重複偵測、同種子併入、免空連結提示、加入對話框、檔案選擇、完成後自動移除 | 不同 infohash 同內容的實際來源切換、剩餘空間的真實數值 |
-| 詳細面板的預覽（影音、壓縮檔、無法預覽）、邊下邊看開關、合併來源 | 實際播放 |
-| 設定：測試連入埠、免空帳號、通知 Bot（含操作開關與配對碼） | 實際向外部服務、免空網站或聊天服務連線 |
-| QTS 桌面視窗模擬（帳號選單或頁尾進入，可切換視窗寬度、「在新分頁開啟」）、淺色／深色／自動 | QTS 是否帶辨識參數、從桌面開 File Station 視窗 |
-| 清單即時模擬（佇列、做種、搬移、檢查）、碎片進度條、批次操作、刪除與復原、詳細抽屜 | 暫停↔繼續的圖示形變（原型是換圖示並播一次轉場） |
-| 手機版：一行工具列、篩選列（隱藏空篩選）、底部分頁列與「+」加入面板、列尾主要操作、「選取」與長按多選、底部批次列、可下拉關閉的對話框與詳細面板、設定區段清單、轉向的排程格。QTS 視窗模擬的寬度按鈕可切到手機寬度 | 加入主畫面（PWA）、分享選單、在實機上的鍵盤避讓與剪貼簿 |
-| 設定各分頁、排程塗色、權杖建立與撤銷、通知頻道、配對碼、種子引擎切換（含既有種子的去留）、代理伺服器（依引擎顯示 HTTP 或 SOCKS5、套用範圍、只經過代理、測試代理）、加入對話框的暫存位置／完成後移至／網站帳號（含手動輸入） | 實際送出通知、事件串流、匯入第 2、3 步、實際連線代理 |
-| 圖示一覽頁 | — |
+| Every sign-in branch: admin (2-step, code 123456; can switch to backup email or the security question, answer "小白"), alice (signs in directly), expired (password expired), enrol (must set up 2-step first), the password "wrong" for a plain failure, any other account for "not on the list"; the "Sign in with the QTS page" link; sign-out explaining that QTS signs out too; the verification countdown; don't verify again on this device; the http warning; show password. Sign out, switching between the admin and alice views, the user list | Real calls to `authLogin.cgi`, QTS blocking, direct sign-in from the QTS desktop |
+| Paste detection, link extraction from text and web pages, extension filters, duplicate detection, merging the same torrent, file-hosting link hints, the add dialog, file selection, automatic removal when finished | Actually switching between sources of different infohashes with the same content, real free-space numbers |
+| Preview in the details panel (media, archives, not previewable), the watch-while-downloading switch, merged sources | Actual playback |
+| Settings: incoming port test, file-hosting accounts, notification bot (with the control switch and pairing code) | Real connections to outside services, file-hosting sites or chat services |
+| QTS desktop window simulation (from the account menu or the footer, with window width switching and "Open in new tab"), Light / Dark / Auto | Whether QTS passes an identifying parameter, opening a File Station window from the desktop |
+| Live list simulation (queue, seeding, moving, checking), piece progress bar, bulk actions, delete and undo, details drawer | The pause↔resume icon morph (the prototype swaps icons and plays one transition) |
+| Phone layout: one-line toolbar, filter bar (empty filters hidden), bottom tab bar and the "+" add panel, the main action at the end of rows, "Select" and long-press selection, the bottom bulk bar, dialogs and details panel closed by pulling down, the settings section list, the turned schedule grid. The width buttons of the QTS window simulation can switch to phone width | Add to Home Screen (PWA), share sheet, keyboard avoidance and clipboard on real devices |
+| Every settings tab, schedule painting, creating and revoking tokens, notification channels, pairing codes, switching the torrent engine (including what happens to existing torrents), proxy servers (HTTP or SOCKS5 by engine, scope, proxy only, proxy test), the add dialog's temporary location / move to when finished / site account (including manual entry) | Actually sending notifications, the event stream, import steps 2 and 3, real proxy connections |
+| Icon gallery | — |
