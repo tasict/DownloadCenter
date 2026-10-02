@@ -1,0 +1,36 @@
+# Checks every push and pull request: Go vet and tests, JavaScript syntax
+# (the UI is ES5 without a build step) and shell syntax. Packages are built
+# on the build NAS, not here.
+name: Checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
+      - name: Go
+        working-directory: daemon
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt"; exit 1; }
+          go vet ./...
+          go test ./...
+
+      - name: JavaScript
+        run: for f in shared/web/js/*.js shared/web/js/lang/*.js; do node --check "$f"; done
+
+      - name: Shell
+        run: for f in build.sh shared/DownloadCenter.sh tools/*.sh; do sh -n "$f"; done

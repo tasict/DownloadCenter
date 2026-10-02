@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "generated": "2026-10-03T00:00:00Z",
+  "repo": "tasict/DownloadCenter",
+  "latest": "0.9.1",
+  "latest_prerelease": null,
+  "releases": [
+    {
+      "version": "0.9.1",
+      "tag": "v0.9.1",
+      "date": "2026-10-03",
+      "prerelease": false,
+      "url": "https://github.com/tasict/DownloadCenter/releases/tag/v0.9.1",
+      "notes": "First public release.\n\n- Downloads HTTP and HTTPS (HTTP/2, up to four connections per file), FTP, FTPS, SFTP and SCP links, `.torrent` files and magnet links, with resume after restarts.\n- <b>Sample text</b>: markup in notes is shown as plain text.",
+      "sums_url": "https://github.com/tasict/DownloadCenter/releases/download/v0.9.1/SHA256SUMS",
+      "sig_url": "https://github.com/tasict/DownloadCenter/releases/download/v0.9.1/SHA256SUMS.sig",
+      "assets": {
+        "x86_64": {"name": "DownloadCenter_0.9.1_x86_64.qpkg", "url": "https://github.com/tasict/DownloadCenter/releases/download/v0.9.1/DownloadCenter_0.9.1_x86_64.qpkg", "size": 15938560, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+        "arm_64": {"name": "DownloadCenter_0.9.1_arm_64.qpkg", "url": "https://github.com/tasict/DownloadCenter/releases/download/v0.9.1/DownloadCenter_0.9.1_arm_64.qpkg", "size": 14417920, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+        "arm-x41": {"name": "DownloadCenter_0.9.1_arm-x41.qpkg", "url": "https://github.com/tasict/DownloadCenter/releases/download/v0.9.1/DownloadCenter_0.9.1_arm-x41.qpkg", "size": 13631488, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+        "arm-x31": {"name": "DownloadCenter_0.9.1_arm-x31.qpkg", "url": "https://github.com/tasict/DownloadCenter/releases/download/v0.9.1/DownloadCenter_0.9.1_arm-x31.qpkg", "size": 13631488, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+      }
+    }
+  ]
+}

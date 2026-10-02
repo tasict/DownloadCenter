@@ -1,0 +1,18 @@
+build/*.qpkg
+build/*.md5
+.DS_Store
+._*
+__MACOSX/
+.devtest/
+shared/data/
+shared/web/docs/
+x86_64/bin/
+arm_64/bin/
+arm-x41/bin/
+arm-x31/bin/
+tools/cache/
+# Copied in by build.sh
+shared/LICENSE
+shared/THIRD-PARTY-NOTICES.txt
+# Local secrets (GitHub token, signing keys): never committed
+.secret/

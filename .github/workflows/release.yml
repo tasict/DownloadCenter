@@ -1,0 +1,50 @@
+# Publishes a release that tools/release.sh prepared on the build NAS.
+#
+# release.sh uploads the packages, SHA256SUMS and SHA256SUMS.sig to a draft
+# release and then pushes the tag v<version>. This workflow runs on that tag:
+# it downloads the draft's files, checks every package against SHA256SUMS and
+# the signature against tools/release-key.pub, runs the tests, publishes the
+# draft with its CHANGELOG.md notes; pages.yml then refreshes the site and
+# updates.json (it runs from master, which the github-pages environment allows).
+# Nothing is built here, and no secret beyond the built-in token is needed.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
+      - name: Vet and test
+        working-directory: daemon
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Check the draft release
+        working-directory: daemon
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./cmd/dcrelease verify -repo "$GITHUB_REPOSITORY" -tag "$GITHUB_REF_NAME" -pub ../tools/release-key.pub
+
+      - name: Publish
+        working-directory: daemon
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./cmd/dcrelease publish -repo "$GITHUB_REPOSITORY" -tag "$GITHUB_REF_NAME" -changelog ../CHANGELOG.md

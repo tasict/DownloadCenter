@@ -1,0 +1,39 @@
+######################################################################
+# DownloadCenter package routines (see the QDK template for the full
+# list of available definitions).
+######################################################################
+
+# Stop the daemon and engines, give /downloadstation back if we took it,
+# then remove the UI, the watchdog and the icons. data/ goes with the
+# package directory.
+PKG_PRE_REMOVE="{
+    QPKG_ROOT=\$(/sbin/getcfg DownloadCenter Install_Path -f /etc/config/qpkg.conf)
+    if [ -n \"\$QPKG_ROOT\" ] && [ -x \"\$QPKG_ROOT/DownloadCenter.sh\" ]; then
+        \"\$QPKG_ROOT/DownloadCenter.sh\" stop
+        if [ -L /home/httpd/cgi-bin/Qdownload ]; then
+            case \"\$(readlink /home/httpd/cgi-bin/Qdownload)\" in
+                \"\$QPKG_ROOT\"/*) rm -f /home/httpd/cgi-bin/Qdownload ;;
+            esac
+        fi
+    fi
+    rm -f /etc/default_config/apache/extra/apache-downloadcenter.conf
+    sed -i '/DownloadCenter.sh watchdog/d' /etc/config/crontab
+    crontab /etc/config/crontab
+    rm -f /home/httpd/RSS/images/DownloadCenter.png /home/httpd/RSS/images/DownloadCenter_80.png /home/httpd/RSS/images/DownloadCenter_gray.png
+    rm -f /home/httpd/RSS/images/DownloadCenter.gif /home/httpd/RSS/images/DownloadCenter_80.gif /home/httpd/RSS/images/DownloadCenter_gray.gif
+}"
+
+pkg_post_install(){
+    QPKG_ROOT=$(/sbin/getcfg DownloadCenter Install_Path -f /etc/config/qpkg.conf)
+    if [ -n "$QPKG_ROOT" ]; then
+        # data/ is not part of the package: it survives upgrades
+        mkdir -p "${QPKG_ROOT}/data"
+        chmod 700 "${QPKG_ROOT}/data"
+        chown admin:administrators "${QPKG_ROOT}/data"
+        chmod 755 "${QPKG_ROOT}/DownloadCenter.sh" "${QPKG_ROOT}/bin/dcd" "${QPKG_ROOT}/bin/dc-dl" "${QPKG_ROOT}/bin/dc-bt" 2>/dev/null
+        # Versions up to 0.9.0 shipped aria2c; dcd also removes it on start
+        rm -f "${QPKG_ROOT}/bin/aria2c"
+    fi
+    /sbin/setcfg DownloadCenter Status complete -f /etc/config/qpkg.conf
+    /sbin/setcfg DownloadCenter Opt_Xml 0 -f /etc/config/qpkg.conf
+}

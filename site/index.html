@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download Center: a download manager for QNAP NAS</title>
+<meta name="description" content="A free, open-source download manager for QNAP NAS. HTTP, HTTPS, FTP, FTPS, SFTP, SCP, torrents and magnet links in one list, on your phone too, with notifications and chat commands.">
+<link rel="canonical" href="https://tasict.github.io/DownloadCenter/">
+<link rel="alternate" hreflang="en" href="https://tasict.github.io/DownloadCenter/">
+<link rel="alternate" hreflang="zh-TW" href="https://tasict.github.io/DownloadCenter/zh-TW/">
+<link rel="alternate" hreflang="x-default" href="https://tasict.github.io/DownloadCenter/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Download Center">
+<meta property="og:title" content="Download Center: a download manager for QNAP NAS">
+<meta property="og:description" content="Links and torrents in one list on your NAS. More protocols than Download Station, works on phones, and tells you when downloads finish.">
+<meta property="og:url" content="https://tasict.github.io/DownloadCenter/">
+<meta property="og:image" content="https://tasict.github.io/DownloadCenter/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1022" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="assets/favicon-32.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="assets/site.css">
+<script>
+// Open the page in the visitor's language unless they picked one here before.
+(function () {
+  try {
+    if (localStorage.getItem('lang')) return;
+    var tags = navigator.languages || [navigator.language || ''];
+    for (var i = 0; i < tags.length; i++) {
+      var t = String(tags[i]).toLowerCase();
+      if (/^zh-(tw|hk|mo)|^zh-hant/.test(t)) { location.replace('zh-TW/' + location.search + location.hash); return; }
+      if (/^en/.test(t)) return;
+    }
+  } catch (e) { /* storage blocked: stay on English */ }
+})();
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="wrap masthead">
+  <a class="wordmark" href="./"><img src="assets/icon-64.png" alt="" width="32" height="32">Download Center</a>
+  <a class="src" href="https://github.com/tasict/DownloadCenter">Source code</a>
+  <a class="tip" href="https://tasict.bobaboba.me" aria-label="Buy me a boba"><img src="assets/boba.png" alt="" width="24" height="24"><span>Buy me a boba</span></a>
+  <details class="lang">
+    <summary aria-label="Language: English"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7.5"/><path d="M2.5 10h15M10 2.5c2.2 2.3 3.2 4.8 3.2 7.5s-1 5.2-3.2 7.5c-2.2-2.3-3.2-4.8-3.2-7.5s1-5.2 3.2-7.5z"/></svg><span>English</span></summary>
+    <ul><li><a href="./" hreflang="en" lang="en" aria-current="page">English</a></li><li><a href="zh-TW/" hreflang="zh-TW" lang="zh-Hant-TW">繁體中文</a></li></ul>
+  </details>
+</header>
+
+<main id="main">
+<div class="wrap">
+  <section class="hero" aria-labelledby="hero-title">
+    <div>
+      <h1 id="hero-title">Hand it a link. Your NAS does the rest.</h1>
+      <p class="lede">Download Center is a free download manager for QNAP NAS. Web and FTP links, SFTP and SCP, torrents and magnet links all go into one list, and you can follow them from your desk or your phone.</p>
+      <div class="frag" data-frag aria-hidden="true">
+        <div class="frag-cells"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="frag-meta num"><span>debian-13.1.0-amd64-netinst.iso</span><b data-pct>Done</b></div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="#get"><svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16.5h12"/></svg><span data-latest="Download {v}">Download</span></a>
+        <a href="https://github.com/tasict/DownloadCenter">View on GitHub</a>
+      </div>
+      <p class="fine">Free and open source under the MIT License. For QTS on Intel, AMD and ARM. Light and dark, in 13 languages.</p>
+    </div>
+    <div class="swatch">
+      <picture>
+        <source srcset="assets/shots/phone-list-en-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="390" height="844">
+        <source srcset="assets/shots/phone-list-en.webp" media="(max-width: 640px)" width="390" height="844">
+        <source srcset="assets/shots/list-en-dark.webp" media="(prefers-color-scheme: dark)" width="1400" height="900">
+        <img src="assets/shots/list-en.webp" width="1400" height="900" alt="The Download Center task list with eight downloads: an Ubuntu ISO at 61 percent, Big Buck Bunny from a magnet link, a zip file over SFTP, a queued LibreOffice archive, a paused Node.js archive, Sintel seeding, a finished Debian ISO and one failed link.">
+      </picture>
+    </div>
+  </section>
+
+  <section class="band" id="protocols" aria-labelledby="h-proto">
+    <div class="intro">
+      <h2 id="h-proto">More ways to download</h2>
+      <p>Download Center understands more kinds of links than Download Station, and puts them all in the same list. Paste one link or a whole block of text; it finds the links and asks only what it needs to know.</p>
+    </div>
+    <div class="split">
+      <div>
+        <ul class="schemes">
+          <li><div><code>https://</code><code>http://</code></div><p><strong>Web downloads</strong>HTTP/2, and up to four connections per file when the server allows it.</p></li>
+          <li><div><code>ftp://</code><code>ftps://</code></div><p><strong>FTP servers</strong>Plain or encrypted, with your saved account for the site.</p></li>
+          <li><div><code>sftp://</code></div><p><strong>Any SSH server</strong>The server's key is remembered on first contact and checked after that.</p></li>
+          <li><div><code>scp://</code></div><p><strong>SCP</strong>For servers that only offer SCP.</p></li>
+          <li><div><code>magnet:?</code></div><p><strong>Magnet links</strong>The file list appears before you start, so you can pick what to download.</p></li>
+          <li><div><code>.torrent</code></div><p><strong>Torrent files</strong>Drop them on the window, or choose them on your phone.</p></li>
+        </ul>
+        <ul class="points">
+          <li><h3>Picks up where it stopped</h3><span>HTTP, FTP and SFTP downloads resume after a pause, a lost connection or a restart of the NAS.</span></li>
+          <li><h3>Proxies for links and torrents</h3><span>HTTP and SOCKS5, chosen per download or per site, with name lookups through the proxy. When a proxy is set, nothing falls back to a direct connection.</span></li>
+          <li><h3>Thunder, FlashGet and QQ links</h3><span>They are decoded into the address they carry, wherever you paste them.</span></li>
+        </ul>
+      </div>
+      <figure class="shot-card" style="margin:0">
+        <picture><source srcset="assets/shots/add-en-dark.webp" media="(prefers-color-scheme: dark)" width="520" height="790"><img src="assets/shots/add-en.webp" width="520" height="790" loading="lazy" alt="The Add download window with five links pasted at once: an HTTPS link to an Ubuntu ISO, a zip file over SFTP, an archive over FTPS, a file over SCP and a magnet link, each with a checkbox, plus the temporary location and when-finished options."></picture>
+        <figcaption class="caption">Five links, five protocols, one window.</figcaption>
+      </figure>
+    </div>
+
+    <div class="compare">
+      <h3>Compared with Download Station</h3>
+      <div class="table" role="region" aria-labelledby="cmp-cap" tabindex="0">
+        <table>
+          <caption id="cmp-cap" class="caption" style="caption-side:bottom;text-align:left">The Download Station column describes version 5.10.4, the last one we examined.</caption>
+          <thead><tr><th scope="col">Downloads from</th><th scope="col">Download Center</th><th scope="col">Download Station</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">HTTP and HTTPS</th><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+            <tr><th scope="row">HTTP/2</th><td class="yes">Yes</td><td class="no">No</td></tr>
+            <tr><th scope="row">FTP</th><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+            <tr><th scope="row">SFTP</th><td class="yes">Yes</td><td class="no">No</td></tr>
+            <tr><th scope="row">SCP</th><td class="yes">Yes</td><td class="no">No</td></tr>
+            <tr><th scope="row">Torrent files</th><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+            <tr><th scope="row">Magnet links</th><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="phone" aria-labelledby="h-phone">
+    <div class="intro">
+      <h2 id="h-phone">Made for your phone, too</h2>
+      <p>Open <code>https://&lt;your NAS&gt;/DownloadCenter/</code> in any browser. No QTS desktop in between: on a phone, Download Center becomes an app you can use with one hand.</p>
+    </div>
+    <div class="phones">
+      <figure>
+        <picture>
+          <source srcset="assets/shots/phone-list-en-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="assets/shots/phone-list-en.webp" width="390" height="844" loading="lazy" alt="The task list on a phone, with filters at the top and a tab bar and add button at the bottom.">
+        </picture>
+        <figcaption>Progress at a glance, pause with your thumb</figcaption>
+      </figure>
+      <figure>
+        <picture><source srcset="assets/shots/phone-add-en-dark.webp" media="(prefers-color-scheme: dark)" width="390" height="844"><img src="assets/shots/phone-add-en.webp" width="390" height="844" loading="lazy" alt="The Add download sheet on a phone, listing the supported link types: HTTP, HTTPS, FTP, FTPS, SFTP, SCP, magnet links and torrent files."></picture>
+        <figcaption>Paste a link from any app</figcaption>
+      </figure>
+      <figure>
+        <picture><source srcset="assets/shots/phone-settings-en-dark.webp" media="(prefers-color-scheme: dark)" width="390" height="844"><img src="assets/shots/phone-settings-en.webp" width="390" height="844" loading="lazy" alt="The settings list on a phone: downloads, schedule, users, site accounts, access tokens, notifications and integrations."></picture>
+        <figcaption>Settings laid out like your phone's own</figcaption>
+      </figure>
+    </div>
+    <ul class="cols">
+      <li><h3>Within reach of your thumb</h3><p>Tabs and the add button sit at the bottom of the screen. Windows rise from below and close with a swipe down.</p></li>
+      <li><h3>On your home screen</h3><p>Add it to your home screen and it opens full screen, like an app.</p></li>
+      <li><h3>Your NAS account</h3><p>Sign in with the same account and the same rules as QTS, including 2-step verification.</p></li>
+      <li><h3>Inside the QTS desktop as well</h3><p>It also opens as a window on the QTS desktop, and adapts when you make that window narrow.</p></li>
+    </ul>
+  </section>
+
+  <section class="band" id="notify" aria-labelledby="h-notify">
+    <div class="intro">
+      <h2 id="h-notify">Hear about it, and answer back</h2>
+      <p>Get a message the moment a download finishes, fails or the disk runs low. In Telegram, and in LINE when your NAS is reachable over HTTPS, you can also reply with a command to check, add, pause and resume downloads.</p>
+    </div>
+    <div class="chat-split">
+      <div>
+        <div class="chat" role="group" aria-label="Example conversation with the Download Center bot">
+          <span class="day">Today</span>
+          <p class="msg me"><code>/add https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.1.0-amd64-netinst.iso</code></p>
+          <p class="msg bot">Added: debian-13.1.0-amd64-netinst.iso (waiting, #2)</p>
+          <p class="msg me"><code>/list</code></p>
+          <div class="msg bot"><ol class="num"><li>ubuntu-24.04.3-desktop-amd64.iso<small>61% 9.2 MB/s, 4 min left</small></li><li>Big Buck Bunny<small>38% 3.1 MB/s, 56 s left</small></li><li>debian-13.1.0-amd64-netinst.iso<small>Waiting</small></li></ol></div>
+          <p class="msg me"><code>/pause 1</code></p>
+          <p class="msg bot">Paused: ubuntu-24.04.3-desktop-amd64.iso</p>
+          <p class="msg bot note">Download finished: debian-13.1.0-amd64-netinst.iso</p>
+        </div>
+        <p class="cmds">Commands include <code>/list</code>, <code>/add &lt;url&gt;</code>, <code>/pause</code>, <code>/resume</code>, <code>/speed</code> and <code>/help</code>. Each chat account is linked to its NAS account with a one-time code, and can do only what that account can.</p>
+      </div>
+      <div>
+        <figure class="shot-card" style="margin:0">
+          <picture><source srcset="assets/shots/channels-en-dark.webp" media="(prefers-color-scheme: dark)" width="520" height="600"><img src="assets/shots/channels-en.webp" width="520" height="600" loading="lazy" alt="The Add channel window listing Telegram, Discord, LINE, Slack, ntfy, Gotify, Bark, QTS Notification Center and Webhook."></picture>
+        </figure>
+        <ul class="services">
+          <li><b>Telegram</b><span>Notifications and commands, without opening your NAS to the internet</span></li>
+          <li><b>LINE</b><span>Notifications; commands when the NAS is reachable over HTTPS</span></li>
+          <li><b>Discord, Slack</b><span>Notifications in a channel</span></li>
+          <li><b>ntfy, Gotify, Bark</b><span>Push notifications to your phone</span></li>
+          <li><b>QTS notification center</b><span>Email, SMS or push, by your QTS rules</span></li>
+          <li><b>Webhooks</b><span>Signed with HMAC-SHA256, for your own services</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="dev">
+      <div>
+        <h3>For your own scripts and apps</h3>
+        <p>A REST API with personal access tokens that can do only what you allow, an event stream, chat commands over HTTP and signed webhooks. New notification services can be added with a small JSON description.</p>
+      </div>
+      <a class="btn quiet" href="https://github.com/tasict/DownloadCenter/blob/main/docs/INTEGRATION.md">Read the integration guide</a>
+    </div>
+  </section>
+
+  <section class="band" id="features" aria-labelledby="h-more">
+    <div class="intro">
+      <h2 id="h-more">What else it does</h2>
+      <p>Click any download to see where it is saved, its files, a preview and, for torrents, who you are connected to.</p>
+    </div>
+    <figure class="wide-shot" style="margin-inline:0">
+      <picture><source srcset="assets/shots/detail-en-dark.webp" media="(prefers-color-scheme: dark)" width="1400" height="900"><img src="assets/shots/detail-en.webp" width="1400" height="900" loading="lazy" alt="The details panel for Big Buck Bunny next to the task list, showing status, progress, speed, share ratio, connections, location, the magnet source and the engine."></picture>
+    </figure>
+    <ul class="more">
+      <li><h3>One list for everything</h3><p>Paste one link or many, a block of text or a web page address. Duplicates are spotted before they are added.</p></li>
+      <li><h3>Choose before you start</h3><p>Magnet links and torrents show their files first. Keep the ones you want, or only the videos.</p></li>
+      <li><h3>Limits and a weekly schedule</h3><p>Separate limits for links and torrents, a weekly plan of full-speed, limited and paused hours, timed pause, and seeding by ratio or time.</p></li>
+      <li><h3>Files where you want them</h3><p>A temporary location while downloading, and a folder to move finished downloads to.</p></li>
+      <li><h3>Users and roles</h3><p>Administrators see everything. Regular users see only their own downloads, which are saved to their home folder and owned by them.</p></li>
+      <li><h3>File-hosting accounts</h3><p>1fichier, Rapidgator, Real-Debrid and AllDebrid through their official APIs with your own account, or cookies for other sites.</p></li>
+      <li><h3>Preview while downloading</h3><p>Watch or listen to the part that has already arrived, look inside archives, and switch a torrent to download in order.</p></li>
+      <li><h3>Your apps keep working</h3><p>Qget, Qfile and browser extensions connect as before, once Download Station is removed or turned off.</p></li>
+      <li><h3>Bring your Download Station setup</h3><p>Import settings, unfinished downloads, history and site accounts. The import only reads Download Station's data and can be run again.</p></li>
+    </ul>
+  </section>
+
+  <section class="band" id="privacy" aria-labelledby="h-priv">
+    <div class="intro"><h2 id="h-priv">It stays on your NAS</h2></div>
+    <div class="facts">
+      <div><h3>No account, no cloud</h3><p>Download Center runs entirely on your NAS. You sign in with your NAS account, and the sign-in itself goes to QTS.</p></div>
+      <div><h3>No ads, no tracking</h3><p>Download Center collects no usage data and shows no ads. It talks to the sites, peers and services your downloads and settings call for.</p></div>
+      <div><h3>Open source</h3><p>Every line is on GitHub under the MIT License, so you can see exactly what it does.</p></div>
+    </div>
+  </section>
+
+  <section class="band" id="get" aria-labelledby="h-get">
+    <h2 id="h-get">Get started</h2>
+    <div class="start">
+      <div>
+        <ol class="steps">
+          <li><h3>Download the package for your NAS</h3><p>Pick the file that matches your NAS's processor. In QTS, Control Panel, System Status shows which processor it has.</p></li>
+          <li><h3>Install it in App Center</h3><p>Open App Center, choose Install manually, and select the file. The package has no QNAP digital signature, so App Center warns about it. Allow it when asked, or turn on the App Center setting that allows apps without a valid digital signature.</p></li>
+          <li><h3>Open Download Center</h3><p>From the QTS desktop, or at <code>https://&lt;your NAS&gt;/DownloadCenter/</code>. The first QTS administrator to sign in becomes its first administrator.</p></li>
+        </ol>
+        <p class="aside">Moving from Download Station? Settings, downloads and site accounts can be imported in Settings once Download Center is installed. Download Station's own files are left as they are.</p>
+      </div>
+      <div class="release" data-release data-src="updates.json" data-t='{"x86_64":"Intel and AMD (x86_64)","arm_64":"ARM 64-bit (arm_64)","arm-x41":"ARMv7 (arm-x41)","arm-x31":"ARMv7 (arm-x31)","version":"Version {v}","released":"Released {date}","sums":"SHA-256 checksums","page":"Release page on GitHub","notes":"What’s new","pre":"Try the pre-release {v}"}'>
+        <div class="soon">
+          <h3>Coming soon</h3>
+          <p>The first release is being prepared. It will appear here and on the <a href="https://github.com/tasict/DownloadCenter/releases">Releases page on GitHub</a>.</p>
+        </div>
+      </div>
+    </div>
+    <p class="aside">Which package? <b>x86_64</b> is for Intel and AMD processors, <b>arm_64</b> for 64-bit ARM. <b>arm-x41</b> and <b>arm-x31</b> contain the same ARMv7 software, packaged under the two names QNAP uses for its ARMv7 models.</p>
+  </section>
+
+  <section class="band" aria-labelledby="h-lawful">
+    <div class="calm">
+      <div>
+        <h2 id="h-lawful">Use it lawfully</h2>
+        <ul>
+          <li>Download Center downloads only the links, torrent files and magnet links you give it. It doesn't provide, search for or recommend any content.</li>
+          <li>Only download what you have the right to obtain.</li>
+          <li>BitTorrent shares the pieces you have with other people while you download, and they can see your IP address.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>An independent project</h2>
+        <p>Download Center is made independently of QNAP. It takes the place of Download Station on your NAS, and imports its settings and downloads without changing them.</p>
+        <p>You are responsible for what you download. As the license says, the software comes without warranty.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="h-support">
+    <div class="tipjar">
+      <img src="assets/boba.png" alt="" width="120" height="120">
+      <div>
+        <h2 id="h-support">Keep Download Center free</h2>
+        <p>Download Center has no ads, no tracking and no paid version. If it saves you time, a boba or a small tip helps me keep it working through QTS updates, and build what comes next.</p>
+        <div class="actions">
+          <a class="btn" href="https://tasict.bobaboba.me"><img src="assets/boba.png" alt="" width="22" height="22">Buy me a boba</a>
+          <a class="tip" href="https://paypal.me/tasict">Tip with PayPal</a>
+        </div>
+        <p class="fine">Boba is paid by card. No PayPal account needed.</p>
+      </div>
+    </div>
+  </section>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <p>Made by tasict. Released under the <a href="https://github.com/tasict/DownloadCenter/blob/main/LICENSE">MIT License</a>.</p>
+        <ul>
+          <li><a href="https://github.com/tasict/DownloadCenter">Source code</a></li>
+          <li><a href="https://github.com/tasict/DownloadCenter/blob/main/THIRD-PARTY-NOTICES.txt">Third-party notices</a></li>
+          <li><a href="#privacy">Privacy</a></li>
+          <li><a href="https://github.com/tasict/DownloadCenter/issues">Report a problem</a></li>
+        </ul>
+      </div>
+      <ul class="langs"><li><a href="./" hreflang="en" lang="en" aria-current="page">English</a></li><li><a href="zh-TW/" hreflang="zh-TW" lang="zh-Hant-TW">繁體中文</a></li></ul>
+    </div>
+    <p class="tm">QNAP, QTS, Download Station, Qget, Qfile, File Station and App Center are trademarks of QNAP Systems, Inc. Download Center is not affiliated with or endorsed by QNAP.</p>
+  </div>
+</footer>
+<script src="assets/site.js"></script>
+</body>
+</html>
