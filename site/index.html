@@ -25,17 +25,19 @@
 <link rel="apple-touch-icon" href="assets/icon-192.png">
 <link rel="stylesheet" href="assets/site.css">
 <script>
-// Open the page in the visitor's language unless they picked one here before.
+// Open the page in the language the visitor picked here before, else in the first browser language the site has.
 (function () {
-  try {
-    if (localStorage.getItem('lang')) return;
-    var tags = navigator.languages || [navigator.language || ''];
-    for (var i = 0; i < tags.length; i++) {
-      var t = String(tags[i]).toLowerCase();
-      if (/^zh-(tw|hk|mo)|^zh-hant/.test(t)) { location.replace('zh-TW/' + location.search + location.hash); return; }
-      if (/^en/.test(t)) return;
-    }
-  } catch (e) { /* storage blocked: stay on English */ }
+  var go = function () { location.replace('zh-TW/' + location.search + location.hash); };
+  var saved = null;
+  try { saved = localStorage.getItem('lang'); } catch (e) { /* storage blocked */ }
+  if (saved === 'zh-TW') return go();
+  if (saved === 'en') return;
+  var tags = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+  for (var i = 0; i < tags.length; i++) {
+    var t = String(tags[i]).toLowerCase();
+    if (/^zh\b/.test(t)) return go();
+    if (/^en\b/.test(t)) return;
+  }
 })();
 </script>
 </head>
@@ -192,7 +194,7 @@
         <h3>For your own scripts and apps</h3>
         <p>A REST API with personal access tokens that can do only what you allow, an event stream, chat commands over HTTP and signed webhooks. New notification services can be added with a small JSON description.</p>
       </div>
-      <a class="btn quiet" href="https://github.com/tasict/DownloadCenter/blob/main/docs/INTEGRATION.md">Read the integration guide</a>
+      <a class="btn quiet" href="https://github.com/tasict/DownloadCenter/blob/master/docs/INTEGRATION.md">Read the integration guide</a>
     </div>
   </section>
 
@@ -286,10 +288,10 @@
   <div class="wrap">
     <div class="foot">
       <div>
-        <p>Made by tasict. Released under the <a href="https://github.com/tasict/DownloadCenter/blob/main/LICENSE">MIT License</a>.</p>
+        <p>Made by tasict. Released under the <a href="https://github.com/tasict/DownloadCenter/blob/master/LICENSE">MIT License</a>.</p>
         <ul>
           <li><a href="https://github.com/tasict/DownloadCenter">Source code</a></li>
-          <li><a href="https://github.com/tasict/DownloadCenter/blob/main/THIRD-PARTY-NOTICES.txt">Third-party notices</a></li>
+          <li><a href="https://github.com/tasict/DownloadCenter/blob/master/THIRD-PARTY-NOTICES.txt">Third-party notices</a></li>
           <li><a href="#privacy">Privacy</a></li>
           <li><a href="https://github.com/tasict/DownloadCenter/issues">Report a problem</a></li>
         </ul>

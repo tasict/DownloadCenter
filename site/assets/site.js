@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  // Remember an explicit language choice so the English page stops redirecting to the browser language.
+  // Remember an explicit language choice; both pages follow it instead of the browser language.
   var links = document.querySelectorAll('a[hreflang]');
   for (var i = 0; i < links.length; i++) {
     links[i].addEventListener('click', function () {

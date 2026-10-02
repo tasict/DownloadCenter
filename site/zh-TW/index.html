@@ -24,6 +24,12 @@
 <link rel="icon" href="../assets/favicon-32.png" type="image/png">
 <link rel="apple-touch-icon" href="../assets/icon-192.png">
 <link rel="stylesheet" href="../assets/site.css">
+<script>
+// Go back to the English page when the visitor picked English here before.
+(function () {
+  try { if (localStorage.getItem('lang') === 'en') location.replace('../' + location.search + location.hash); } catch (e) { /* storage blocked */ }
+})();
+</script>
 </head>
 <body>
 <a class="skip" href="#main">跳到內容</a>
@@ -178,7 +184,7 @@
         <h3>給你自己的程式和腳本</h3>
         <p>REST API 搭配個人存取權杖（只能做你允許的事）、事件串流、透過 HTTP 的聊天指令和有簽章的 Webhook。新的通知服務用一小段 JSON 描述就能加入。</p>
       </div>
-      <a class="btn quiet" href="https://github.com/tasict/DownloadCenter/blob/main/docs/INTEGRATION.md">閱讀整合文件（英文）</a>
+      <a class="btn quiet" href="https://github.com/tasict/DownloadCenter/blob/master/docs/INTEGRATION.md">閱讀整合文件（英文）</a>
     </div>
   </section>
 
@@ -272,10 +278,10 @@
   <div class="wrap">
     <div class="foot">
       <div>
-        <p>由 tasict 製作，以 <a href="https://github.com/tasict/DownloadCenter/blob/main/LICENSE">MIT 授權</a>釋出。</p>
+        <p>由 tasict 製作，以 <a href="https://github.com/tasict/DownloadCenter/blob/master/LICENSE">MIT 授權</a>釋出。</p>
         <ul>
           <li><a href="https://github.com/tasict/DownloadCenter">原始碼</a></li>
-          <li><a href="https://github.com/tasict/DownloadCenter/blob/main/THIRD-PARTY-NOTICES.txt">第三方授權聲明</a></li>
+          <li><a href="https://github.com/tasict/DownloadCenter/blob/master/THIRD-PARTY-NOTICES.txt">第三方授權聲明</a></li>
           <li><a href="#privacy">隱私</a></li>
           <li><a href="https://github.com/tasict/DownloadCenter/issues">回報問題</a></li>
         </ul>
