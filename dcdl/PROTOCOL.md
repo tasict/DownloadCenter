@@ -14,13 +14,21 @@ dc-dl --socket <data>/run/dc-dl.sock --known-hosts <data>/ssh_known_hosts
 |---|---|
 | `--socket` | Socket path; created with mode 0600, removed on exit |
 | `--known-hosts` | OpenSSH `known_hosts` for SFTP/SCP; created empty when missing. A host seen for the first time is added (trust on first use); a different key later makes the transfer fail |
+| `--prefer-chacha` | Offer ChaCha20-Poly1305 first even when the CPU has AES instructions (for testing; see below) |
 | `--version` | Print the versions and exit |
 
 **Every connection is one transfer.** dcd opens a connection, writes one JSON
 line, then reads frames until the connection closes. Closing the connection
 from dcd's side aborts the transfer. Any number of connections may be open at
 once (up to 256); they share one `curl_multi` handle, so connections to the
-same server are reused between transfers.
+same server are reused between transfers. HTTP/2 multiplexing is off: dcd
+opens several ranges of one file to get several TCP connections, and with
+multiplexing they would all share the first one.
+
+Without AES instructions (AES-NI and PCLMULQDQ on x86, the ARMv8 AES and
+PMULL extensions on ARM; the 32-bit ARM models have neither) TLS offers
+ChaCha20-Poly1305 first, which is several times faster there; the cipher set
+stays OpenSSL's default. `version` reports this as `aes_hw`.
 
 ## Request
 
@@ -41,7 +49,8 @@ same server are reused between transfers.
 | `ua` | User agent (default `DownloadCenter/1.0`) |
 
 `{"cmd": "version"}` instead answers one JSON line and closes:
-`{"dcdl": "1.0", "curl": "8.22.0", "ssl": "OpenSSL/3.5.9", "libssh": "libssh2/1.11.1", "nghttp2": "1.70.0", "http2": true, "protocols": ["ftp", …]}`.
+`{"dcdl": "1.1", "curl": "8.22.0", "ssl": "OpenSSL/3.5.9", "libssh": "libssh2/1.11.1", "nghttp2": "1.70.0", "http2": true, "aes_hw": true, "protocols": ["ftp", …]}`
+(`aes_hw` since 1.1).
 
 ## Frames
 

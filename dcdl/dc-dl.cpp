@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/auxv.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -30,9 +31,13 @@
 #include <string>
 #include <vector>
 
+#if defined(__x86_64__) || defined(__i386__)
+#include <cpuid.h>
+#endif
+
 using json = nlohmann::json;
 
-static const char *VERSION = "1.0";
+static const char *VERSION = "1.1";
 static const size_t MAX_PENDING = 256 * 1024; // buffered for dcd before the transfer pauses
 static const size_t MAX_REQUEST = 1 << 20;
 static const int MAX_CONNS = 256;
@@ -40,6 +45,7 @@ static const char *ALLOWED = "http,https,ftp,ftps,sftp,scp";
 
 static volatile sig_atomic_t g_stop = 0;
 static std::string g_knownHosts, g_caFile, g_caPath;
+static bool g_aesHW = true; // AES-GCM runs on CPU instructions (see aesGcmInHardware)
 static std::vector<std::string> g_ownAddrs; // the NAS's addresses (inet_ntop)
 static time_t g_ownAt = 0;
 
@@ -59,6 +65,37 @@ static void dlog(const char *fmt, ...)
 	fputc('\n', stderr);
 	fflush(stderr);
 }
+
+// --- TLS cipher order -----------------------------------------------------
+
+// aesGcmInHardware reports whether the CPU has AES and carry-less multiply
+// instructions (AES-NI and PCLMULQDQ, or the ARMv8 AES and PMULL
+// extensions), which OpenSSL uses for AES-GCM. Without them (the 32-bit ARM
+// models, some ARMv8 chips, older Atoms) ChaCha20-Poly1305 is several times
+// faster, and a single dc-dl thread does all TLS decryption.
+static bool aesGcmInHardware()
+{
+#if defined(__x86_64__) || defined(__i386__)
+	unsigned a, b, c, d;
+	if (!__get_cpuid(1, &a, &b, &c, &d))
+		return true;
+	return (c & bit_AES) && (c & bit_PCLMUL);
+#elif defined(__aarch64__)
+	unsigned long hw = getauxval(AT_HWCAP);
+	return (hw & (1UL << 3)) && (hw & (1UL << 4)); // HWCAP_AES, HWCAP_PMULL
+#elif defined(__arm__)
+	unsigned long hw2 = getauxval(AT_HWCAP2);
+	return (hw2 & (1UL << 0)) && (hw2 & (1UL << 1)); // HWCAP2_AES, HWCAP2_PMULL
+#else
+	return true;
+#endif
+}
+
+// Without AES hardware ChaCha20-Poly1305 is offered first; the set of
+// ciphers stays OpenSSL's default, only the order changes. Servers that
+// follow the client's preference (most do for TLS 1.3) then pick it.
+static const char *CHACHA_FIRST_TLS13 = "TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384";
+static const char *CHACHA_FIRST_TLS12 = "DEFAULT:+AES:+CAMELLIA:+ARIA";
 
 // --- address guard -------------------------------------------------------
 
@@ -320,7 +357,7 @@ static void versionReply(Conn *c)
 		protos.push_back(*p);
 	json j = {{"dcdl", VERSION}, {"curl", v->version}, {"ssl", v->ssl_version ? v->ssl_version : ""},
 			  {"libssh", v->libssh_version ? v->libssh_version : ""}, {"nghttp2", v->nghttp2_version ? v->nghttp2_version : ""},
-			  {"http2", (v->features & CURL_VERSION_HTTP2) != 0}, {"protocols", protos}};
+			  {"http2", (v->features & CURL_VERSION_HTTP2) != 0}, {"aes_hw", g_aesHW}, {"protocols", protos}};
 	std::string s = j.dump() + "\n";
 	c->out.append(s);
 	c->finished = true;
@@ -389,6 +426,13 @@ static void start(Conn *c, const std::string &line)
 	curl_easy_setopt(e, CURLOPT_TCP_KEEPALIVE, 1L);
 	curl_easy_setopt(e, CURLOPT_BUFFERSIZE, 65536L);
 	curl_easy_setopt(e, CURLOPT_FILETIME, 1L);
+	if (!g_aesHW)
+	{
+		curl_easy_setopt(e, CURLOPT_TLS13_CIPHERS, CHACHA_FIRST_TLS13);
+		curl_easy_setopt(e, CURLOPT_SSL_CIPHER_LIST, CHACHA_FIRST_TLS12);
+		curl_easy_setopt(e, CURLOPT_PROXY_TLS13_CIPHERS, CHACHA_FIRST_TLS13);
+		curl_easy_setopt(e, CURLOPT_PROXY_SSL_CIPHER_LIST, CHACHA_FIRST_TLS12);
+	}
 	// Never pick up proxies from the environment
 	curl_easy_setopt(e, CURLOPT_PROXY, proxy.c_str());
 	curl_easy_setopt(e, CURLOPT_NOPROXY, "");
@@ -503,6 +547,8 @@ int main(int argc, char **argv)
 			sock = argv[++i];
 		else if (a == "--known-hosts" && i + 1 < argc)
 			g_knownHosts = argv[++i];
+		else if (a == "--prefer-chacha")
+			g_aesHW = false;
 		else if (a == "--version")
 		{
 			printf("dc-dl %s, %s\n", VERSION, curl_version());
@@ -531,16 +577,24 @@ int main(int argc, char **argv)
 		}
 	if (exists("/etc/ssl/certs"))
 		g_caPath = "/etc/ssl/certs";
+	if (g_aesHW)
+		g_aesHW = aesGcmInHardware();
 	if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK)
 		return 1;
 	g_multi = curl_multi_init();
+	// dcd splits a download into ranges to get one TCP connection each.
+	// With multiplexing (libcurl's default) every range after the first
+	// joins the first range's HTTP/2 connection, and one TCP connection is
+	// much slower on long or lossy routes. Idle connections are still reused.
+	curl_multi_setopt(g_multi, CURLMOPT_PIPELINING, (long)CURLPIPE_NOTHING);
 	int lfd = listenOn(sock);
 	if (lfd < 0)
 	{
 		dlog("cannot listen on %s: %s", sock.c_str(), strerror(errno));
 		return 1;
 	}
-	dlog("dc-dl %s started (%s), CA %s", VERSION, curl_version(), g_caFile.empty() ? g_caPath.c_str() : g_caFile.c_str());
+	dlog("dc-dl %s started (%s), CA %s, %s", VERSION, curl_version(), g_caFile.empty() ? g_caPath.c_str() : g_caFile.c_str(),
+		 g_aesHW ? "AES-GCM in hardware" : "no AES hardware, ChaCha20 first");
 
 	std::vector<struct curl_waitfd> wfds;
 	std::vector<Conn *> order;

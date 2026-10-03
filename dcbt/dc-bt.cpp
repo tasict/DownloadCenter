@@ -38,6 +38,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <map>
@@ -51,7 +52,7 @@ namespace lt = libtorrent;
 using json = nlohmann::json;
 using clk = std::chrono::steady_clock;
 
-static const char *DCBT_VERSION = "1.1";
+static const char *DCBT_VERSION = "1.2";
 
 static volatile sig_atomic_t g_stop = 0;
 static void on_signal(int) { g_stop = 1; }
@@ -243,6 +244,78 @@ static Options opt_from(json const &j)
 	return o;
 }
 
+// --- hardware ---
+
+// Hardware is what the session is tuned for, read once at start. QNAP's
+// packages are per architecture, but cores and memory vary a lot within one
+// (a 2 GB ARM box and a 64 GB x86 one both run the same binary family).
+struct Hardware
+{
+	int cores = 1;
+	long long ram_mb = 0; // 0 = unknown
+	// libtorrent 2.0 picks its disk back end by pointer size: memory-mapped
+	// files with aio and hashing threads on 64-bit, a single-threaded posix
+	// back end on 32-bit (the ARMv7 models), where every write, read and
+	// piece hash runs on the network thread and none of the disk settings
+	// below apply.
+	bool mmap = sizeof(void *) == 8;
+};
+
+static Hardware detect_hardware()
+{
+	Hardware h;
+	long n = sysconf(_SC_NPROCESSORS_ONLN);
+	if (n > 0)
+		h.cores = int(n);
+	std::ifstream f("/proc/meminfo");
+	std::string line;
+	while (std::getline(f, line))
+	{
+		long long kb = 0;
+		if (sscanf(line.c_str(), "MemTotal: %lld kB", &kb) == 1)
+		{
+			h.ram_mb = kb / 1024;
+			break;
+		}
+	}
+	return h;
+}
+
+// Tuning is the part of the session settings that follows the hardware;
+// the rest stays at libtorrent's defaults or comes from dcd.
+struct Tuning
+{
+	int hashing_threads = 1;                    // libtorrent's default
+	int max_queued_disk_bytes = 1024 * 1024;    // libtorrent's default
+	int checking_mem_usage = 256;               // 16 KiB blocks; libtorrent's default
+};
+
+static Tuning tuning_for(Hardware const &h)
+{
+	Tuning t;
+	if (!h.mmap)
+		return t;
+	// SHA-1 of finished pieces (and of everything during a check): one
+	// thread falls behind a gigabit line on small ARM cores, more threads
+	// than half the cores take CPU from the network thread
+	t.hashing_threads = std::max(1, std::min(4, h.cores / 2));
+	// Bytes waiting to be written before peers stop being read; a larger
+	// queue rides out the moments the disks are busy flushing. libtorrent's
+	// high_performance_seed preset uses 7 MiB.
+	long long m = h.ram_mb;
+	t.max_queued_disk_bytes = (m >= 8192 ? 16 : m >= 4096 ? 8 : m >= 2048 ? 4 : m >= 1024 ? 2 : 1) * 1024 * 1024;
+	// Blocks read ahead while checking (high_performance_seed: 2048)
+	t.checking_mem_usage = m >= 8192 ? 2048 : m >= 4096 ? 1024 : m >= 2048 ? 512 : 256;
+	return t;
+}
+
+static json hardware_json(Hardware const &h, Tuning const &t)
+{
+	return json{{"cores", h.cores}, {"ram_mb", h.ram_mb}, {"disk_io", h.mmap ? "mmap" : "posix"},
+		{"hashing_threads", t.hashing_threads}, {"max_queued_disk_bytes", t.max_queued_disk_bytes},
+		{"checking_mem_usage", t.checking_mem_usage}};
+}
+
 // --- the engine ---
 
 struct Engine
@@ -255,6 +328,8 @@ struct Engine
 	std::string inbuf;
 	int pending_saves = 0;
 	json settings = json::object();
+	Hardware hw = detect_hardware();
+	Tuning tune = tuning_for(hw);
 
 	std::string resume_path(std::string const &k) { return state_dir + "/" + k + ".resume"; }
 	std::string opts_path(std::string const &k) { return state_dir + "/" + k + ".json"; }
@@ -378,6 +453,13 @@ struct Engine
 		p.set_int(lt::settings_pack::active_checking, 2);
 		p.set_int(lt::settings_pack::alert_mask, lt::alert_category::status | lt::alert_category::error | lt::alert_category::storage);
 		p.set_int(lt::settings_pack::alert_queue_size, 10000);
+		// The default (peer_proportional) caps TCP peers at a multiple of
+		// their share whenever some uTP peers are downloading too, which
+		// slows the ramp-up; uTP backs off by itself when TCP fills the line
+		p.set_int(lt::settings_pack::mixed_mode_algorithm, lt::settings_pack::prefer_tcp);
+		p.set_int(lt::settings_pack::hashing_threads, tune.hashing_threads);
+		p.set_int(lt::settings_pack::max_queued_disk_bytes, tune.max_queued_disk_bytes);
+		p.set_int(lt::settings_pack::checking_mem_usage, tune.checking_mem_usage);
 		return p;
 	}
 
@@ -833,7 +915,7 @@ struct Engine
 	{
 		std::string cmd = req.value("cmd", std::string());
 		if (cmd == "version")
-			return json{{"dcbt", DCBT_VERSION}, {"libtorrent", LIBTORRENT_VERSION}};
+			return json{{"dcbt", DCBT_VERSION}, {"libtorrent", LIBTORRENT_VERSION}, {"hardware", hardware_json(hw, tune)}};
 		if (cmd == "apply_settings")
 		{
 			settings = req.value("settings", req);
@@ -1295,7 +1377,7 @@ int main(int argc, char **argv)
 		dlog("cannot listen on %s: %s", e.socket_path.c_str(), strerror(errno));
 		return 1;
 	}
-	dlog("ready (libtorrent %s)", LIBTORRENT_VERSION);
+	dlog("ready (libtorrent %s), tuned for %s", LIBTORRENT_VERSION, hardware_json(e.hw, e.tune).dump().c_str());
 	e.run();
 	return 0;
 }

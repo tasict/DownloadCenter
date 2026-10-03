@@ -24,6 +24,22 @@ On start every torrent found in `--state` is restored. `SIGTERM` (or the
 `<infohash>` is always the v1 info hash in lower-case hex, or the first 40 hex
 digits of the v2 hash for v2-only torrents (the same id dcd uses).
 
+## Tuning
+
+Some session settings follow the hardware, detected once at start (online
+cores, `MemTotal`) and reported by `version` and in the start line of the log.
+TCP peers are never throttled in favour of uTP (`mixed_mode_algorithm` =
+`prefer_tcp`). libtorrent 2.0 uses memory-mapped disk I/O on 64-bit
+(`disk_io` = `mmap`) and a single-threaded posix back end on 32-bit
+(`posix`); the disk settings only matter for `mmap`, and are left at
+libtorrent's defaults otherwise.
+
+| Setting | `mmap` value | libtorrent default |
+|---|---|---|
+| `hashing_threads` | half the cores, 1–4 | 1 |
+| `max_queued_disk_bytes` | 1 MiB below 1 GB RAM, 2 MiB from 1 GB, 4 MiB from 2 GB, 8 MiB from 4 GB, 16 MiB from 8 GB | 1 MiB |
+| `checking_mem_usage` (16 KiB blocks) | 256, 512 from 2 GB, 1024 from 4 GB, 2048 from 8 GB | 256 |
+
 ## Requests and responses
 
 ```json
@@ -52,7 +68,7 @@ Lines without `id`, sent as they happen:
 
 | cmd | Arguments | Result |
 |---|---|---|
-| `version` | — | `{"dcbt": "1.1", "libtorrent": "2.0.15"}` (`move` and `root` need 1.1) |
+| `version` | — | `{"dcbt": "1.2", "libtorrent": "2.0.15", "hardware": {"cores": 4, "ram_mb": 31891, "disk_io": "mmap", "hashing_threads": 2, "max_queued_disk_bytes": 16777216, "checking_mem_usage": 2048}}` (`move` and `root` need 1.1; `hardware` since 1.2, see Tuning) |
 | `apply_settings` | settings object (below) | `{}` |
 | `add` | `torrent_b64` or `magnet`, `save_path`, `select` ([file index], omitted = all), `priorities` ({"index": 0..7}), `trackers` ([url]), `paused`, `seed_ratio` (float, 0 = none), `seed_time` (minutes; -1 = do not seed, 0 = no time limit), `sequential`, `check` (force a recheck), `max_down`, `max_up` (bytes/s), `max_peers`, `fastresume` (path of an official libtorrent 1.2 `.fastresume` to try first), `metadata_only` (fetch the metadata, write `<save_path>/<infohash>.torrent`, then drop the torrent), `root` (the data's top folder, or its single file, is called this instead of the torrent's name) | `{"infohash": "…", "existed": false, "resumed": true}` |
 | `pause` / `resume` / `remove` / `force_recheck` | `infohash` | `{}` (`remove` keeps the data and is idempotent) |
