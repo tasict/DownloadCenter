@@ -82,6 +82,7 @@ func (f *fixture) service(cur string) (*Service, *[]string) {
 	f.t.Cleanup(func() { db.Close() })
 	s := New(nil, db, root, data, cur)
 	s.pub = f.pub
+	s.schema = 1 // the database layout of the fixture's releases; tests of other layouts set it
 	var launched []string
 	s.Launch = func(script string) error { launched = append(launched, script); return nil }
 	return s, &launched
