@@ -383,7 +383,7 @@
 		c.bot = bt ? h('span', {'class':'flowlbl bot num', 'aria-hidden':'true'}) : null;
 		c.dn = readout('d', DC.t('下載速度'));
 		c.up = bt ? readout('u', DC.t('上傳速度')) : null;
-		c.el = h('div', {'class':'flow'}, [
+		c.el = h('div', {'class':'traffic'}, [
 			h('div', {'class':'flowread'}, [c.dn.el, c.up ? c.up.el : null]),
 			h('div', {'class':'flowplot'}, [c.svg, c.top, c.bot]),
 			h('div', {'class':'flowaxis', 'aria-hidden':'true'}, [h('span', {text:DC.t('2 分鐘前')}), h('span', {text:DC.t('現在')})])
