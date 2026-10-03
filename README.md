@@ -79,4 +79,4 @@ The engines are statically linked with third-party libraries (libtorrent, Boost,
 
 ## Support the project
 
-Download Center has no ads, no tracking and no paid version. If it is useful to you, you can [buy me a boba](https://tasict.bobaboba.me) (paid by card, no PayPal account needed) or [tip with PayPal](https://paypal.me/tasict).
+Download Center has no ads and no paid version. If it is useful to you, you can [buy me a boba](https://tasict.bobaboba.me) (paid by card, no PayPal account needed) or [tip with PayPal](https://paypal.me/tasict).

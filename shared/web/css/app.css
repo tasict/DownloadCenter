@@ -389,6 +389,21 @@ input[type=range]{accent-color:var(--accent)}
 /* Usage notice */
 .notice{margin:0 0 4px;padding:0 0 0 20px;font-size:14px;line-height:1.6;color:var(--label)}
 .notice li + li{margin-top:8px}
+/* Usage notice: the downloading terms and the statistics on one page; the statistics part spells out sent / not sent */
+.modal .nthead{margin:18px 0 8px;font:600 15px/1.3 var(--f-display);color:var(--label)}
+.modal .lead + .nthead{margin-top:4px}
+.ntstats{background:var(--surface);border-radius:16px;padding:4px 14px 14px}
+.ntstats .toggle > span{font-weight:500}
+.ntstats .toggle small{font-weight:400}
+.ntwho{margin:0;padding:12px 0 10px;font-size:13.5px;color:var(--label)}
+.ntsplit{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;border-top:.5px solid var(--sep);padding-top:12px}
+.ntcol b{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin-bottom:6px}
+.ntcol b .ic{width:16px;height:16px}
+.ntcol.yes b .ic{color:var(--done)}
+.ntcol.no b .ic{color:var(--label2)}
+.ntcol ul{margin:0;padding:0;list-style:none;font-size:13px;line-height:1.45;color:var(--label2)}
+.ntcol li + li{margin-top:5px}
+@container (max-width:560px){ .ntsplit{grid-template-columns:minmax(0,1fr)} }
 
 /* ---------- sheet, inspector, banner ---------- */
 .scrim{position:fixed;inset:0;background:var(--scrim);z-index:40;animation:fade .2s ease}

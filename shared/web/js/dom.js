@@ -304,9 +304,31 @@
 		];
 	};
 
+	/* ---------- usage statistics: how often parts of the UI are used, counted here and handed to the daemon about once a
+	   minute, which keeps only names it knows and adds them to its daily anonymous report (off: it drops them) ---------- */
+	var TRACK = {}, trackN = 0, trackTimer = null;
+	DC.track = function(key){
+		TRACK[key] = (TRACK[key] || 0) + 1; trackN++;
+		if(!trackTimer) trackTimer = setTimeout(DC.trackFlush, 60000);
+	};
+	DC.trackFlush = function(){
+		var body;
+		clearTimeout(trackTimer); trackTimer = null;
+		if(!trackN || !DC.S || !DC.S.me || DC.S.me.via !== 'session' || !window.fetch) return;
+		body = JSON.stringify({counts:TRACK}); TRACK = {}; trackN = 0;
+		try{
+			fetch('api/v1/analytics/ui', {method:'POST', credentials:'same-origin', keepalive:true, body:body,
+				headers:{'Content-Type':'application/json', 'X-Requested-With':'XMLHttpRequest', 'X-DC-Lang':DC.lang || 'TCH'}})['catch'](function(){});
+		}catch(e){}
+	};
+	document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'hidden') DC.trackFlush(); });
+
 	/* ---------- usage notice: shown once per account on first use (pref "notice"), readable again from the settings footer ---------- */
-	var NOTICE_VERSION = 1;
+	var NOTICE_VERSION = 2;
 	DC.noticeDue = function(){ var me = DC.S && DC.S.me; return !!(me && me.via !== 'token' && !(me.prefs && me.prefs.notice >= NOTICE_VERSION)); };
+	/* One page, two parts: what the user is responsible for when downloading, and what the anonymous statistics carry.
+	   Administrators decide about the statistics right here (the switch starts on, so agreeing is all it takes);
+	   regular users see the same facts and who decides. */
 	DC.showNotice = function(first){
 		var items = [
 			DC.t('Download Center 只依照你提供的網址、種子檔或磁力連結下載檔案，不提供、搜尋或推薦任何內容。'),
@@ -314,10 +336,34 @@
 			DC.t('使用 BitTorrent 時，你在下載的同時也會把檔案分享給其他使用者，他們看得到你的 IP 位址。'),
 			DC.t('你要為下載的內容和使用方式負責；在法律允許的範圍內，開發者不對使用本軟體造成的損失或法律責任負責。'),
 			DC.t('Download Center 是獨立開發的軟體，與 QNAP 無關，也未經 QNAP 認可。')
-		], list = h('ul', {'class':'notice'}), i;
+		], list = h('ul', {'class':'notice'}), i, me = DC.S && DC.S.me, stats = me && me.admin && me.analytics, sw = null, head;
 		for(i = 0; i < items.length; i++) list.appendChild(h('li', {text:items[i]}));
-		return DC.modal(DC.t('使用聲明'), 'files', [h('p', {'class':'lead', text:DC.t('使用 Download Center 前，請先閱讀以下說明。')}), list], function(close){
-			return first ? [btn(null, DC.t('我了解並同意'), function(){ DC.savePref('notice', NOTICE_VERSION); close(); }, 'pri')] : [btn(null, DC.t('關閉'), close, 'pri')];
+		function column(cls, iconName, title, lines){
+			var ul = h('ul'), k;
+			for(k = 0; k < lines.length; k++) ul.appendChild(h('li', {text:lines[k]}));
+			return h('div', {'class':'ntcol ' + cls}, [h('b', null, [icon(iconName), title]), ul]);
+		}
+		if(stats){
+			sw = DC.toggle('ntStats', DC.t('協助改善 Download Center'), DC.t('每天一次傳給 Google Analytics，隨時可以在「設定 › 關於與更新」關閉。'), stats.enabled || !stats.asked, first ? null : function(){
+				var el = this;
+				DC.api.put('analytics', {enabled:el.checked}).then(function(r){ DC.S.me.analytics = r; }, function(e){ el.checked = !el.checked; DC.toast(DC.errText(e)); });
+			});
+			head = sw;
+		}else head = h('p', {'class':'ntwho', text:DC.t('Download Center 可以每天一次把匿名的使用統計傳給 Google Analytics，是否傳送由系統管理者決定。')});
+		return DC.modal(DC.t('使用聲明'), 'files', [
+			h('p', {'class':'lead', text:DC.t('使用 Download Center 前，請先看過這兩件事。')}),
+			h('h3', {'class':'nthead', text:DC.t('下載的內容')}), list,
+			h('h3', {'class':'nthead', text:DC.t('使用統計')}),
+			h('div', {'class':'ntstats'}, [head, h('div', {'class':'ntsplit'}, [
+				column('yes', 'done', DC.t('會傳送'), [DC.t('版本、架構與 NAS 機型'), DC.t('用到哪些功能、各用了幾次'), DC.t('任務數量、完成與失敗次數')]),
+				column('no', 'close', DC.t('不會傳送'), [DC.t('檔名、網址與下載的內容'), DC.t('帳號、密碼與權杖'), DC.t('NAS 名稱與資料夾路徑')])
+			])])
+		], function(close){
+			return first ? [btn(null, DC.t('我了解並同意'), function(){
+				DC.savePref('notice', NOTICE_VERSION);
+				if(sw) DC.api.put('analytics', {enabled:DC.chk('ntStats')}).then(function(r){ if(DC.S.me) DC.S.me.analytics = r; }, function(){});
+				close();
+			}, 'pri')] : [btn(null, DC.t('關閉'), close, 'pri')];
 		}, {persist:!!first});
 	};
 

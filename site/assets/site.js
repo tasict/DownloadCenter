@@ -2,6 +2,31 @@
 (function () {
   'use strict';
 
+  // Google Analytics (GA4): visits, and which package and support links are clicked. Empty id = not loaded.
+  var GA_ID = 'G-R03VP80PMS';
+  if (GA_ID) {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () { window.dataLayer.push(arguments); };
+    window.gtag('js', new Date());
+    window.gtag('config', GA_ID);
+    var ga = document.createElement('script');
+    ga.async = true;
+    ga.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(GA_ID);
+    document.head.appendChild(ga);
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest && e.target.closest('a');
+      if (!a) return;
+      if (a.classList.contains('arch')) {
+        var m = /DownloadCenter_([^_]+)_([^.]+)\.qpkg/.exec(a.href);
+        window.gtag('event', 'package_download', { version: m ? m[1] : '', arch: m ? m[2] : '' });
+      } else if (/bobaboba\.me|paypal\.me/.test(a.href)) {
+        window.gtag('event', 'support_click', { target: /paypal/.test(a.href) ? 'paypal' : 'boba' });
+      } else if (/github\.com\/tasict\/DownloadCenter/.test(a.href)) {
+        window.gtag('event', 'github_click');
+      }
+    });
+  }
+
   // Remember an explicit language choice; both pages follow it instead of the browser language.
   var links = document.querySelectorAll('a[hreflang]');
   for (var i = 0; i < links.length; i++) {

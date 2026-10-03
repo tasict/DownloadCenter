@@ -46,6 +46,7 @@
 		DC.layer().appendChild(D.scrim); DC.layer().appendChild(D.el);
 		dock();
 		header(t); renderTabs(); renderBody();
+		DC.track('details');
 		loadExtra();
 		if(!again) D.el.querySelector('.dr-head .ib').focus();
 	}
@@ -80,7 +81,7 @@
 		clear(D.tabs);
 		for(i = 0; i < tabs.length; i++){
 			D.tabs.appendChild(h('button', {'class':'tab' + (D.tab === tabs[i][0] ? ' on' : ''), role:'tab', type:'button', 'aria-selected':D.tab === tabs[i][0] ? 'true' : 'false',
-				onclick:(function(id){ return function(){ D.tab = id; renderTabs(); renderBody(); if(id === 'log') loadExtra(); }; })(tabs[i][0])}, tabs[i][1]));
+				onclick:(function(id){ return function(){ D.tab = id; DC.track('tab_' + id); renderTabs(); renderBody(); if(id === 'log') loadExtra(); }; })(tabs[i][0])}, tabs[i][1]));
 		}
 	}
 	/* Called on every list refresh: live tabs re-render, interactive ones keep their state. */
@@ -249,6 +250,7 @@
 			if(r.sequential_supported && DC.can('tasks:control') && t.state !== 'done'){
 				D.body.appendChild(h('label', {'class':'toggle', 'for':'pvStream'}, [h('input', {type:'checkbox', id:'pvStream', checked:!!r.sequential, onchange:function(){
 					var on = this.checked;
+					if(on) DC.track('stream_on');
 					DC.api.patch('tasks/' + t.id, {sequential:on}).then(function(){ DC.toast(on ? DC.t('改為依序下載（邊下邊看）') : DC.t('改回一般下載')); }, function(e){ DC.toast(DC.errText(e)); });
 				}}), h('span', null, [DC.t('邊下邊看'), h('small', {text:DC.t('改為依序下載並優先抓頭尾，總下載時間可能變長')})])]));
 			}
@@ -268,7 +270,7 @@
 				clear(area);
 				if(f.contiguous <= 0){ add(area, [h('p', {'class':'note', text:DC.t('這個檔案的開頭還沒下載，暫時無法預覽。')}), bars(f)]); return; }
 				if((f.type === 'video' || f.type === 'audio') && f.playable){
-					add(area, [h(f.type === 'video' ? 'video' : 'audio', {'class':f.type === 'video' ? 'pvmedia' : 'pvaudio', controls:true, preload:'metadata', src:src}), bars(f)]);
+					add(area, [h(f.type === 'video' ? 'video' : 'audio', {'class':f.type === 'video' ? 'pvmedia' : 'pvaudio', controls:true, preload:'metadata', src:src, onplay:function(){ if(!this._played){ this._played = true; DC.track('preview_play'); } }}), bars(f)]);
 				}else if(f.type === 'video' || f.type === 'audio'){
 					add(area, [h('p', {'class':'note', text:DC.t('瀏覽器無法直接播放這種格式，可以下載已下載的片段在電腦上播放。')}), bars(f),
 						h('a', {'class':'ib btn', href:DC.api.url('tasks/' + t.id + '/preview', {file:f.index, download:1}), download:shown(DC.baseName(f.path))}, [icon('down'), h('span', {text:DC.t('下載預覽片段')})])]);

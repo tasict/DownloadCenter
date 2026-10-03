@@ -92,6 +92,19 @@ if [ -z "$GO" ]; then
 	echo "No Go toolchain (set GO=/path/to/go). Aborting build."
 	exit 1
 fi
+# Usage statistics: the GA4 measurement id and Measurement Protocol secret come from
+# .secret/analytics.env (GA_MEASUREMENT_ID=..., GA_API_SECRET=...); without it dcd never sends.
+# The secret is never printed.
+GA_FLAGS=""
+if [ -f .secret/analytics.env ]; then
+	GA_ID=$(sed -n 's/^GA_MEASUREMENT_ID=//p' .secret/analytics.env | tr -d '\r\n "')
+	GA_SECRET=$(sed -n 's/^GA_API_SECRET=//p' .secret/analytics.env | tr -d '\r\n "')
+	if [ -n "$GA_ID" ] && [ -n "$GA_SECRET" ]; then
+		GA_FLAGS="-X downloadcenter/internal/analytics.MeasurementID=$GA_ID -X downloadcenter/internal/analytics.APISecret=$GA_SECRET"
+		echo "Usage statistics: on ($GA_ID)"
+	fi
+fi
+[ -n "$GA_FLAGS" ] || echo "Usage statistics: off (no .secret/analytics.env)"
 echo "Building dcd with $($GO version)..."
 (cd daemon && $GO vet ./...)
 build_dcd() {
@@ -103,7 +116,7 @@ build_dcd() {
 	# aria2c was bundled up to 0.9.0 (GPL); it must not end up in a package
 	rm -f "$dir/bin/aria2c"
 	(cd daemon && CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" GOARM="$goarm" \
-		$GO build -trimpath -ldflags "-s -w -X main.Version=$VERSION" -o "../$dir/bin/dcd" ./cmd/dcd)
+		$GO build -trimpath -ldflags "-s -w -X main.Version=$VERSION $GA_FLAGS" -o "../$dir/bin/dcd" ./cmd/dcd)
 	# The updater picks the package of this architecture (arm-x41 and arm-x31 share one dcd)
 	echo "$dir" > "$dir/bin/arch"
 	echo "  OK: $dir/bin/dcd"

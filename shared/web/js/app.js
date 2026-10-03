@@ -125,6 +125,8 @@
 			poll(); pollStats(); stream();
 			DC.login.keepAlive();
 			loadPortrait();
+			DC.track('session'); DC.track('lang_' + DC.lang); DC.track('theme_' + (S.theme || 'auto'));
+			DC.track(DC.embedded ? 'layout_embedded' : DC.phone() ? 'layout_phone' : 'layout_desktop');
 			if(DC.noticeDue()) DC.showNotice(true);
 			DC.update.boot();
 		}, function(e){
@@ -427,6 +429,7 @@
 		return out;
 	}
 	function setSort(key, dir){
+		if(key !== S.sort) DC.track('sort_' + key);
 		S.sort = key; S.dir = dir || null; S.sortAt = 0;
 		var v = key + ':' + (dir || '');
 		DC.ls('dc-sort', v);
@@ -469,7 +472,7 @@
 		add(R.lhead, [h('h1', {text:f.label}), h('span', {'class':'sub num', text:DC.t('{n} 個任務', {n:v.length})}),
 			h('div', {'class':'sorter'}, [h('label', {'for':'sortKey', text:DC.t('排序')}), sel,
 				S.sort === 'queue' ? null : ibtn(dir > 0 ? 'up' : 'dn', dir > 0 ? (S.sort === 'status' ? DC.t('需要注意的在前，按一下反過來') : DC.t('由小到大，按一下改為由大到小')) : (S.sort === 'status' ? DC.t('已完成的在前，按一下反過來') : DC.t('由大到小，按一下改為由小到大')), function(){ setSort(S.sort, -dir); }),
-				v.length ? h('button', {'class':'ib pickbtn', type:'button', onclick:function(){ S.picking = true; renderList(); }}, DC.t('選取')) : null]),
+				v.length ? h('button', {'class':'ib pickbtn', type:'button', onclick:function(){ S.picking = true; DC.track('pick_mode'); renderList(); }}, DC.t('選取')) : null]),
 			R.launch]);
 	}
 	/* Keeps existing row nodes so state icons only replay when the state really changes. */
@@ -516,7 +519,7 @@
 			onclick:function(){ if(r.long){ r.long = false; return; } if((S.picking || selIds().length) && DC.phone()){ toggleSel(!r.cb.checked); return; } DC.detail.open(r.id); },
 			onkeydown:function(e){ if(e.target !== r.el) return; if(e.key === 'Enter') DC.detail.open(r.id); if(e.key === ' '){ e.preventDefault(); toggleSel(!r.cb.checked); } },
 			oncontextmenu:function(e){ if(DC.phone()) e.preventDefault(); },
-			ontouchstart:function(){ press = setTimeout(function(){ r.long = true; if(DC.phone()) S.picking = true; toggleSel(!r.cb.checked); }, 500); },
+			ontouchstart:function(){ press = setTimeout(function(){ r.long = true; if(DC.phone()){ S.picking = true; DC.track('pick_mode'); } toggleSel(!r.cb.checked); }, 500); },
 			ontouchend:function(){ clearTimeout(press); }, ontouchmove:function(){ clearTimeout(press); }},
 			[r.cb, r.ic, h('div', {'class':'rmain'}, [
 				h('div', {'class':'rname'}, [r.nameEl, DC.isAdmin() && t.owner !== DC.me() ? h('span', {'class':'owner', text:t.owner}) : null]),
@@ -538,6 +541,7 @@
 	   Download Station used it); in a plain tab the desktop is opened with the same app and config in its URL (the QTS login
 	   page passes a= and c= through to main.html the same way). File Station paths are share-relative with a leading slash. */
 	DC.openFolder = function(t){
+		DC.track('open_folder');
 		var f = folderOf(t), loc = t.location || '', cfg = {path:'/' + f.replace(/^\/+/, '')}, wid, msg;
 		if(t.state === 'done' && !t.is_folder && loc) cfg.file = loc.replace(/^.*\//, '');
 		if(DC.embedded && window.parent && window.parent !== window){
@@ -624,6 +628,7 @@
 	}
 	DC.act = act;
 	function bulk(what){
+		DC.track('bulk');
 		var ids = selIds(), body = {ids:ids, action:what};
 		if(!ids.length) return;
 		/* Moving several keeps their order: send them in queue order */
@@ -682,6 +687,7 @@
 		e.preventDefault(); dragDepth = 0;
 		if(R.dropEl){ DC.remove(R.dropEl); R.dropEl = null; }
 		if(!S.me || !DC.can('tasks:add')) return;
+		DC.track('add_drop');
 		DC.addFlow.openTorrents(e.dataTransfer.files);
 	});
 	document.addEventListener('pointerup', function(){ if(R.paintEnd) R.paintEnd(); });

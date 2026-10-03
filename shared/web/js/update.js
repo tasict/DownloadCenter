@@ -165,6 +165,12 @@
 				v.last ? h('p', {'class':'note' + (v.last.ok ? '' : ' warn'), text:v.last.ok ? DC.t('{time} 從 {from} 更新到 {version}。', {time:DC.ftime(v.last.at), from:v.last.from, version:v.last.to}) : DC.t('{time} 更新到 {version} 沒有完成，仍是 {from}。', {time:DC.ftime(v.last.at), from:v.last.from, version:v.last.to})}) : null,
 				v.last && !v.last.ok && v.last.log ? h('pre', {'class':'relnotes mono', text:v.last.log}) : null
 			]),
+			DC.S.me.analytics ? sec('gauge', DC.t('使用統計'), null, [
+				toggle('anOn', DC.t('協助改善 Download Center'), DC.t('每天把匿名的使用統計傳給 Google Analytics 一次：版本、機型、用到哪些功能和次數，不含檔名、網址或帳號。'), DC.S.me.analytics.enabled, function(){
+					var el = this;
+					DC.api.put('analytics', {enabled:el.checked}).then(function(r){ DC.S.me.analytics = r; }, function(e){ el.checked = !el.checked; DC.toast(DC.errText(e)); });
+				})
+			]) : null,
 			sec('files', DC.t('所有版本'), DC.t('可以更新，也可以降回較舊的版本。每次更新前都會先備份資料庫。'), [releases(v)])
 		]);
 	}

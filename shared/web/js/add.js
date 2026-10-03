@@ -85,6 +85,7 @@
 		/* No accept filter: iOS greys out .torrent files it has no type for, so the extension is checked after picking. */
 		pb.file = h('input', {type:'file', hidden:true, multiple:true, onchange:function(){
 			var files = this.files;
+			DC.track('add_pick');
 			if(on.files) on.files(files); else openTorrents(files);
 			this.value = '';
 		}});
@@ -130,6 +131,7 @@
 	function submit(pb){
 		var d = detect(pb.input.value);
 		if(d.kind === 'empty' || d.kind === 'bad'){ pb.input.focus(); return; }
+		DC.track(d.loose && d.items.length > 1 ? 'add_text' : 'add_paste');
 		if(d.loose && d.items.length > 1){
 			/* Pasted text: let the server classify the links (file hosts, pages) */
 			DC.api.post('tasks/extract', {text:pb.input.value}).then(function(r){
@@ -449,6 +451,7 @@
 						var it = one;
 						closeBox();
 						openMerge(it, s0.task_name, function(closeMerge){
+							DC.track('add_merge');
 							var p = it.kind === 'magnet' ? DC.api.post('tasks', {source:it.text}) : DC.api.upload('tasks/torrent', torrentForm([it.file]));
 							p.then(function(){ closeMerge(); DC.toast(DC.t('已併入「{task}」', {task:s0.task_name || DC.t('既有任務')})); DC.pollNow(); }, function(e){ closeMerge(); DC.toast(DC.errText(e)); });
 						});
@@ -525,7 +528,7 @@
 		var pasteRow = compose ? [
 			h('div', {'class':'add add-cmp' + (opts.sheet ? ' add-sheet' : '')}, [pb.kind, pb.input,
 				clip ? abtn('paste', DC.t('貼上'), DC.t('貼上剪貼簿'), function(){
-					navigator.clipboard.readText().then(function(t){ pb.input.value = t; onInput(pb); fromText(); pb.input.focus(); }, function(){ DC.toast(DC.t('無法讀取剪貼簿，請在輸入框貼上')); pb.input.focus(); });
+					navigator.clipboard.readText().then(function(t){ DC.track('add_clip'); pb.input.value = t; onInput(pb); fromText(); pb.input.focus(); }, function(){ DC.toast(DC.t('無法讀取剪貼簿，請在輸入框貼上')); pb.input.focus(); });
 				}) : null,
 				abtn('torrent', '.torrent', DC.t('選擇 .torrent 檔'), function(){ pb.file.click(); }), pb.file]),
 			pb.hint] : null;

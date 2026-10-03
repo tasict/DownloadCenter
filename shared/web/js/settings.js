@@ -35,7 +35,7 @@
 		if(DC.phone() && !S.setOpen){
 			list = h('div', {'class':'group setidx'});
 			for(i = 0; i < ts.length; i++){
-				list.appendChild(h('button', {'class':'ib srow t' + (i % 7), type:'button', onclick:(function(id){ return function(){ S.setTab = id; S.setOpen = true; DC.renderView(); window.scrollTo(0, 0); }; })(ts[i][0])},
+				list.appendChild(h('button', {'class':'ib srow t' + (i % 7), type:'button', onclick:(function(id){ return function(){ S.setTab = id; S.setOpen = true; DC.track('set_' + id); DC.renderView(); window.scrollTo(0, 0); }; })(ts[i][0])},
 					[icon(SET_INFO[ts[i][0]][0]), h('span', null, [h('b', {text:ts[i][1]}), h('small', {text:SET_INFO[ts[i][0]][1]})]), icon('chev', 'chev')]));
 			}
 			add(main, [h('div', {'class':'lhead'}, [h('h1', {text:DC.t('設定')}), admin ? null : h('span', {'class':'sub', text:DC.t('只會影響你自己的下載')})]), list, foot()]);
@@ -44,7 +44,7 @@
 		tb = h('div', {'class':'tabs', role:'tablist'});
 		for(i = 0; i < ts.length; i++){
 			tb.appendChild(h('button', {'class':'tab' + (S.setTab === ts[i][0] ? ' on' : ''), type:'button', role:'tab', 'aria-selected':S.setTab === ts[i][0] ? 'true' : 'false',
-				onclick:(function(id){ return function(){ if(S.setTab !== id) DC.leave(function(){ S.setTab = id; DC.renderView(); }); }; })(ts[i][0])}, ts[i][1]));
+				onclick:(function(id){ return function(){ if(S.setTab !== id) DC.leave(function(){ S.setTab = id; DC.track('set_' + id); DC.renderView(); }); }; })(ts[i][0])}, ts[i][1]));
 		}
 		body = h('div');
 		if(S.setTab === 'dl') (admin ? setDownload : setDownloadUser)(body);
