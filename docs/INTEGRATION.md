@@ -108,7 +108,7 @@ The engine tick writes events into an append-only table (kept 30 days). Every co
 | `task.added` | A task was created (any client) |
 | `task.started` | Left the queue and began transferring |
 | `task.paused`, `task.resumed` | User or schedule action (`by` says which) |
-| `task.completed` | All selected data downloaded (BT may continue seeding) |
+| `task.completed` | All selected data downloaded and moved out of the temporary folder (torrents keep seeding from there) |
 | `task.seeding_finished` | Ratio or seed-time target reached |
 | `task.moved` | Moved to its completion folder |
 | `task.failed` | `error.code`, `error.message`, `retryable` |

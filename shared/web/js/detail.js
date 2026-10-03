@@ -144,7 +144,7 @@
 		if(t.sched_paused) stateText += DC.t('（排程暫停）');
 		if(t.wake_time && s === 'pause') stateText += DC.t('，{time} 自動繼續', {time:DC.fclock(t.wake_time)});
 		if(t.error) stateText += DC.t('：{error}', {error:t.error.message});
-		var inTemp = t.proto !== 'bt' && s !== 'done' && s !== 'move';
+		var inTemp = t.in_temp && s !== 'done' && s !== 'move';
 		/* Paths break after a slash rather than mid-name, and can be copied */
 		function path(text){
 			var el = h('span', {'class':'mono pre path'}), parts = String(text || '').split('/'), k;
@@ -160,8 +160,8 @@
 			t.proto === 'bt' ? h('dt', {text:DC.t('連線')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{peers} 位使用者，{seeds} 個完整來源', {peers:t.peers || 0, seeds:t.seeds || 0})}) : null,
 			h('dt', {text:admin ? DC.t('暫存位置') : DC.t('存放位置')}), path(t.folder),
 			inTemp && t.location ? h('dt', {text:DC.t('下載中的檔案')}) : null, inTemp && t.location ? path(t.location) : null,
-			t.move_to ? h('dt', {text:t.proto === 'bt' ? DC.t('做種結束後移至') : DC.t('完成後移至')}) : null, t.move_to ? path(t.move_to) : null,
-			s === 'done' ? h('dt', {text:DC.t('檔案位置')}) : null, s === 'done' ? path(t.location) : null,
+			t.move_to ? h('dt', {text:DC.t('完成後移至')}) : null, t.move_to ? path(t.move_to) : null,
+			s === 'done' || s === 'seed' && !t.in_temp ? h('dt', {text:DC.t('檔案位置')}) : null, s === 'done' || s === 'seed' && !t.in_temp ? path(t.location) : null,
 			h('dt', {text:srcs.length > 1 ? DC.t('來源（已合併）') : DC.t('來源')}), h('dd', {'class':'mono pre', text:srcText}),
 			t.auto_remove ? h('dt', {text:DC.t('完成後')}) : null, t.auto_remove ? h('dd', {text:t.auto_remove === 'completed' ? DC.t('下載完成後從清單移除') : DC.t('做種完成後從清單移除')}) : null,
 			t.comment ? h('dt', {text:DC.t('說明')}) : null, t.comment ? h('dd', {text:t.comment}) : null,

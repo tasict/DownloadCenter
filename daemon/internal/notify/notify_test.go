@@ -24,10 +24,11 @@ import (
 )
 
 // stubBT stands in for libtorrent: the manager loop does not run in these
-// tests, only the engine name is used.
+// tests, only the engine name and capabilities are used.
 type stubBT struct{ engine.Engine }
 
-func (stubBT) Name() string { return "libtorrent" }
+func (stubBT) Name() string      { return "libtorrent" }
+func (stubBT) Caps() engine.Caps { return engine.Caps{Torrents: true, MoveWhileSeeding: true} }
 
 // stubURL stands in for the URL engine: the manager loop does not run in
 // these tests, only the protocol check is used.

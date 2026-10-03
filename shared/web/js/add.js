@@ -303,12 +303,11 @@
 				}
 			}, function(){});
 		}
-		/* Options that depend on what is being added: the account only for URLs, the "move" label and "seeded" choice for torrents */
+		/* Options that depend on what is being added: the account only for URLs, the "seeded" choice for torrents */
 		function syncOptions(){
 			acct.hidden = acctLabel.hidden = !hasUrl;
 			if(!hasUrl) manual.hidden = true; else { manual.hidden = acct.value !== 'manual'; loadAccounts(); loadProxies(); }
 			pxSel.hidden = pxLabel.hidden = !hasUrl || !proxyOffered();
-			moveLabel.textContent = one || hasBt ? DC.t('做種結束後移至') : DC.t('完成後移至');
 			seededOpt.hidden = seededOpt.disabled = !(hasBt || pageUrl);
 			if(seededOpt.disabled && auto.value === 'seeded') auto.value = 'completed';
 		}

@@ -118,8 +118,8 @@ func (m *Manager) Retry(hash string) error {
 }
 
 // Remove removes a task from the list (kept in the history). deleteData
-// also deletes the downloaded data; an unfinished URL task always loses its
-// temp folder.
+// also deletes the downloaded data; a task whose data is still in its
+// @DownloadCenterTemp folder always loses that folder.
 func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
 	m.mu.Lock()
 	t, ok := m.live[hash]
@@ -127,7 +127,7 @@ func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
 		m.mu.Unlock()
 		return ErrNotFound
 	}
-	if m.moving[hash] {
+	if m.moving[hash] || t.State == StMoving {
 		m.mu.Unlock()
 		return errors.New("files_moving")
 	}
@@ -153,12 +153,15 @@ func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
 		} else if deleteData && t.DataPath != "" {
 			paths = append(paths, t.DataPath)
 		}
+	} else if t.InTemp() && ownTemp(t.WorkDir) {
+		removeTempDir(t.WorkDir)
 	} else if deleteData {
 		if t.DataPath != "" {
-			paths = append(paths, t.DataPath)
+			paths = append(paths, t.DataPath, filepath.Join(filepath.Dir(t.DataPath), "."+hash+".parts"))
 		} else if t.Name != "" {
-			p := filepath.Join(t.TempDir, t.Name)
-			paths = append(paths, p, p+".aria2", filepath.Join(t.TempDir, "."+hash+".parts"))
+			dir := t.SaveDir()
+			p := filepath.Join(dir, t.Name)
+			paths = append(paths, p, p+".aria2", filepath.Join(dir, "."+hash+".parts"))
 		}
 	}
 	for _, p := range paths {
@@ -250,12 +253,12 @@ func (m *Manager) Undo(hash string) error {
 	}
 	t.RemovedAt = 0
 	t.EngineRef = ""
-	if t.State != StDone && t.Kind == KindBT && t.DoneBytes > 0 {
-		t.Options.Check = true
-	}
-	if t.State != StDone && t.Kind != KindBT {
+	if t.State != StDone && (t.Kind != KindBT || t.InTemp() && ownTemp(t.WorkDir)) {
 		// The temp folder was deleted: start over
 		t.DoneBytes = 0
+	}
+	if t.State != StDone && t.Kind == KindBT && t.DoneBytes > 0 {
+		t.Options.Check = true
 	}
 	m.saveTask(t)
 	m.live[hash] = t

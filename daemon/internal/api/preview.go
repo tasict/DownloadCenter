@@ -77,12 +77,10 @@ func (s *Server) previewFiles(t *core.Task) []previewFile {
 	rows := s.M.Files(t.Hash)
 	var out []previewFile
 	done := t.State == core.StDone || t.State == core.StSeeding
-	base := t.TempDir
+	base := t.SaveDir()
 	if t.Kind != core.KindBT {
 		base = t.WorkDir
-	}
-	if t.State == core.StDone && t.DataPath != "" {
-		if t.Kind != core.KindBT || t.MoveDir != "" {
+		if t.State == core.StDone && t.DataPath != "" {
 			base = filepath.Dir(t.DataPath)
 		}
 	}

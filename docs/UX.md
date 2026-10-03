@@ -210,8 +210,8 @@ Touch devices (any width, `pointer: coarse`): icon buttons are 44px, capsules an
    - **Duplicate detection**: items already in the list (same URL, same name, or a file of the same name and size already at the destination) are marked "Already in the list" and unchecked by default.
    - **The same torrent** (another magnet link or .torrent with the same infohash): no add dialog; instead "This torrent is already in the list", where "Merge into existing task" only adds the new trackers. Torrents with a different infohash but the same content are listed under "Sources (merged)" in the details panel.
    - **Locations and accounts** (as in the official "New task"):
-     - **Temporary location**: where files stay while downloading. URL tasks actually go into `@DownloadCenterTemp/<task>/` in that shared folder; torrents download and seed right there.
-     - **Move to when finished**: the first option is "Do not move (stay in the temporary location)". For torrents the label is "Move when seeding ends to", and the move happens only when seeding ends.
+     - **Temporary location**: where files stay while downloading. Every download actually goes into `@DownloadCenterTemp/<task>/` in that shared folder.
+     - **Move to when finished**: the first option is "Do not move (stay in the temporary location)". Torrents move as soon as their data is complete and keep seeding from there.
      - **Site account** (only with URL tasks; not for torrents or file-hosting links): "Auto (look up a saved account by site)" by default, "None", the saved accounts (site and account name), "Enter manually…". Entering manually reveals user name and password fields below, used only for this task and not saved to the account list.
    - Every dialog has "When finished": keep in the list, remove when the download finishes, remove when seeding finishes (torrents only). Only the list entry is removed; files stay.
    - Torrents / magnets: the file list (Select all, Only videos, Select none), the selected size and the free space of the folder, plus the same temporary location and move-to choices. A magnet link must fetch its file list first, and "Start download" is disabled meanwhile.
@@ -226,9 +226,9 @@ Confirmed in an in-page dialog, never `confirm()`. The option "Also delete downl
 
 ### Where files go
 
-- URL downloads in progress live in `@DownloadCenterTemp/<task>/` of the same shared folder and are moved to "Move to when finished" (or to the temporary location when nothing is set) only when complete. Half-downloaded URL files never show up in the shared folder. The details panel's Overview shows the "Temporary location" and the location after finishing.
-- Torrents download straight into the "Temporary location" and seed there, so their files are visible while downloading; they move to "Move when seeding ends to" only when seeding ends.
-- The help text of Settings › Download › Folders spells out both rules; regular users see the version about their own home folder.
+- Downloads in progress, links and torrents alike, live in `@DownloadCenterTemp/<task>/` of the same shared folder and are moved to "Move to when finished" (or to the temporary location when nothing is set) only when complete. Half-downloaded files never show up in the shared folder. A move to another volume is copied into that volume's `@DownloadCenterTemp` first and renamed into place, so a half-copied file never shows up either; a name that is taken gets " (1)". The details panel's Overview shows the "Temporary location", "Files being downloaded" while in the temporary folder, and the "File location" once finished or seeding.
+- Torrents keep seeding from where they were moved. Files selected after a torrent finished download in place there.
+- The help text of Settings › Download › Folders spells this out; regular users see the version about their own home folder.
 
 ## Settings
 

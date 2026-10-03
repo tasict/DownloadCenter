@@ -524,12 +524,11 @@ func (im *Importer) importTask(t Task, sum *Summary) {
 		sum.HistoryAdded++
 		return
 	}
-	// Unfinished: keep using the official temporary data where it is
+	// Unfinished: keep using the official temporary data where it is until
+	// the download is complete
 	if of := officialTempFolder(shareRootOf(temp), t.Hash); of != "" {
-		if kind == core.KindBT {
-			spec.TempDir = of
-		} else {
-			spec.WorkDir = of
+		spec.WorkDir = of
+		if kind != core.KindBT {
 			if ents, err := os.ReadDir(of); err == nil {
 				for _, e := range ents {
 					if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {

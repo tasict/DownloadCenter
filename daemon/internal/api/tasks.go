@@ -47,6 +47,7 @@ type TaskJSON struct {
 	Folder      string         `json:"folder"`
 	MoveTo      string         `json:"move_to"`
 	Location    string         `json:"location"`
+	InTemp      bool           `json:"in_temp,omitempty"` // location is the task's temporary folder (not complete yet)
 	AutoRemove  string         `json:"auto_remove"`
 	FilesTotal  int            `json:"files_total"`
 	FilesChosen int            `json:"files_chosen"`
@@ -94,10 +95,11 @@ func (s *Server) taskJSON(p *auth.Principal, t *core.Task, withBits bool) TaskJS
 	case t.DataPath != "":
 		j.Location = s.M.DisplayPath(viewer, t.DataPath)
 	case t.Kind == core.KindBT && t.Name != "":
-		j.Location = s.M.DisplayPath(viewer, t.TempDir+"/"+t.Name)
+		j.Location = s.M.DisplayPath(viewer, t.SaveDir()+"/"+t.Name)
 	default:
 		j.Location = s.M.DisplayPath(viewer, t.WorkDir)
 	}
+	j.InTemp = t.InTemp()
 	if t.State == core.StError {
 		j.Error = map[string]any{"code": t.ErrorCode, "message": t.ErrorMsg}
 	}

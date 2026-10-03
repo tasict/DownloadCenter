@@ -43,6 +43,8 @@ Lines without `id`, sent as they happen:
 {"event": "torrent_error", "infohash": "…", "error": "…"}
 {"event": "state_changed", "infohash": "…", "state": "downloading"}
 {"event": "resume_saved", "infohash": "…"}
+{"event": "storage_moved", "infohash": "…", "save_path": "/share/…"}
+{"event": "storage_move_failed", "infohash": "…", "error": "…"}
 {"event": "listen_failed", "error": "…"}
 ```
 
@@ -50,10 +52,11 @@ Lines without `id`, sent as they happen:
 
 | cmd | Arguments | Result |
 |---|---|---|
-| `version` | — | `{"dcbt": "1.0", "libtorrent": "2.0.15"}` |
+| `version` | — | `{"dcbt": "1.1", "libtorrent": "2.0.15"}` (`move` and `root` need 1.1) |
 | `apply_settings` | settings object (below) | `{}` |
-| `add` | `torrent_b64` or `magnet`, `save_path`, `select` ([file index], omitted = all), `priorities` ({"index": 0..7}), `trackers` ([url]), `paused`, `seed_ratio` (float, 0 = none), `seed_time` (minutes; -1 = do not seed, 0 = no time limit), `sequential`, `check` (force a recheck), `max_down`, `max_up` (bytes/s), `max_peers`, `fastresume` (path of an official libtorrent 1.2 `.fastresume` to try first), `metadata_only` (fetch the metadata, write `<save_path>/<infohash>.torrent`, then drop the torrent) | `{"infohash": "…", "existed": false, "resumed": true}` |
+| `add` | `torrent_b64` or `magnet`, `save_path`, `select` ([file index], omitted = all), `priorities` ({"index": 0..7}), `trackers` ([url]), `paused`, `seed_ratio` (float, 0 = none), `seed_time` (minutes; -1 = do not seed, 0 = no time limit), `sequential`, `check` (force a recheck), `max_down`, `max_up` (bytes/s), `max_peers`, `fastresume` (path of an official libtorrent 1.2 `.fastresume` to try first), `metadata_only` (fetch the metadata, write `<save_path>/<infohash>.torrent`, then drop the torrent), `root` (the data's top folder, or its single file, is called this instead of the torrent's name) | `{"infohash": "…", "existed": false, "resumed": true}` |
 | `pause` / `resume` / `remove` / `force_recheck` | `infohash` | `{}` (`remove` keeps the data and is idempotent) |
+| `move` | `infohash`, `save_path`, `root` (optional, renames the top folder or single file on the way) | `{}` at once; the torrent keeps running, status shows `moving` until libtorrent is done, then the new `save_path` (resume data saved right away), or `move_error`. Nothing at the destination is replaced: if a file exists there the move fails and the data stays |
 | `set_file_priorities` | `infohash`, `select`, `priorities` | `{}` |
 | `set_limits` | `infohash`, `down`, `up` (bytes/s, 0 = none) | `{}` |
 | `set_sequential` | `infohash`, `on` | `{}` |
@@ -72,7 +75,7 @@ Lines without `id`, sent as they happen:
 {
   "infohash": "…", "name": "Sintel", "save_path": "/share/…",
   "state": "checking_files|checking_resume_data|downloading_metadata|downloading|finished|seeding",
-  "paused": false, "complete": false, "has_metadata": true, "error": "",
+  "paused": false, "complete": false, "moving": false, "move_error": "", "has_metadata": true, "error": "",
   "total_wanted": 0, "total_wanted_done": 0, "all_time_upload": 0, "all_time_download": 0,
   "down_rate": 0, "up_rate": 0, "peers": 0, "seeds": 0,
   "pieces": "ff80…", "num_pieces": 987, "piece_length": 131072,

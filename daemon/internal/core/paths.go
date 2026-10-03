@@ -12,7 +12,8 @@ import (
 	"downloadcenter/internal/qts"
 )
 
-// TempDirName is the folder at the root of a share where URL tasks download.
+// TempDirName is the folder at the root of a share where downloads stay
+// until they are complete.
 const TempDirName = "@DownloadCenterTemp"
 
 // OfficialTempName is the official package's temporary folder.
@@ -134,9 +135,9 @@ func (m *Manager) UserDownloadDir(user string) string {
 	return qts.PublicDir()
 }
 
-// workDirFor returns where a URL task downloads: @DownloadCenterTemp/<hash>
-// at the root of the temporary location's share (inside home/Download for
-// home folders).
+// workDirFor returns where a task downloads: @DownloadCenterTemp/<hash> at
+// the root of the temporary location's share (inside home/Download for home
+// folders).
 func (m *Manager) workDirFor(tempDir, hash string) string {
 	root := tempDir
 	if hr := qts.HomesRoot(); hr != "" && strings.HasPrefix(tempDir, hr+"/") {
@@ -168,6 +169,47 @@ func chownPath(p, user string, recursive bool) error {
 		os.Lchown(path, uid, gid)
 		return nil
 	})
+}
+
+// uniqueDir returns dst, or "dst (n)" when it exists. Unlike uniquePath it
+// keeps a folder's name whole ("Some.Show.S01 (1)").
+func uniqueDir(dst string) string {
+	if _, err := os.Lstat(dst); err != nil {
+		return dst
+	}
+	for i := 1; i < 10000; i++ {
+		c := fmt.Sprintf("%s (%d)", dst, i)
+		if _, err := os.Lstat(c); err != nil {
+			return c
+		}
+	}
+	return dst
+}
+
+func pathExists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// sameVolume reports whether two folders are on one file system, so data
+// moves between them by renaming. A missing folder counts as its nearest
+// existing parent. A variable so that tests can pretend otherwise.
+var sameVolume = func(a, b string) bool {
+	da, ok := deviceOf(a)
+	db, ok2 := deviceOf(b)
+	return ok && ok2 && da == db
+}
+
+func deviceOf(p string) (uint64, bool) {
+	var st syscall.Stat_t
+	for p = filepath.Clean(p); ; p = filepath.Dir(p) {
+		if err := syscall.Stat(p, &st); err == nil {
+			return uint64(st.Dev), true
+		}
+		if p == "/" || p == "." {
+			return 0, false
+		}
+	}
 }
 
 // uniquePath returns dst, or "dst (n)" variants when it exists.
@@ -287,12 +329,41 @@ func inside(p, dir string) bool {
 	return p == dir || strings.HasPrefix(p, dir+"/")
 }
 
-// removeTempDir deletes a URL task's temp folder and an empty
+// ownTemp reports a folder inside one of our @DownloadCenterTemp folders.
+func ownTemp(work string) bool {
+	return work != "" && strings.Contains(work, "/"+TempDirName+"/")
+}
+
+// removeTempDir deletes a task's temp folder and an empty
 // @DownloadCenterTemp parent.
 func removeTempDir(work string) {
-	if work == "" || !strings.Contains(work, "/"+TempDirName+"/") {
+	if !ownTemp(work) {
 		return
 	}
 	os.RemoveAll(work)
 	os.Remove(filepath.Dir(work))
+}
+
+// leaveTemp cleans up after a torrent's data moved out of its temporary
+// folder: ours goes entirely, the official package's only where empty.
+func leaveTemp(work string) {
+	if ownTemp(work) {
+		removeTempDir(work)
+		return
+	}
+	removeEmptyDirs(work)
+}
+
+// removeEmptyDirs removes dir and the folders below it that hold no files.
+func removeEmptyDirs(dir string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		if e.IsDir() {
+			removeEmptyDirs(filepath.Join(dir, e.Name()))
+		}
+	}
+	os.Remove(dir)
 }

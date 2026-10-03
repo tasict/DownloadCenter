@@ -62,10 +62,11 @@ func TestAdapter(t *testing.T) {
 		"down_rate": 0, "up_rate": 20, "peers": 3, "seeds": 1, "pieces": "f0", "num_pieces": 4, "piece_length": 256,
 		"files": []any{map[string]any{"index": 0, "path": "Sintel/a.mp4", "size": 1000, "done": 1000, "priority": 4}},
 	}
+	dcbt := "1.0"
 	f := newFake(t, dir, func(req map[string]any) (any, string) {
 		switch req["cmd"] {
 		case "version":
-			return map[string]any{"dcbt": "1.0", "libtorrent": "2.0.15"}, ""
+			return map[string]any{"dcbt": dcbt, "libtorrent": "2.0.15"}, ""
 		case "add":
 			return map[string]any{"infohash": "08ada5a7a6183aae1e09d831df6748d566095a10", "resumed": true}, ""
 		case "status_all":
@@ -87,6 +88,18 @@ func TestAdapter(t *testing.T) {
 		t.Fatalf("version %q", e.Version())
 	}
 	<-f.reqs // version
+	// dc-bt 1.0 cannot move data while seeding; 1.1 can
+	if e.Caps().MoveWhileSeeding {
+		t.Fatal("dc-bt 1.0 must not claim move_while_seeding")
+	}
+	dcbt = "1.1"
+	if err := e.Health(); err != nil {
+		t.Fatal(err)
+	}
+	<-f.reqs
+	if !e.Caps().MoveWhileSeeding {
+		t.Fatal("dc-bt 1.1 can move data while seeding")
+	}
 	if err := e.ApplyGlobal(engine.Global{PortFrom: 16951, PortTo: 16959, DHT: true, Proxy: engine.Proxy{Type: "socks5", Host: "p", Port: 1080, ApplyPeers: true, Force: true}}); err != nil {
 		t.Fatal(err)
 	}
@@ -95,12 +108,12 @@ func TestAdapter(t *testing.T) {
 	if s["listen_from"].(float64) != 16951 || s["proxy"].(map[string]any)["type"] != "socks5" || s["proxy"].(map[string]any)["force"] != true {
 		t.Fatalf("settings %v", s)
 	}
-	ref, err := e.Add("08ada5a7a6183aae1e09d831df6748d566095a10", engine.AddRequest{Torrent: []byte("d4:infod4:name1:xee"), Dir: "/x", Select: []int{0, 2}, Paused: true, SeedTime: -1})
+	ref, err := e.Add("08ada5a7a6183aae1e09d831df6748d566095a10", engine.AddRequest{Torrent: []byte("d4:infod4:name1:xee"), Dir: "/x", Select: []int{0, 2}, Root: "x (1)", Paused: true, SeedTime: -1})
 	if err != nil || ref != "08ada5a7a6183aae1e09d831df6748d566095a10" {
 		t.Fatal(ref, err)
 	}
 	r = <-f.reqs
-	if r["torrent_b64"] == nil || r["paused"] != true || len(r["select"].([]any)) != 2 || r["seed_time"].(float64) != -1 {
+	if r["torrent_b64"] == nil || r["paused"] != true || len(r["select"].([]any)) != 2 || r["seed_time"].(float64) != -1 || r["root"] != "x (1)" {
 		t.Fatalf("add %v", r)
 	}
 	st, err := e.StatusAll()
@@ -152,6 +165,26 @@ func TestAdapter(t *testing.T) {
 	}
 	if !e.Caps().Socks5Peers || e.Caps().URLs {
 		t.Fatal("caps")
+	}
+	// Moving the data while seeding
+	if err := e.MoveStorage(ref, "/dst", "Sintel (1)"); err != nil {
+		t.Fatal(err)
+	}
+	r = <-f.reqs
+	if r["cmd"] != "move" || r["infohash"] != ref || r["save_path"] != "/dst" || r["root"] != "Sintel (1)" {
+		t.Fatalf("move %v", r)
+	}
+	status["error"], status["moving"] = "", true
+	st, _ = e.StatusAll()
+	<-f.reqs
+	if !st[ref].Moving || st[ref].MoveError != "" {
+		t.Fatalf("moving %+v", st[ref])
+	}
+	status["moving"], status["move_error"] = false, "File exists: /dst/Sintel/a.mp4"
+	st, _ = e.StatusAll()
+	<-f.reqs
+	if st[ref].Moving || st[ref].MoveError != "File exists: /dst/Sintel/a.mp4" {
+		t.Fatalf("move error %+v", st[ref])
 	}
 }
 

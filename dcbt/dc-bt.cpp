@@ -51,7 +51,7 @@ namespace lt = libtorrent;
 using json = nlohmann::json;
 using clk = std::chrono::steady_clock;
 
-static const char *DCBT_VERSION = "1.0";
+static const char *DCBT_VERSION = "1.1";
 
 static volatile sig_atomic_t g_stop = 0;
 static void on_signal(int) { g_stop = 1; }
@@ -189,7 +189,24 @@ struct Options
 	std::vector<int> select;
 	std::map<int, int> priorities;
 	std::string magnet_save; // metadata_only: where to write the .torrent
+	std::string move_error;  // why the last move failed (not saved)
 };
+
+// New paths for every file when the top folder (or the single file) of a
+// torrent is called root instead of the torrent's name.
+static std::map<lt::file_index_t, std::string> root_renames(lt::file_storage const &fs, std::string const &root)
+{
+	std::map<lt::file_index_t, std::string> out;
+	std::string const &name = fs.name();
+	for (lt::file_index_t i : fs.file_range())
+	{
+		std::string p = fs.file_path(i);
+		if (p.compare(0, name.size(), name) != 0 || (p.size() > name.size() && p[name.size()] != '/'))
+			continue;
+		out[i] = root + p.substr(name.size());
+	}
+	return out;
+}
 
 static json opt_json(Options const &o)
 {
@@ -567,6 +584,10 @@ struct Engine
 			}
 		}
 		atp.save_path = save;
+		std::string root = req.value("root", std::string());
+		if (ti && !root.empty())
+			for (auto &kv : root_renames(ti->orig_files(), root))
+				atp.renamed_files[kv.first] = kv.second;
 		atp.flags &= ~lt::torrent_flags::auto_managed;
 		atp.flags &= ~lt::torrent_flags::duplicate_is_error;
 		if (req.value("paused", false))
@@ -619,6 +640,32 @@ struct Engine
 		return json{{"infohash", key}, {"existed", false}, {"resumed", resumed}};
 	}
 
+	// Move the data to another folder; the torrent keeps running and reads
+	// from there once libtorrent is done (storage_moved). Nothing that already
+	// exists at the destination is replaced: the move fails instead.
+	json cmd_move(json const &req)
+	{
+		lt::torrent_handle h = find(req);
+		std::string k = req.value("infohash", std::string());
+		std::string dst = req.value("save_path", std::string());
+		if (dst.empty())
+			throw std::runtime_error("save_path required");
+		auto ti = h.torrent_file();
+		if (!ti)
+			throw std::runtime_error("no metadata yet");
+		std::string root = req.value("root", std::string());
+		if (!root.empty())
+		{
+			lt::file_storage const &cur = ti->files();
+			for (auto &kv : root_renames(ti->orig_files(), root))
+				if (cur.file_path(kv.first) != kv.second)
+					h.rename_file(kv.first, kv.second);
+		}
+		opts[k].move_error.clear();
+		h.move_storage(dst, lt::move_flags_t::fail_if_exist);
+		return json::object();
+	}
+
 	void forget(std::string const &k)
 	{
 		handles.erase(k);
@@ -638,6 +685,8 @@ struct Engine
 		j["state"] = state_name(s.state);
 		j["paused"] = bool(s.flags & lt::torrent_flags::paused);
 		j["complete"] = o.complete;
+		j["moving"] = s.moving_storage;
+		j["move_error"] = o.move_error;
 		j["has_metadata"] = s.has_metadata;
 		j["error"] = s.errc ? s.errc.message() : std::string();
 		j["total_wanted"] = s.total_wanted;
@@ -828,6 +877,8 @@ struct Engine
 			find(req).force_recheck();
 			return json::object();
 		}
+		if (cmd == "move")
+			return cmd_move(req);
 		if (cmd == "set_file_priorities")
 		{
 			lt::torrent_handle h = find(req);
@@ -979,6 +1030,29 @@ struct Engine
 				std::string k = key_of(f->handle.info_hashes());
 				f->handle.save_resume_data(lt::torrent_handle::save_info_dict);
 				event(json{{"event", "torrent_finished"}, {"infohash", k}});
+			}
+			else if (auto *mv = lt::alert_cast<lt::storage_moved_alert>(a))
+			{
+				std::string k = key_of(mv->handle.info_hashes());
+				auto it = opts.find(k);
+				if (it != opts.end())
+					it->second.move_error.clear();
+				// The new save path must survive a restart right away
+				mv->handle.save_resume_data(lt::torrent_handle::save_info_dict);
+				event(json{{"event", "storage_moved"}, {"infohash", k}, {"save_path", mv->storage_path()}});
+			}
+			else if (auto *mf = lt::alert_cast<lt::storage_moved_failed_alert>(a))
+			{
+				std::string k = key_of(mf->handle.info_hashes());
+				std::string msg = mf->error.message();
+				char const *file = mf->file_path();
+				if (file && *file)
+					msg += std::string(": ") + file;
+				auto it = opts.find(k);
+				if (it != opts.end())
+					it->second.move_error = msg;
+				dlog("move %s failed: %s", k.c_str(), msg.c_str());
+				event(json{{"event", "storage_move_failed"}, {"infohash", k}, {"error", msg}});
 			}
 			else if (auto *e = lt::alert_cast<lt::torrent_error_alert>(a))
 			{

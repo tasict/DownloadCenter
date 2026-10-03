@@ -29,7 +29,7 @@ type DB struct {
 // change an older build could not read; a build refuses a database with a
 // higher number (see Open), and every release records it in release.json so
 // the updater knows when going back to an older version needs a backup.
-const SchemaVersion = 1
+const SchemaVersion = 2 // 2: torrents have a temp folder (work_dir) and move once complete
 
 // ErrNewerSchema is returned by Open for a database written by a newer build.
 var ErrNewerSchema = errors.New("the database was written by a newer version of Download Center")

@@ -87,7 +87,7 @@
 	function setDownloadUser(body){
 		var me = DC.S.me, home = me.home_folder || 'home/Download';
 		add(body, [
-			sec('folder', DC.t('我的資料夾'), null, [h('p', {'class':'note', text:DC.t('下載的檔案都會存到你家目錄的 {home}，檔案擁有者是你。網址下載完成前會先放在其中的 @DownloadCenterTemp；種子直接下載到 {home} 並在那裡做種。', {home:home})})])
+			sec('folder', DC.t('我的資料夾'), null, [h('p', {'class':'note', text:DC.t('下載的檔案都會存到你家目錄的 {home}，檔案擁有者是你。下載完成前先放在其中的 @DownloadCenterTemp，完成後才移到 {home}，種子會在那裡繼續做種。', {home:home})})])
 		]);
 	}
 
@@ -127,9 +127,9 @@
 			return h('div', {'class':'sprow', role:'row'}, [h('span', {role:'rowheader', text:label}), spIn(a, ak, DC.t('{what}，平時', {what:label})), spIn(b, bk, DC.t('{what}，限速時段', {what:label}))]);
 		}
 		add(body, [
-			secMore('folder', DC.t('資料夾'), DC.t('加入下載時預先選好的位置，仍可在對話框中更改。'), DC.t('網址下載先放在暫存位置所在共用資料夾的 @DownloadCenterTemp，完成後移到「完成後移至」，選「不移動」就移到暫存位置；種子直接下載到暫存位置並在那裡做種，做種結束才移。一般使用者固定存到各自家目錄的 home/Download。'), [
+			secMore('folder', DC.t('資料夾'), DC.t('加入下載時預先選好的位置，仍可在對話框中更改。'), DC.t('下載中的檔案先放在暫存位置所在共用資料夾的 @DownloadCenterTemp，完成後才移到「完成後移至」，選「不移動」就移到暫存位置；種子移過去後在那裡繼續做種。一般使用者固定存到各自家目錄的 home/Download。'), [
 				fieldDiv(DC.t('預設暫存位置'), null, temp.el),
-				fieldDiv(DC.t('預設完成後移至'), DC.t('種子在做種結束後才移'), move.el)
+				fieldDiv(DC.t('預設完成後移至'), null, move.el)
 			]),
 			sec('done', DC.t('完成的任務'), DC.t('只從清單移除，檔案會保留，紀錄留在歷史中。'), [
 				field(DC.t('完成後'), DC.t('新任務的預設值，加入時可以更改'), DC.select('sAuto', [['', DC.t('保留在清單')], ['completed', DC.t('下載完成後移除')], ['seeded', DC.t('做種完成後移除（種子）')]], s.auto_remove || ''), 'sAuto'),

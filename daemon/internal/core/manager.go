@@ -115,9 +115,13 @@ func (m *Manager) Start() error {
 	var resume []*Task
 	m.mu.Lock()
 	for _, t := range ts {
-		if t.State == StMoving {
+		if adoptOfficialTemp(t) {
+			m.saveTask(t)
+		}
+		if t.State == StMoving && !t.staged() {
 			// Interrupted move: resume it (the engine result is gone,
-			// re-adding would download everything again)
+			// re-adding would download everything again). A torrent's
+			// move runs in the engine and is followed by the loop.
 			resume = append(resume, t)
 		}
 		m.live[t.Hash] = t
@@ -129,6 +133,21 @@ func (m *Manager) Start() error {
 	m.wg.Add(1)
 	go m.loop()
 	return nil
+}
+
+// adoptOfficialTemp stages a torrent that 0.9.x imported into the official
+// temporary folder: it leaves that folder once complete, like every other
+// download. The temporary location becomes the root of that share.
+func adoptOfficialTemp(t *Task) bool {
+	if t.Kind != KindBT || !t.Options.Official || t.WorkDir != "" || t.DataPath != "" || t.State == StMoving || t.State == StDone {
+		return false
+	}
+	i := strings.Index(t.TempDir, "/"+OfficialTempName+"/")
+	if i <= 0 {
+		return false
+	}
+	t.WorkDir, t.TempDir = t.TempDir, t.TempDir[:i]
+	return true
 }
 
 // resumeMove continues a move interrupted by a restart. Caller holds m.mu.
@@ -422,7 +441,13 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 	s := m.Settings()
 	req := engine.AddRequest{MaxDown: t.Options.MaxDown, MaxUp: t.Options.MaxUp}
 	if t.Kind == KindBT {
-		req.Dir = t.TempDir
+		req.Dir = t.SaveDir()
+		if t.InTemp() {
+			if err := os.MkdirAll(req.Dir, 0775); err != nil {
+				return req, fmt.Errorf("無法建立暫存資料夾：%v", err)
+			}
+		}
+		req.Root = t.Options.Root
 		if b, err := os.ReadFile(m.torrentPath(t.Hash)); err == nil {
 			req.Torrent = b
 		} else if t.IsMagnet() {
@@ -700,6 +725,10 @@ func (m *Manager) applyStatus(t *Task, st *engine.Status, e engine.Engine, elaps
 	if st.State == engine.Active && !st.Seeding && st.DownRate > 0 {
 		t.ActiveSecs += elapsed
 	}
+	if t.State == StMoving && t.staged() {
+		m.checkMove(t, st, e)
+		return
+	}
 	switch st.State {
 	case engine.Error:
 		m.engineError(t, st, e)
@@ -708,8 +737,8 @@ func (m *Manager) applyStatus(t *Task, st *engine.Status, e engine.Engine, elaps
 	case engine.Active:
 		switch {
 		case st.Seeding && st.Total > 0 && st.Completed >= st.Total:
-			if t.State != StSeeding {
-				m.downloadDone(t)
+			if t.State != StSeeding || t.InTemp() {
+				m.downloadDone(t, st, e)
 			}
 		case st.Verifying:
 			m.setState(t, StChecking)
@@ -830,12 +859,21 @@ func (m *Manager) fail(t *Task, code, msg string) {
 	m.TaskEvent("task.failed", t, map[string]any{"error": map[string]any{"code": code, "message": msg, "retryable": true}})
 }
 
-// downloadDone: all selected data is present (torrents keep seeding).
-func (m *Manager) downloadDone(t *Task) {
+// downloadDone: all selected data is present (torrents keep seeding). A
+// staged torrent first moves out of its temporary folder and is reported
+// complete once its data has arrived (torrentMoved).
+func (m *Manager) downloadDone(t *Task, st *engine.Status, e engine.Engine) {
 	again := t.FinishedAt != 0 && t.State != StDownloading
 	t.State = StSeeding
 	t.DoneBytes = t.Size
 	m.markDirty(t)
+	if t.InTemp() {
+		m.moveTorrent(t, st, e)
+		if t.InTemp() {
+			return
+		}
+		// The engine cannot move it: it seeds in place like a 0.9.x torrent
+	}
 	if again {
 		// Resumed after a pause or an engine restart: already reported
 		return
@@ -845,8 +883,8 @@ func (m *Manager) downloadDone(t *Task) {
 	}
 	m.Log(t.Hash, "下載完成，開始做種")
 	if !m.isAdminOwner(t.Owner) {
-		if t.Name != "" {
-			go chownPath(filepath.Join(t.TempDir, t.Name), t.Owner, true)
+		if p := t.dataPath(); p != "" {
+			go chownPath(p, t.Owner, true)
 		}
 	}
 	m.TaskEvent("task.completed", t, nil)
@@ -855,13 +893,157 @@ func (m *Manager) downloadDone(t *Task) {
 	}
 }
 
+// moveTorrent moves the complete data of a staged torrent from its
+// temporary folder to its destination; the engine keeps seeding from there.
+// Between volumes the data is copied into the destination volume's
+// @DownloadCenterTemp first, so a half-copied file never shows up either.
+// Caller holds m.mu.
+func (m *Manager) moveTorrent(t *Task, st *engine.Status, e engine.Engine) {
+	mv, ok := e.(engine.StorageMover)
+	if !ok || !e.Caps().MoveWhileSeeding {
+		m.unstage(t)
+		return
+	}
+	dst := t.finalDir()
+	dir, root := dst, t.Options.Root
+	if !sameVolume(t.WorkDir, dst) {
+		dir = m.workDirFor(dst, t.Hash)
+		if ownTemp(dir) {
+			os.RemoveAll(dir) // what an interrupted copy left behind
+		}
+	} else if name := torrentRoot(t, st); name != "" {
+		p := filepath.Join(dst, name)
+		q := uniquePath(p)
+		if t.IsFolder {
+			q = uniqueDir(p)
+		}
+		if q != p {
+			root = filepath.Base(q)
+		}
+	}
+	if err := os.MkdirAll(dir, 0775); err != nil {
+		m.moveFailed(t, e, err.Error())
+		return
+	}
+	if err := mv.MoveStorage(t.EngineRef, dir, root); err != nil {
+		m.moveFailed(t, e, err.Error())
+		return
+	}
+	if t.State != StMoving {
+		m.Log(t.Hash, "下載完成，搬移檔案中")
+	}
+	t.Options.Root = root
+	t.Options.MoveDst, t.Options.MoveAt = dst, time.Now().Unix()
+	t.State = StMoving
+	t.DownRate, t.UpRate = 0, 0
+	m.markDirty(t)
+	m.saveTask(t)
+}
+
+// checkMove follows the engine moving a staged torrent. Caller holds m.mu.
+func (m *Manager) checkMove(t *Task, st *engine.Status, e engine.Engine) {
+	if st.Moving {
+		return
+	}
+	if st.MoveError != "" {
+		m.moveFailed(t, e, st.MoveError)
+		return
+	}
+	dir, dst := filepath.Clean(st.Dir), filepath.Clean(t.Options.MoveDst)
+	switch {
+	case dir == dst:
+		m.torrentMoved(t, st, e)
+	case dir != filepath.Clean(t.WorkDir) && dir == m.workDirFor(dst, t.Hash):
+		// Copied to the destination's volume: now rename it into place
+		old := t.WorkDir
+		t.WorkDir = dir
+		leaveTemp(old)
+		m.moveTorrent(t, st, e)
+	case time.Now().Unix()-t.Options.MoveAt > 30:
+		// The engine lost the move (it restarted meanwhile): ask again
+		m.moveTorrent(t, st, e)
+	}
+}
+
+// torrentMoved: the data of a staged torrent has reached its destination.
+func (m *Manager) torrentMoved(t *Task, st *engine.Status, e engine.Engine) {
+	name := t.Options.Root
+	if name == "" {
+		name = torrentRoot(t, st)
+	}
+	t.DataPath = filepath.Join(t.Options.MoveDst, name)
+	t.Options.MoveDst, t.Options.MoveAt = "", 0
+	t.State = StSeeding
+	// Torrents imported while complete were reported before
+	report := t.FinishedAt == 0
+	if report {
+		t.FinishedAt = time.Now().Unix()
+	}
+	m.markDirty(t)
+	m.saveTask(t)
+	leaveTemp(t.WorkDir)
+	if !m.isAdminOwner(t.Owner) {
+		go chownPath(t.DataPath, t.Owner, true)
+	}
+	m.Log(t.Hash, "檔案已搬移完成")
+	if report {
+		m.TaskEvent("task.completed", t, nil)
+		if t.MoveDir != "" {
+			m.TaskEvent("task.moved", t, map[string]any{"path": m.DisplayPath(t.Owner, t.DataPath)})
+		}
+	}
+	if st.State == engine.Complete {
+		// Seeding is already over (or not wanted)
+		m.completed(t, st, e)
+		return
+	}
+	if report && t.AutoRemove == "completed" {
+		go m.autoRemove(t.Hash)
+	}
+}
+
+// moveFailed stops a staged torrent whose data could not be moved. The data
+// stays in its temporary folder; Retry checks it and moves it again.
+func (m *Manager) moveFailed(t *Task, e engine.Engine, msg string) {
+	if fe, ok := e.(interface{ Forget(string) }); ok && t.EngineRef != "" {
+		fe.Forget(t.EngineRef)
+	}
+	if r := t.Options.Root; r != "" && !pathExists(filepath.Join(t.WorkDir, r)) {
+		t.Options.Root = "" // the rename did not happen
+	}
+	t.Options.MoveDst, t.Options.MoveAt = "", 0
+	m.fail(t, "move", "搬移檔案失敗："+msg)
+}
+
+// unstage falls back to how 0.9.x handled torrents when the engine cannot
+// move data while seeding: seed where the data is, move it when seeding ends.
+func (m *Manager) unstage(t *Task) {
+	t.TempDir, t.MoveDir, t.WorkDir = t.WorkDir, t.finalDir(), ""
+	m.markDirty(t)
+}
+
+// torrentRoot is the name of a torrent's top folder (or single file) on disk.
+func torrentRoot(t *Task, st *engine.Status) string {
+	if st != nil && len(st.Files) > 0 {
+		p := st.Files[0].Path
+		if i := strings.IndexByte(p, '/'); i > 0 {
+			return p[:i]
+		}
+		return p
+	}
+	if t.Options.Root != "" {
+		return t.Options.Root
+	}
+	return t.Name
+}
+
 // completed: the engine finished the task (URL done, or torrent seeding over).
 func (m *Manager) completed(t *Task, st *engine.Status, e engine.Engine) {
 	if t.Kind == KindBT {
-		if t.State != StSeeding {
-			m.downloadDone(t)
-			if t.RemovedAt != 0 {
-				return
+		if t.State != StSeeding || t.InTemp() {
+			m.downloadDone(t, st, e)
+			if t.RemovedAt != 0 || t.State != StSeeding {
+				return // removed, or moving out of its temporary folder first
 			}
 		}
 		t.SeededAt = time.Now().Unix()
@@ -869,11 +1051,12 @@ func (m *Manager) completed(t *Task, st *engine.Status, e engine.Engine) {
 		if fe, ok := e.(interface{ Forget(string) }); ok {
 			fe.Forget(t.EngineRef)
 		}
-		if t.MoveDir != "" && t.MoveDir != t.TempDir && t.Name != "" {
+		if t.DataPath == "" && t.MoveDir != "" && t.MoveDir != t.TempDir && t.Name != "" {
+			// Torrents of 0.9.x seed in place and move when seeding ends
 			m.startMove(t, filepath.Join(t.TempDir, t.Name), t.MoveDir, false)
 			return
 		}
-		if t.Name != "" {
+		if t.DataPath == "" && t.Name != "" {
 			t.DataPath = filepath.Join(t.TempDir, t.Name)
 		}
 		m.finish(t)

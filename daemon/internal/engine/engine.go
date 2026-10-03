@@ -37,7 +37,8 @@ type AddRequest struct {
 	Headers  []string
 	User     string // HTTP/FTP credentials
 	Pass     string
-	Select   []int // 0-based file indices to download (torrents); nil = all
+	Select   []int  // 0-based file indices to download (torrents); nil = all
+	Root     string // torrents: name of the top folder (or single file) when it is not the torrent's
 	Paused   bool
 	Check    bool // verify existing data before downloading
 	Trackers []string
@@ -93,6 +94,8 @@ type Status struct {
 	IsMetadata  bool
 	Seeding     bool // all selected data present, uploading
 	Verifying   bool
+	Moving      bool   // the data is being moved to another folder (StorageMover)
+	MoveError   string // why the last move failed
 	ErrorCode   string // one of the Err* codes below, or engine specific
 	ErrorMsg    string
 	NumPieces   int
@@ -180,6 +183,15 @@ type Engine interface {
 	Peers(ref string) ([]Peer, error)
 	Trackers(ref string) ([]string, error)
 	SaveState() error
+}
+
+// StorageMover is an engine that moves a task's data to another folder
+// while the task keeps running (Caps.MoveWhileSeeding). The move happens in
+// the background: Status.Dir changes once it is done, Status.Moving is set
+// meanwhile and Status.MoveError when it failed. root renames the top folder
+// (or single file) on the way; nothing at the destination is replaced.
+type StorageMover interface {
+	MoveStorage(ref, dir, root string) error
 }
 
 // Error codes reported in Status.ErrorCode. The numbers are aria2's exit

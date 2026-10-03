@@ -407,6 +407,7 @@ func (m *Manager) AddMagnet(link string, o AddOptions) (*AddResult, error) {
 	t.Options.Select = o.Select
 	t.Options.Magnet = strings.TrimSpace(link)
 	t.State = StMetadata
+	m.stageTorrent(t, "")
 	m.db.X(`DELETE FROM tasks WHERE hash = ? AND removed_at > 0`, t.Hash)
 	if err := m.saveTask(t); err != nil {
 		return nil, err
@@ -466,10 +467,7 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	if err := os.WriteFile(m.torrentPath(t.Hash), b, 0600); err != nil {
 		return nil, err
 	}
-	// A torrent whose data already sits in the folder resumes after a check
-	if _, serr := os.Stat(filepath.Join(temp, meta.Name)); serr == nil {
-		t.Options.Check = true
-	}
+	m.stageTorrent(t, meta.Name)
 	files := make([]FileRow, 0, len(meta.Files))
 	for _, f := range meta.Files {
 		prio := 1
@@ -497,6 +495,29 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	m.TaskEvent("task.added", t, map[string]any{"source": kind})
 	m.Kick()
 	return &AddResult{ID: t.Hash, Name: t.Name}, nil
+}
+
+// stageTorrent decides where a new torrent downloads. Like a URL task it
+// goes to @DownloadCenterTemp/<hash> and moves to its destination once its
+// data is complete. Data that already sits at the destination (a torrent
+// added again) is checked and seeded where it is; data in the temporary
+// location is checked and moved when seeding ends, as before.
+func (m *Manager) stageTorrent(t *Task, name string) {
+	if name != "" && name == filepath.Base(name) && name != "." && name != ".." {
+		if p := filepath.Join(t.finalDir(), name); pathExists(p) {
+			t.DataPath = p
+			t.Options.Check = true
+			return
+		}
+		if pathExists(filepath.Join(t.TempDir, name)) {
+			t.Options.Check = true
+			return
+		}
+	}
+	if e := m.BTEngine(); e == nil || !e.Caps().MoveWhileSeeding {
+		return
+	}
+	t.WorkDir = m.workDirFor(t.TempDir, t.Hash)
 }
 
 func validSelection(sel []int, meta *torrent.Meta) []int {

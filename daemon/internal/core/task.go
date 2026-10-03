@@ -3,6 +3,7 @@ package core
 import (
 	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 )
 
@@ -48,6 +49,8 @@ type TaskOptions struct {
 	RetryAt       int64          `json:"retry_at,omitempty"`
 	MoveSrc       string         `json:"move_src,omitempty"`
 	MoveDst       string         `json:"move_dst,omitempty"`
+	MoveAt        int64          `json:"move_at,omitempty"` // torrents: when the engine was asked to move the data
+	Root          string         `json:"root,omitempty"`    // torrents: name of the data at its destination when not the torrent's
 	DataDeleted   bool           `json:"data_deleted,omitempty"`
 	Check         bool           `json:"check,omitempty"`    // verify data on the next engine add
 	OutName       string         `json:"out,omitempty"`      // file name for URL tasks
@@ -189,6 +192,43 @@ func (m *Manager) loadTasks(where string, args ...any) ([]*Task, error) {
 
 // IsMagnet reports a magnet task that has not received its metadata yet.
 func (t *Task) IsMagnet() bool { return strings.HasPrefix(t.Source, "magnet:") }
+
+// staged reports a torrent that, like a URL task, downloads in a temporary
+// folder (@DownloadCenterTemp/<hash>, or the official one when imported) and
+// moves to its destination once its data is complete. Torrents added by
+// 0.9.x have no WorkDir: they download in place and move when seeding ends.
+func (t *Task) staged() bool { return t.Kind == KindBT && t.WorkDir != "" }
+
+// InTemp reports a task whose data is still in its temporary folder.
+func (t *Task) InTemp() bool {
+	if t.Kind == KindBT {
+		return t.staged() && t.DataPath == ""
+	}
+	return t.State != StDone && t.DataPath == ""
+}
+
+// SaveDir is the folder the file paths of a torrent are relative to: its
+// temporary folder until the data has moved, then the folder the data is in.
+func (t *Task) SaveDir() string {
+	switch {
+	case t.DataPath != "":
+		return filepath.Dir(t.DataPath)
+	case t.WorkDir != "":
+		return t.WorkDir
+	}
+	return t.TempDir
+}
+
+// dataPath is the top folder (or single file) of a torrent's data.
+func (t *Task) dataPath() string {
+	if t.DataPath != "" {
+		return t.DataPath
+	}
+	if t.Name == "" {
+		return ""
+	}
+	return filepath.Join(t.SaveDir(), t.Name)
+}
 
 // Final reports a task that no longer needs an engine.
 func (t *Task) Final() bool { return t.State == StDone }

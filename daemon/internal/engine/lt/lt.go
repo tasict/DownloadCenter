@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -55,6 +56,7 @@ type Engine struct {
 	haveG   bool
 	version string
 	cmd     *exec.Cmd
+	oldBT   atomic.Bool // dc-bt older than 1.1: cannot move data while seeding
 
 	omu       sync.Mutex
 	offsets   map[string]int64 // upload already counted before a resumed re-add
@@ -85,7 +87,7 @@ func (e *Engine) Caps() engine.Caps {
 		FilePriorityLevels:   true,
 		GlobalConnLimit:      true,
 		Sequential:           true,
-		MoveWhileSeeding:     true,
+		MoveWhileSeeding:     !e.oldBT.Load(),
 		Webseeds:             true,
 		ResumeImportOfficial: true,
 		Torrents:             true,
@@ -384,7 +386,19 @@ func (e *Engine) getVersion() (string, error) {
 	if err := e.callTimeout("version", nil, &v, 5*time.Second); err != nil {
 		return "", err
 	}
+	e.oldBT.Store(!versionAtLeast(v.Dcbt, 1, 1))
 	return v.Libtorrent, nil
+}
+
+// versionAtLeast compares a "major.minor" version.
+func versionAtLeast(v string, major, minor int) bool {
+	a, b, _ := strings.Cut(v, ".")
+	ma, err := strconv.Atoi(a)
+	if err != nil {
+		return false
+	}
+	mi, _ := strconv.Atoi(b)
+	return ma > major || ma == major && mi >= minor
 }
 
 func (e *Engine) Health() error {
@@ -481,6 +495,9 @@ func (e *Engine) Add(hash string, r engine.AddRequest) (string, error) {
 	if r.Select != nil {
 		args["select"] = r.Select
 	}
+	if r.Root != "" {
+		args["root"] = r.Root
+	}
 	if len(r.Trackers) > 0 {
 		args["trackers"] = r.Trackers
 	}
@@ -542,6 +559,11 @@ func (e *Engine) Remove(ref string) error {
 // Forget drops a finished torrent from the session, keeping its data.
 func (e *Engine) Forget(ref string) { e.Remove(ref) }
 
+// MoveStorage moves a torrent's data to dir; it keeps seeding from there.
+func (e *Engine) MoveStorage(ref, dir, root string) error {
+	return e.simple("move", ref, map[string]any{"save_path": dir, "root": root})
+}
+
 func (e *Engine) SetFiles(ref string, sel []int, prio map[int]int) error {
 	if len(sel) == 0 {
 		return errors.New("at least one file must be selected")
@@ -600,6 +622,8 @@ type rawStatus struct {
 	State           string `json:"state"`
 	Paused          bool   `json:"paused"`
 	Complete        bool   `json:"complete"`
+	Moving          bool   `json:"moving"`
+	MoveError       string `json:"move_error"`
 	HasMetadata     bool   `json:"has_metadata"`
 	Error           string `json:"error"`
 	TotalWanted     int64  `json:"total_wanted"`
@@ -632,6 +656,7 @@ func (e *Engine) convert(r *rawStatus) *engine.Status {
 		NumPieces: r.NumPieces, PieceLength: r.PieceLength, Bitfield: r.Pieces, Comment: r.Comment,
 		IsMetadata: r.State == "downloading_metadata" || !r.HasMetadata,
 		Verifying:  r.State == "checking_files" || r.State == "checking_resume_data",
+		Moving:     r.Moving, MoveError: r.MoveError,
 	}
 	e.omu.Lock()
 	if e.needOff[r.Infohash] {

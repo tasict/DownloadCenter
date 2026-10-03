@@ -17,9 +17,9 @@ type ImportSpec struct {
 	Kind       string // http | ftp | bt
 	Source     string // URL, magnet or torrent name
 	Name       string
-	TempDir    string // real path where a torrent downloads / seeds
+	TempDir    string // real path of the temporary location
 	MoveDir    string // real path, "" = do not move
-	WorkDir    string // real path of a URL task's partial data ("" = new temp folder)
+	WorkDir    string // real path of the partial data in the official temporary folder ("" = a new temp folder)
 	OutName    string // URL task: name of the partial file to continue
 	Torrent    []byte
 	Select     []int // nil = all files
@@ -118,8 +118,12 @@ func (m *Manager) ImportTask(s ImportSpec) error {
 		}
 		return nil
 	}
-	if t.Kind != KindBT && t.WorkDir == "" {
-		t.WorkDir = m.workDirFor(t.TempDir, t.Hash)
+	if t.WorkDir == "" {
+		if t.Kind == KindBT {
+			m.stageTorrent(t, t.Name)
+		} else {
+			t.WorkDir = m.workDirFor(t.TempDir, t.Hash)
+		}
 	}
 	m.mu.Lock()
 	t.Position = m.nextPosition()

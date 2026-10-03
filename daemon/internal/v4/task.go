@@ -98,9 +98,12 @@ func (c *call) record(t *core.Task) map[string]any {
 	m := c.s.m
 	viewer := c.who.User
 	path := m.DisplayPath(viewer, t.TempDir)
-	if t.State == core.StDone && t.DataPath != "" {
+	switch {
+	case t.State == core.StDone && t.DataPath != "":
 		path = m.DisplayPath(viewer, filepath.Dir(t.DataPath))
-	} else if t.Kind != core.KindBT && t.State != core.StDone {
+	case t.Kind == core.KindBT:
+		path = m.DisplayPath(viewer, t.SaveDir())
+	case t.State != core.StDone:
 		path = m.DisplayPath(viewer, t.WorkDir)
 	}
 	move := m.DisplayPath(viewer, t.MoveDir)
@@ -211,6 +214,9 @@ func sortV4(ts []*core.Task, field, direction string, rec func(*core.Task) map[s
 		case "", "priority":
 			return int64(t.Position)
 		case "save_as":
+			if t.Kind == core.KindBT {
+				return strings.ToLower(t.SaveDir() + "/" + t.Name)
+			}
 			return strings.ToLower(t.TempDir + "/" + t.Name)
 		case "eta":
 			if e := t.ETA(); e >= 0 {
