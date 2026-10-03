@@ -2,6 +2,11 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.0.2
+
+- The traffic graph in the connections tab of the task details shows again. It was cut down to a thin strip in which only half of the download and upload labels could be seen.
+- The about page shows the notes of the installed version and of the latest one, instead of every release. Older releases are on the releases page.
+
 ## 1.0.1
 
 - Who can use Download Center is now set in QTS: Control Panel › Privilege › Users › Edit Application Privilege. QTS administrators can always use it and are its administrators. Accounts on the old user list, and whoever could use Download Station, are allowed automatically when you upgrade.
