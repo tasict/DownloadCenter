@@ -6,7 +6,7 @@
 	var field = DC.field, fieldDiv = DC.fieldDiv, toggle = DC.toggle, num = DC.num, sec = DC.sec;
 	var SET_INFO = {
 		dl:['down', DC.t('資料夾、同時下載數、速度、種子')], sched:['cal', DC.t('什麼時候全速、限速或暫停')], users:['user', DC.t('誰可以使用 Download Center')],
-		acct:['key', DC.t('需要登入的網站與免空帳號')], token:['ticket', DC.t('讓其他程式使用你的下載')], notify:['bell', DC.t('Telegram、Discord、Webhook')], import:['inbox', DC.t('設定、任務與網站帳號')], about:['retry', DC.t('版本、更新與舊版本')]
+		acct:['key', DC.t('需要登入的網站與免空帳號')], token:['ticket', DC.t('讓其他程式使用你的下載')], notify:['bell', DC.t('Telegram、Discord、Webhook')], import:['inbox', DC.t('設定、任務與網站帳號')], about:['retry', DC.t('版本、更新與相關連結')]
 	};
 	var importAvail = null;
 	/* After a successful import the section disappears (kept on screen until the next navigation, so the summary stays readable). */

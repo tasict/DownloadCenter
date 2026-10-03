@@ -378,8 +378,9 @@ input[type=range]{accent-color:var(--accent)}
 .upd:hover{background:color-mix(in srgb,var(--accent) 20%,transparent)!important;color:var(--accent)!important}
 .relnotes{white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto;margin:0 0 12px;padding:12px 14px;border-radius:12px;background:var(--surface);font:13px/1.55 var(--f);color:var(--label)}
 .relnotes.mono{font:12px/1.5 var(--f-mono)}
-.relmore summary{width:fit-content;margin-top:4px;color:var(--accent);font-size:12.5px;cursor:pointer}
-.relmore .relnotes{margin-top:8px;background:var(--fill)}
+.relrow{align-items:start}
+.relrow .relnotes{margin:8px 0 0;background:var(--fill)}
+.relrow .note{margin:6px 0 0;padding:0}
 .modal .skipv{margin-right:auto;font-size:13px}
 .up-prog{display:flex;flex-direction:column;gap:8px;padding:6px 0 4px}
 .up-phase{font:600 15px/1.4 var(--f-display)}

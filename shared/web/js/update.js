@@ -1,6 +1,7 @@
 /* Updates, for administrators signed in to the UI: a quiet toolbar tag when a newer release is out, the update window with
-   its progress, and the 關於與更新 settings page (every release, but only newer ones install; going back is deliberately
-   not offered). dcd fetches the release index, checks the signature and runs the installer; the page only asks and shows. */
+   its progress, and the 關於與更新 settings page (the notes of the running and the latest release; only newer ones install,
+   going back is deliberately not offered). dcd fetches the release index, checks the signature and runs the installer; the
+   page only asks and shows. */
 (function(){
 	'use strict';
 	var DC = window.DC, h = DC.h, add = DC.add, clear = DC.clear, icon = DC.icon, btn = DC.btn, R = DC.R;
@@ -164,7 +165,7 @@
 				ext(DC.t('版本發布頁'), DC.t('每個版本的說明與安裝檔，也可以從這裡手動下載'), REPO + '/releases'),
 				ext(DC.t('回報問題'), DC.t('遇到問題或有建議時到 GitHub 開 issue，請附上版本 {version}（{arch}）', {version:v.current, arch:v.arch || '?'}), REPO + '/issues')
 			]),
-			sec('files', DC.t('所有版本'), null, [releases(v)])
+			sec('files', DC.t('更新內容'), null, [releases(v)])
 		]);
 	}
 
@@ -172,10 +173,22 @@
 		return DC.fieldDiv(label, help, h('a', {'class':'linkish', href:url, target:'_blank', rel:'noopener noreferrer'}, [icon('popout'), DC.t('開啟')]));
 	}
 
-	function releases(v){
-		var list = h('div'), i;
-		if(!v.releases.length){ list.appendChild(h('p', {'class':'note', text:v.checked_at ? DC.t('還沒有發布的版本。') : DC.t('按「立即檢查」取得版本資訊。')})); return list; }
+	/* The running release and the latest one: the release 更新到 offers, else the newest published one (a development
+	   build can be newer than all of them). Every other release is on the releases page. */
+	function shown(v){
+		var out = [], latest = v.latest ? v.latest.version : v.releases[0].version, i, e;
 		for(i = 0; i < v.releases.length; i++){
+			e = v.releases[i];
+			if(e.relation === 'current' || e.version === latest) out.push(e);
+		}
+		return out;
+	}
+
+	function releases(v){
+		var list = h('div'), rel, i;
+		if(!v.releases.length){ list.appendChild(h('p', {'class':'note', text:v.checked_at ? DC.t('還沒有發布的版本。') : DC.t('按「立即檢查」取得版本資訊。')})); return list; }
+		rel = shown(v);
+		for(i = 0; i < rel.length; i++){
 			(function(e){
 				var pills = h('div', {'class':'pills'}, [e.relation === 'current' ? h('span', {text:DC.t('目前版本')}) : null, e.prerelease ? h('span', {'class':'warn', text:DC.t('測試版')}) : null]);
 				var act = null;
@@ -183,9 +196,9 @@
 				list.appendChild(h('div', {'class':'lrow relrow'}, [icon(e.relation === 'newer' ? 'up' : e.relation === 'older' ? 'dn' : 'done'), h('div', null, [
 					h('b', {'class':'num', text:e.version}), pills,
 					h('small', {'class':'num', text:[e.date, sizeText(e)].filter(function(x){ return !!x; }).join(DC.t('，'))}),
-					e.notes ? h('details', {'class':'relmore'}, [h('summary', {text:DC.t('更新內容')}), h('pre', {'class':'relnotes', text:e.notes})]) : null
+					e.notes ? h('pre', {'class':'relnotes', text:e.notes}) : h('p', {'class':'note', text:DC.t('這個版本沒有更新說明。')})
 				]), h('div', {'class':'acts2'}, act)]));
-			})(v.releases[i]);
+			})(rel[i]);
 		}
 		return list;
 	}
