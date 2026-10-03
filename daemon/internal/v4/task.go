@@ -371,7 +371,7 @@ func addError(err error) result {
 	switch {
 	case errors.As(err, &dup):
 		return failReason(errDuplicate, "這個任務已在清單中")
-	case errors.Is(err, core.ErrFolder):
+	case errors.Is(err, core.ErrFolder), errors.Is(err, core.ErrReadOnly):
 		return fail(errFolderDenied)
 	case errors.Is(err, core.ErrBadURL):
 		return fail(errURLNotSupported)

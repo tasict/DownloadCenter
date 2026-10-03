@@ -202,7 +202,7 @@ func (m *Manager) resolveFolders(o *AddOptions) (temp, move string, err error) {
 				continue
 			}
 			r, rerr := m.ResolvePath(o.Owner, d)
-			if rerr != nil || filepath.Clean(r) != filepath.Clean(home) {
+			if rerr != nil || !SameDir(r, home) {
 				return "", "", ErrFolder
 			}
 		}
@@ -217,6 +217,9 @@ func (m *Manager) resolveFolders(o *AddOptions) (temp, move string, err error) {
 	if st, serr := os.Stat(temp); serr != nil || !st.IsDir() {
 		return "", "", ErrFolder
 	}
+	if err = usable(temp); err != nil {
+		return "", "", err
+	}
 	if o.MoveSet || o.MoveDir != "" {
 		if o.MoveDir != "" {
 			if move, err = m.ResolvePath(o.Owner, o.MoveDir); err != nil {
@@ -225,6 +228,11 @@ func (m *Manager) resolveFolders(o *AddOptions) (temp, move string, err error) {
 		}
 	} else {
 		move = s.MoveDir
+	}
+	if move != "" {
+		if err = usable(move); err != nil {
+			return "", "", err
+		}
 	}
 	if move == temp {
 		move = ""

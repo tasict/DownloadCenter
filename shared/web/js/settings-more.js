@@ -212,7 +212,7 @@
 			var presetSel = DC.select('tPreset', [['read', DC.t('唯讀')], ['add', DC.t('加入下載')], ['full', DC.t('完整控制（不含刪檔）')], ['custom', DC.t('自訂')]], presetOf(), function(){ if(this.value !== 'custom') applyPreset(this.value); });
 			for(k in boxes) if(boxes.hasOwnProperty(k)) boxes[k].onchange = function(){ presetSel.value = presetOf(); };
 			var scopeSel = DC.select('tTasks', [['own', DC.t('只有我的任務')], admin ? ['all', DC.t('所有人的任務')] : null], t.tasks === 'all' ? 'all' : 'own');
-			if(admin) folderLim = DC.folderPicker('tFolder', (t.folders || [])[0] || '', true);
+			if(admin) folderLim = DC.folderPicker('tFolder', (t.folders || [])[0] || '', true, null, {noneLabel:DC.t('不限'), noFree:true});
 			var expOpts = [['30', DC.t('30 天')], ['90', DC.t('90 天')], ['365', DC.t('一年')], ['0', DC.t('永不過期')]];
 			if(!isNew) expOpts.unshift(['keep', t.expires_at ? DC.t('維持目前的期限（{date}）', {date:DC.fdate(t.expires_at)}) : DC.t('維持目前的期限（永不過期）')]);
 			var exp = DC.select('tExp', expOpts, isNew ? '90' : 'keep');
@@ -229,7 +229,7 @@
 				]),
 				DC.mform([
 					admin ? field(DC.t('可操作的任務'), null, scopeSel, 'tTasks') : null,
-					admin ? fieldDiv(DC.t('可存放的資料夾'), DC.t('加入下載時只能選這裡；「不移動」代表不限'), folderLim.el) : null,
+					admin ? fieldDiv(DC.t('可存放的資料夾'), DC.t('加入下載時只能存到這個資料夾或它底下的資料夾'), folderLim.el) : null,
 					fieldDiv(DC.t('可加入的來源'), null, srcWrap),
 					field(DC.t('允許的來源 IP'), DC.t('逗號分隔'), ip, 'tIp'),
 					field(DC.t('速率上限'), null, rate, 'tRate'),

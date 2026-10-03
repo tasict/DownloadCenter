@@ -159,47 +159,187 @@
 		openAdd(items);
 	}
 
-	/* ---------- folder picker: browses shares through api/v1/folders, inline so it works inside the dialog ---------- */
+	/* ---------- folder picker: an inline panel under its button, so it works inside dialogs. A row takes that folder, the
+	   arrow beside it opens it, the path on top leads back up; it opens on the folder that holds the current choice. A
+	   folder that is gone gives way to the nearest one that still exists. opts: noFree (the caller shows free space
+	   itself), noneLabel (the choice for no folder, with allowNone). ---------- */
+	var FP_FILTER = 30, FP_MAX = 300;
+	function parentOf(p){ return p && p.indexOf('/') >= 0 ? p.replace(/\/[^\/]*$/, '') : ''; }
 	function folderPicker(id, initial, allowNone, onChange, opts){
-		var fp = {value:initial || ''};
 		opts = opts || {};
-		var cur = h('span', {'class':'ell'});
-		var trigger = h('button', {'class':'ib fpick-btn', type:'button', id:id, 'aria-expanded':'false', onclick:function(){ if(panel.hidden) open(fp.value); else panel.hidden = true; trigger.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true'); }}, [icon('folder'), cur, icon('chev', 'chev')]);
-		var panel = h('div', {'class':'fpick', hidden:true});
-		function label(v){ cur.className = v ? 'mono ell' : 'ell'; return v ? v : (allowNone ? DC.t('不移動（留在暫存位置）') : DC.t('請選擇')); }
-		function set(v){ fp.value = v; cur.textContent = label(v); panel.hidden = true; trigger.setAttribute('aria-expanded', 'false'); if(onChange) onChange(v); }
-		function open(path){
-			var parent = path && path.indexOf('/') >= 0 ? path.replace(/\/[^\/]*$/, '') : '';
-			clear(panel).hidden = false;
-			panel.appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('讀取中…')]));
-			DC.api.get('folders', path ? {path:path} : null).then(function(r){
-				var list = h('div', {'class':'fplist'}), i, f;
-				clear(panel);
-				panel.appendChild(h('div', {'class':'fphead'}, [
-					path ? ibtn('back', DC.t('上一層'), function(){ open(parent); }) : null,
-					h('span', {'class':'mono ell', text:path || DC.t('共用資料夾')}),
-					path ? btn(null, DC.t('選這裡'), function(){ set(path); }, 'pri') : null
-				]));
-				if(allowNone) list.appendChild(h('button', {'class':'ib fpitem', type:'button', onclick:function(){ set(''); }}, [icon('close'), h('span', {text:DC.t('不移動（留在暫存位置）')})]));
-				for(i = 0; i < (r.folders || []).length; i++){
-					f = r.folders[i];
-					list.appendChild(h('button', {'class':'ib fpitem', type:'button', onclick:(function(p, kids){ return function(){ if(kids) open(p); else set(p); }; })(f.path, f.children !== false)}, [icon('folder'), h('span', {text:f.name}), icon('chev', 'chev')]));
-				}
-				if(!(r.folders || []).length) list.appendChild(h('p', {'class':'note', text:DC.t('沒有子資料夾。')}));
-				panel.appendChild(list);
-				if(path && DC.isAdmin()){
-					var nm = h('input', {type:'text', placeholder:DC.t('新資料夾名稱'), 'aria-label':DC.t('新資料夾名稱')});
-					panel.appendChild(h('div', {'class':'inline fpnew'}, [nm, btn('plus', DC.t('新增資料夾'), function(){
-						if(!nm.value) { nm.focus(); return; }
-						DC.api.post('folders', {path:path, name:nm.value}).then(function(res){ open(res.path); }, function(e){ DC.toast(DC.errText(e)); });
-					})]));
-				}
-				if(r.free >= 0 && path && !opts.noFree) panel.appendChild(h('p', {'class':'note num', text:DC.t('還有 {size} 可用。', {size:DC.fsize(r.free)})}));
-			}, function(e){ clear(panel); panel.appendChild(h('p', {'class':'note warn', text:DC.errText(e)})); });
+		var fp = {value:initial || ''}, gen = 0, cur = null, busyT = null;
+		var noneLabel = opts.noneLabel || DC.t('不移動（留在暫存位置）');
+		var label = h('span', {'class':'fp-path'});
+		var trigger = h('button', {'class':'ib fpick-btn', type:'button', id:id, 'aria-expanded':'false', 'aria-controls':id + 'Panel',
+			onclick:function(){ if(panel.hidden) open(parentOf(fp.value), fp.value); else close(false); }}, [icon('folder'), label, icon('chev', 'chev')]);
+		var back = ibtn('back', DC.t('上一層'), function(){ if(cur && cur.path) open(parentOf(cur.path), cur.path); });
+		var crumbs = h('div', {'class':'fpcrumbs'});
+		var note = h('p', {'class':'note warn', role:'status', hidden:true});
+		var filter = h('input', {type:'search', 'class':'fpfilter', placeholder:DC.t('篩選資料夾'), 'aria-label':DC.t('篩選資料夾'), hidden:true,
+			oninput:function(){ if(cur) fill(cur.r.folders || [], null); }});
+		var list = h('div', {'class':'fplist'});
+		var free = h('p', {'class':'note num fpfree', hidden:true});
+		var msg = h('span', {'class':'fpmsg'});
+		var noneB = allowNone ? h('button', {'class':'ib linkish', type:'button', onclick:function(){ set(''); }}, [icon('close'), noneLabel]) : null;
+		var newB = h('button', {'class':'ib linkish', type:'button', hidden:true, onclick:function(){ newB.hidden = true; newRow.hidden = false; newIn.value = ''; newIn.focus(); }}, [icon('plus'), DC.t('新增資料夾')]);
+		var useB = btn(null, '', function(){ if(cur && cur.path) set(cur.path); }, 'pri');
+		useB.hidden = true;
+		var newIn = h('input', {type:'text', maxlength:'255', placeholder:DC.t('新資料夾名稱'), 'aria-label':DC.t('新資料夾名稱'), autocapitalize:'off',
+			onkeydown:function(e){ if(e.key === 'Enter'){ e.preventDefault(); create(); } }});
+		var createB = btn(null, DC.t('建立'), function(){ create(); }, 'pri');
+		var newRow = h('div', {'class':'fpnew', hidden:true}, [newIn, createB, btn(null, DC.t('取消'), function(){ hideNew(true); })]);
+		var foot = h('div', {'class':'fpfoot'}, [noneB, newB, msg, useB]);
+		var panel = h('div', {'class':'fpick', id:id + 'Panel', role:'group', 'aria-label':DC.t('選擇資料夾'), hidden:true}, [
+			h('div', {'class':'fphead'}, [back, crumbs]), note, filter, list, free,
+			foot, newRow]);
+
+		function paint(){
+			var v = fp.value, k = v.lastIndexOf('/');
+			clear(label);
+			trigger.title = v;
+			if(!v){ label.className = 'fp-path none'; label.textContent = allowNone ? noneLabel : DC.t('請選擇'); return; }
+			label.className = 'fp-path mono';
+			if(k >= 0) label.appendChild(h('span', {'class':'fp-dir', text:v.slice(0, k + 1)}));
+			label.appendChild(h('span', {'class':'fp-leaf', text:v.slice(k + 1)}));
 		}
-		cur.textContent = label(fp.value);
-		fp.el = h('div', {'class':'fpwrap'}, [trigger, panel]);
-		fp.set = function(v){ fp.value = v; cur.textContent = label(v); };
+		function set(v){
+			fp.value = v; paint(); close(true);
+			if(onChange) onChange(v);
+		}
+		function close(focus){
+			gen++; clearTimeout(busyT);
+			panel.hidden = true; panel.classList.remove('busy');
+			trigger.setAttribute('aria-expanded', 'false');
+			hideNew(false);
+			if(focus) trigger.focus();
+		}
+		function hideNew(focus){ newRow.hidden = true; newB.hidden = !canMake(); if(focus) newB.focus(); }
+		function canMake(){ return !!(cur && cur.path && cur.r.choosable !== false && DC.isAdmin()); }
+		/* path: the folder to show; focusPath: the row to focus (the folder we came from, or the current choice);
+		   missing: a folder that turned out not to exist on the way here */
+		function open(path, focusPath, missing){
+			var my = ++gen;
+			if(panel.hidden){ cur = null; panel.hidden = false; trigger.setAttribute('aria-expanded', 'true'); }
+			clearTimeout(busyT);
+			if(cur) busyT = setTimeout(function(){ panel.classList.add('busy'); }, 150);
+			else{
+				crumbsFor(path); back.hidden = !path;
+				note.hidden = filter.hidden = free.hidden = foot.hidden = newRow.hidden = true;
+				clear(list).appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('讀取中…')]));
+			}
+			panel.setAttribute('aria-busy', 'true');
+			DC.api.get('folders', path ? {path:path} : null).then(function(r){
+				if(my === gen) render(path, r, focusPath, missing);
+			}, function(e){
+				if(my !== gen) return;
+				if(path && (e.code === 'folder_not_found' || e.code === 'folder_not_allowed')) open(parentOf(path), null, missing || path);
+				else failed(path, e);
+			});
+		}
+		function done(){ clearTimeout(busyT); panel.classList.remove('busy'); panel.removeAttribute('aria-busy'); }
+		function render(path, r, focusPath, missing){
+			var here = !!path && r.choosable !== false, target;
+			done();
+			cur = {path:path, r:r};
+			crumbsFor(path);
+			back.hidden = !path;
+			note.hidden = !missing;
+			note.textContent = missing ? DC.t('找不到「{path}」，改為顯示上一層。', {path:missing}) : '';
+			filter.value = '';
+			filter.hidden = (r.folders || []).length <= FP_FILTER;
+			target = fill(r.folders || [], focusPath);
+			free.hidden = !(path && r.free >= 0 && !opts.noFree);
+			free.textContent = free.hidden ? '' : DC.t('還有 {size} 可用。', {size:DC.fsize(r.free)});
+			useB.hidden = !here;
+			useB.lastChild.textContent = here ? DC.t('使用「{name}」', {name:path.slice(path.lastIndexOf('/') + 1)}) : '';
+			msg.textContent = !path ? '' : r.writable === false ? DC.t('這個資料夾無法寫入，請選擇其他資料夾。') : !here ? DC.t('請從下面選一個資料夾。') : '';
+			hideNew(false);
+			foot.hidden = !(noneB || here || msg.textContent || !newB.hidden);
+			if(target){ target.focus({preventScroll:true}); if(target.scrollIntoView) target.scrollIntoView({block:'nearest'}); }
+		}
+		function failed(path, e){
+			done();
+			crumbsFor(path);
+			back.hidden = !path;
+			note.hidden = true; filter.hidden = true; free.hidden = true; useB.hidden = true; newB.hidden = true; newRow.hidden = true; msg.textContent = '';
+			foot.hidden = !noneB;
+			clear(list).appendChild(h('div', {'class':'fperr'}, [h('p', {'class':'note warn', text:DC.errText(e)}), btn('retry', DC.t('重試'), function(){ open(path, null); })]));
+		}
+		/* The rows matching the filter, at most FP_MAX of them; returns the row to focus (focusPath's, else the first) */
+		function fill(fs, focusPath){
+			var q = filter.value.replace(/^\s+|\s+$/g, '').toLowerCase(), hits = [], i, row, first = null, want = null;
+			for(i = 0; i < fs.length; i++) if(!q || fs[i].name.toLowerCase().indexOf(q) >= 0) hits.push(fs[i]);
+			clear(list);
+			for(i = 0; i < hits.length && i < FP_MAX; i++){
+				row = rowOf(hits[i]);
+				list.appendChild(row);
+				if(!first) first = row.firstChild;
+				if(focusPath && hits[i].path === focusPath) want = row.firstChild;
+			}
+			if(hits.length > FP_MAX) list.appendChild(h('p', {'class':'note', text:DC.t('還有 {n} 個資料夾沒有列出，請用篩選縮小範圍。', {n:hits.length - FP_MAX})}));
+			if(!hits.length) list.appendChild(h('p', {'class':'note', text:q ? DC.t('沒有符合的資料夾。') : DC.t('沒有子資料夾。')}));
+			return want || first;
+		}
+		function rowOf(f){
+			var sel = !!fp.value && f.path === fp.value, ok = f.choosable !== false, meta = '';
+			if(f.writable === false) meta = DC.t('唯讀');
+			else if(sel) meta = DC.t('目前選擇');
+			else if(f.free >= 0) meta = DC.t('{size} 可用', {size:DC.fsize(f.free)});
+			return h('div', {'class':'fprow' + (sel ? ' sel' : '') + (ok ? '' : ' ro')}, [
+				h('button', {'class':'ib fpitem', type:'button', 'aria-current':sel ? 'true' : null, onclick:function(){ if(ok) set(f.path); else open(f.path, null); }},
+					[icon(f.writable === false ? 'lock' : sel ? 'done' : 'folder'), h('span', {'class':'nm', text:f.name}), meta ? h('small', {'class':'num', text:meta}) : null]),
+				h('button', {'class':'fpgo', type:'button', 'aria-label':DC.t('打開「{name}」', {name:f.name}), title:DC.t('打開「{name}」', {name:f.name}), onclick:function(){ open(f.path, null); }}, icon('chev'))
+			]);
+		}
+		/* 共用資料夾 › Share › … › Parent › Folder: long paths keep their first folder and the last two */
+		function crumbsFor(path){
+			var segs = path ? path.split('/') : [], items = [], i;
+			clear(crumbs);
+			items.push(crumb(DC.t('共用資料夾'), '', segs[0] || null, !segs.length));
+			for(i = 0; i < segs.length; i++){
+				if(segs.length > 4 && i >= 1 && i < segs.length - 2){
+					if(i === 1) items.push(h('span', {'class':'fpell', 'aria-hidden':'true', text:'…'}));
+					continue;
+				}
+				items.push(crumb(segs[i], segs.slice(0, i + 1).join('/'), i + 1 < segs.length ? segs.slice(0, i + 2).join('/') : null, i === segs.length - 1));
+			}
+			for(i = 0; i < items.length; i++){
+				if(i) crumbs.appendChild(h('span', {'class':'sep', 'aria-hidden':'true', text:'›'}));
+				crumbs.appendChild(items[i]);
+			}
+		}
+		function crumb(text, p, child, last){
+			if(last) return h('b', {text:text, title:text, 'aria-current':'location'});
+			return h('button', {type:'button', text:text, title:text, onclick:function(){ open(p, child); }});
+		}
+		function create(){
+			var name = newIn.value.replace(/^\s+|\s+$/g, '');
+			if(!name || !cur || !cur.path){ newIn.focus(); return; }
+			DC.busy(createB, true);
+			DC.api.post('folders', {path:cur.path, name:name}).then(function(res){ DC.busy(createB, false); set(res.path); },
+				function(e){ DC.busy(createB, false); DC.toast(DC.errText(e)); newIn.focus(); });
+		}
+		/* Escape closes (and leaves the dialog open); arrows move between rows, → opens a folder, ← goes up */
+		function keys(e){
+			var t = e.target, rows, i;
+			if(e.key === 'Escape'){
+				if(panel.hidden) return;
+				e.stopPropagation(); e.preventDefault();
+				if(!newRow.hidden && newRow.contains(t)) hideNew(true);
+				else close(true);
+				return;
+			}
+			if(!t.classList || !t.classList.contains('fpitem')) return;
+			rows = list.querySelectorAll('.fpitem');
+			for(i = 0; i < rows.length && rows[i] !== t; i++){}
+			if(e.key === 'ArrowDown' && i + 1 < rows.length){ e.preventDefault(); rows[i + 1].focus(); }
+			else if(e.key === 'ArrowUp' && i > 0){ e.preventDefault(); rows[i - 1].focus(); }
+			else if(e.key === 'ArrowRight'){ e.preventDefault(); t.nextSibling.click(); }
+			else if(e.key === 'ArrowLeft' && cur && cur.path){ e.preventDefault(); open(parentOf(cur.path), cur.path); }
+		}
+		paint();
+		fp.el = h('div', {'class':'fpwrap', onkeydown:keys}, [trigger, panel]);
+		fp.set = function(v){ fp.value = v; paint(); };
 		return fp;
 	}
 	DC.folderPicker = folderPicker;
@@ -319,7 +459,10 @@
 				return;
 			}
 			if(!folder.value) return;
-			DC.api.get('folders', {path:folder.value}, {quiet:true}).then(function(r){ if(r.free !== undefined){ free = r.free; total(); } }, function(){});
+			DC.api.get('folders', {path:folder.value, free_only:'1'}, {quiet:true}).then(function(r){ if(r.free !== undefined){ free = r.free; total(); } }, function(e){
+				/* The folder used last time is gone: back to the default one */
+				if(e.code === 'folder_not_found' && defs.folder && folder.value !== defs.folder){ folder.set(defs.folder); refreshFree(); }
+			});
 		}
 		function total(){
 			var n = 0, sz = 0, j;

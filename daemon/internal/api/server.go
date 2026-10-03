@@ -248,6 +248,8 @@ func Fail(w http.ResponseWriter, err error) {
 		JSON(w, 409, map[string]any{"error": map[string]string{"code": "duplicate", "message": Tr(w, "這個任務已在清單中")}, "id": dup.ID})
 	case errors.Is(err, core.ErrFolder):
 		Error(w, 403, "folder_not_allowed", "不能使用這個資料夾")
+	case errors.Is(err, core.ErrReadOnly):
+		Error(w, 403, "folder_read_only", "這個資料夾無法寫入")
 	case errors.Is(err, core.ErrNotFound):
 		Error(w, 404, "not_found", "找不到這個任務")
 	case errors.Is(err, core.ErrNotOwner):

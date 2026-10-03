@@ -882,9 +882,9 @@ func (m *Manager) downloadDone(t *Task, st *engine.Status, e engine.Engine) {
 		t.FinishedAt = time.Now().Unix()
 	}
 	m.Log(t.Hash, "下載完成，開始做種")
-	if !m.isAdminOwner(t.Owner) {
-		if p := t.dataPath(); p != "" {
-			go chownPath(p, t.Owner, true)
+	if p := t.dataPath(); p != "" {
+		if u := ownerFor(t.Owner, m.isAdminOwner(t.Owner), p); u != "" {
+			go chownPath(p, u, true)
 		}
 	}
 	m.TaskEvent("task.completed", t, nil)
@@ -982,8 +982,8 @@ func (m *Manager) torrentMoved(t *Task, st *engine.Status, e engine.Engine) {
 	m.markDirty(t)
 	m.saveTask(t)
 	leaveTemp(t.WorkDir)
-	if !m.isAdminOwner(t.Owner) {
-		go chownPath(t.DataPath, t.Owner, true)
+	if u := ownerFor(t.Owner, m.isAdminOwner(t.Owner), t.DataPath); u != "" {
+		go chownPath(t.DataPath, u, true)
 	}
 	m.Log(t.Hash, "檔案已搬移完成")
 	if report {
@@ -1089,8 +1089,10 @@ func (m *Manager) startMove(t *Task, src, dst string, urlTask bool) {
 		} else {
 			final, err = moveInto(src, dst)
 		}
-		if err == nil && !admin {
-			chownPath(final, owner, true)
+		if err == nil {
+			if u := ownerFor(owner, admin, final); u != "" {
+				chownPath(final, u, true)
+			}
 		}
 		m.mu.Lock()
 		defer m.mu.Unlock()

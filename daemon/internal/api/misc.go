@@ -1,10 +1,10 @@
 package api
 
 import (
+	"errors"
+	"log"
 	"net/http"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -176,30 +176,29 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, p *auth.Principal
 	OK(w, resp)
 }
 
-// folders lists sub-folders for the folder pickers.
+// folders lists sub-folders for the folder pickers. Regular users only ever
+// get their home Download folder; a token limited to some folders sees those
+// and what lies below them. free_only=1 answers the free space alone.
 func (s *Server) folders(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-	path := strings.Trim(r.URL.Query().Get("path"), "/")
-	type entry struct {
-		Name     string `json:"name"`
-		Path     string `json:"path"`
-		Writable bool   `json:"writable"`
-		Children bool   `json:"children"`
-	}
-	var out []entry
+	q := r.URL.Query()
+	path := strings.Trim(q.Get("path"), "/")
+	freeOnly := q.Get("free_only") == "1"
 	if !p.Admin {
 		home := s.M.UserDownloadDir(p.User)
-		out = append(out, entry{Name: filepath.Base(home), Path: s.M.DisplayPath(p.User, home), Writable: true})
-		OK(w, map[string]any{"folders": out})
+		if freeOnly {
+			OK(w, map[string]any{"free": core.FreeSpace(home)})
+			return
+		}
+		wr := core.Writable(home)
+		OK(w, map[string]any{"folders": []core.Folder{{Name: filepath.Base(home), Path: s.M.DisplayPath(p.User, home), Writable: wr, Choosable: wr}}})
 		return
 	}
 	if path == "" {
-		for _, sh := range qts.Shares() {
-			out = append(out, entry{Name: sh.Name, Path: sh.Name, Writable: true, Children: true})
+		if len(p.Folders) > 0 {
+			OK(w, map[string]any{"folders": s.allowedFolders(p)})
+		} else {
+			OK(w, map[string]any{"folders": s.M.SharedFolders()})
 		}
-		if qts.HomesRoot() != "" {
-			out = append(out, entry{Name: "homes", Path: "homes", Writable: true, Children: true})
-		}
-		OK(w, map[string]any{"folders": out})
 		return
 	}
 	real, err := s.M.ResolvePath(p.User, path)
@@ -207,22 +206,49 @@ func (s *Server) folders(w http.ResponseWriter, r *http.Request, p *auth.Princip
 		Error(w, 404, "folder_not_found", "找不到這個資料夾")
 		return
 	}
-	ents, _ := os.ReadDir(real)
-	for _, e := range ents {
-		n := e.Name()
-		if !e.IsDir() || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "@") || strings.HasPrefix(n, "#") || strings.HasPrefix(n, "Network Recycle Bin") {
+	if !s.folderAllowed(p, real) {
+		Error(w, 403, "folder_not_allowed", "不能使用這個資料夾")
+		return
+	}
+	if freeOnly {
+		OK(w, map[string]any{"free": core.FreeSpace(real)})
+		return
+	}
+	out, err := core.ListFolders(real, path)
+	if err != nil {
+		Error(w, 404, "folder_not_found", "找不到這個資料夾")
+		return
+	}
+	OK(w, map[string]any{"folders": out, "free": core.FreeSpace(real), "writable": core.Writable(real), "choosable": core.Choosable(real)})
+}
+
+// allowedFolders is the top level of the picker for a token limited to some
+// folders: those folders, named by their whole path.
+func (s *Server) allowedFolders(p *auth.Principal) []core.Folder {
+	out := []core.Folder{}
+	for _, f := range p.Folders {
+		real, err := s.M.ResolvePath(p.User, f)
+		if err != nil {
 			continue
 		}
-		if fi, err := os.Stat(filepath.Join(real, n)); err != nil || !fi.IsDir() {
-			continue
+		d := s.M.DisplayPath(p.User, real)
+		c := core.Choosable(real)
+		out = append(out, core.Folder{Name: d, Path: d, Writable: c || core.Writable(real), Choosable: c, Free: core.FreeSpace(real)})
+	}
+	return out
+}
+
+// folderAllowed applies a token's folder allowlist to a real path.
+func (s *Server) folderAllowed(p *auth.Principal, real string) bool {
+	if len(p.Folders) == 0 {
+		return true
+	}
+	for _, f := range p.Folders {
+		if fr, err := s.M.ResolvePath(p.User, f); err == nil && (real == fr || strings.HasPrefix(real, fr+"/")) {
+			return true
 		}
-		out = append(out, entry{Name: n, Path: path + "/" + n, Writable: true, Children: true})
 	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
-	if out == nil {
-		out = []entry{}
-	}
-	OK(w, map[string]any{"folders": out, "free": core.FreeSpace(real)})
+	return false
 }
 
 func (s *Server) makeFolder(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
@@ -234,20 +260,24 @@ func (s *Server) makeFolder(w http.ResponseWriter, r *http.Request, p *auth.Prin
 		Error(w, 400, "bad_request", err.Error())
 		return
 	}
-	if b.Name == "" || strings.ContainsAny(b.Name, "/\\|:?<>*\"") || b.Name == "." || b.Name == ".." {
-		Error(w, 400, "bad_name", "資料夾名稱不能包含 / \\ | : ? < > * \"")
-		return
-	}
-	real, err := s.M.ResolvePath(p.User, b.Path)
-	if err != nil {
+	np, err := s.M.MakeFolder(p.User, b.Path, strings.TrimSpace(b.Name))
+	switch {
+	case err == nil:
+		OK(w, map[string]any{"path": np})
+	case errors.Is(err, core.ErrBadName):
+		Error(w, 400, "bad_name", "資料夾名稱不能以 . @ # 開頭或以空格、句點結尾，也不能包含 / \\ | : ? < > * \"")
+	case errors.Is(err, core.ErrExists):
+		Error(w, 409, "folder_exists", "已經有同名的資料夾")
+	case errors.Is(err, core.ErrReadOnly):
+		Error(w, 403, "folder_read_only", "這個資料夾無法寫入")
+	case errors.Is(err, core.ErrNoFolder):
 		Error(w, 404, "folder_not_found", "找不到這個資料夾")
-		return
+	case errors.Is(err, core.ErrFolder):
+		Error(w, 403, "folder_not_allowed", "不能使用這個資料夾")
+	default:
+		log.Printf("api: make folder %q in %q: %v", b.Name, b.Path, err)
+		Error(w, 500, "failed", "無法建立資料夾")
 	}
-	if err := os.Mkdir(filepath.Join(real, b.Name), 0777); err != nil {
-		Error(w, 400, "failed", "無法建立資料夾："+err.Error())
-		return
-	}
-	OK(w, map[string]any{"path": strings.Trim(b.Path, "/") + "/" + b.Name})
 }
 
 func (s *Server) miscRoutes() {
@@ -271,7 +301,7 @@ func (s *Server) miscRoutes() {
 		OK(w, map[string]any{"ok": true})
 	})
 	s.Route("GET /stats", "stats:read", 0, s.stats)
-	s.Route("GET /folders", "", 0, s.folders)
+	s.Route("GET /folders", "tasks:add", 0, s.folders)
 	s.Route("POST /folders", "", AdminOnly|Session, s.makeFolder)
 
 	// Users (administrators)

@@ -70,11 +70,7 @@ func (m *Manager) ResolvePath(viewer, d string) (string, error) {
 	}
 	var real string
 	if strings.HasPrefix(d, "/share/") {
-		ev, err := filepath.EvalSymlinks(d)
-		if err != nil {
-			return "", ErrFolder
-		}
-		real = ev
+		real = d
 	} else {
 		d = strings.Trim(d, "/")
 		first, rest, _ := strings.Cut(d, "/")
@@ -102,7 +98,13 @@ func (m *Manager) ResolvePath(viewer, d string) (string, error) {
 	if real == "" {
 		return "", ErrFolder
 	}
-	real = filepath.Clean(real)
+	// Links are followed before the share check: dcd writes as admin, so a
+	// link inside a share must not lead it anywhere else
+	ev, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		return "", ErrFolder
+	}
+	real = filepath.Clean(ev)
 	if _, ok := qts.ShareOf(real); !ok {
 		return "", ErrFolder
 	}

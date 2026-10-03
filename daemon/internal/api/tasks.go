@@ -315,7 +315,8 @@ func callerOf(p *auth.Principal) string {
 	return "Download Center"
 }
 
-// checkFolders applies a token's folder allowlist.
+// checkFolders applies a token's folder allowlist to where a task goes: its
+// temporary folder and the folder it is moved to, the defaults included.
 func (s *Server) checkFolders(p *auth.Principal, o *core.AddOptions) bool {
 	if len(p.Folders) == 0 {
 		return true
@@ -325,21 +326,18 @@ func (s *Server) checkFolders(p *auth.Principal, o *core.AddOptions) bool {
 			return true
 		}
 		real, err := s.M.ResolvePath(p.User, d)
-		if err != nil {
-			return false
-		}
-		for _, f := range p.Folders {
-			if fr, err := s.M.ResolvePath(p.User, f); err == nil && (real == fr || strings.HasPrefix(real, fr+"/")) {
-				return true
-			}
-		}
-		return false
+		return err == nil && s.folderAllowed(p, real)
 	}
+	st := s.M.Settings()
 	t := o.TempDir
 	if t == "" {
-		t = s.M.Settings().TempDir
+		t = st.TempDir
 	}
-	return ok(t) && ok(o.MoveDir)
+	mv := o.MoveDir
+	if !o.MoveSet && mv == "" {
+		mv = st.MoveDir
+	}
+	return ok(t) && ok(mv)
 }
 
 type addOut struct {
@@ -378,6 +376,8 @@ func (s *Server) addOne(p *auth.Principal, src string, o core.AddOptions) addOut
 		switch {
 		case err == core.ErrFolder:
 			code = "folder_not_allowed"
+		case err == core.ErrReadOnly:
+			code = "folder_read_only"
 		case err == core.ErrOtherOwner:
 			code = "duplicate_other_owner"
 		case strings.Contains(err.Error(), "duplicate"):
@@ -516,6 +516,8 @@ func (s *Server) addTorrentUpload(w http.ResponseWriter, r *http.Request, p *aut
 				code = "torrent_invalid"
 			} else if err == core.ErrFolder {
 				code = "folder_not_allowed"
+			} else if err == core.ErrReadOnly {
+				code = "folder_read_only"
 			}
 			out.Error = map[string]string{"code": code, "message": errMsg(err)}
 		}
@@ -543,6 +545,8 @@ func errMsg(err error) string {
 		return "種子檔格式不正確"
 	case core.ErrFolder:
 		return "不能使用這個資料夾"
+	case core.ErrReadOnly:
+		return "這個資料夾無法寫入"
 	case core.ErrBadMagnet:
 		return "磁力連結格式不正確"
 	}

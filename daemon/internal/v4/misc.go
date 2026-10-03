@@ -2,15 +2,16 @@ package v4
 
 import (
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"downloadcenter/internal/api"
 	"downloadcenter/internal/auth"
+	"downloadcenter/internal/core"
 	"downloadcenter/internal/engine"
 	"downloadcenter/internal/netutil"
 	"downloadcenter/internal/qts"
@@ -121,38 +122,32 @@ type dirEntry struct {
 }
 
 // dir lists folders: top level = shares (administrators) or the home
-// Download folder (regular users).
+// Download folder (regular users, whose tasks always go there, so there is
+// nothing below it to choose).
 func (s *service) dir(c *call) result {
 	m := s.m
 	path := strings.Trim(c.p.get("path"), "/")
-	var out []dirEntry
 	if !c.who.Admin {
 		home := m.UserDownloadDir(c.who.User)
-		hd := m.DisplayPath(c.who.User, home)
 		if path == "" {
-			return result{"data": []dirEntry{{Dir: filepath.Base(home), Path: hd, Writtable: 1, Temporary: 1}}}
+			return result{"data": []dirEntry{{Dir: filepath.Base(home), Path: m.DisplayPath(c.who.User, home), Writtable: 1, Temporary: 1}}}
 		}
 		real, err := m.ResolvePath(c.who.User, path)
 		if err != nil {
 			return fail(errFolderNotFound)
 		}
-		if real != home && !strings.HasPrefix(real, home+"/") {
+		if !core.SameDir(real, home) {
 			return fail(errFolderDenied)
 		}
-		return result{"data": listDirs(real, path)}
+		return result{"data": []dirEntry{}}
 	}
 	if path == "" {
-		for _, sh := range qts.Shares() {
-			out = append(out, dirEntry{Dir: sh.Name, Path: sh.Name, Writtable: 1, Temporary: 1})
-		}
-		if qts.HomeDir(c.who.User) != "" {
-			out = append(out, dirEntry{Dir: "home", Path: "home", Writtable: 1, Temporary: 1})
-		}
-		if qts.HomesRoot() != "" {
-			out = append(out, dirEntry{Dir: "homes", Path: "homes", Writtable: 1, Temporary: 1})
-		}
-		if out == nil {
-			out = []dirEntry{}
+		out := []dirEntry{}
+		for _, f := range m.SharedFolders() {
+			if f.Path == "homes" && qts.HomeDir(c.who.User) != "" {
+				out = append(out, dirEntry{Dir: "home", Path: "home", Writtable: 1, Temporary: 1})
+			}
+			out = append(out, entryOf(f))
 		}
 		return result{"data": out}
 	}
@@ -160,48 +155,41 @@ func (s *service) dir(c *call) result {
 	if err != nil {
 		return fail(errFolderNotFound)
 	}
-	return result{"data": listDirs(real, path)}
-}
-
-func listDirs(real, display string) []dirEntry {
-	out := []dirEntry{}
-	ents, _ := os.ReadDir(real)
-	for _, e := range ents {
-		n := e.Name()
-		if strings.HasPrefix(n, ".") || strings.HasPrefix(n, "@") || strings.HasPrefix(n, "#") || strings.HasPrefix(n, "Network Recycle Bin") {
-			continue
-		}
-		if fi, err := os.Stat(filepath.Join(real, n)); err != nil || !fi.IsDir() {
-			continue
-		}
-		out = append(out, dirEntry{Dir: n, Path: display + "/" + n, Writtable: 1, Temporary: 1})
-	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Dir) < strings.ToLower(out[j].Dir) })
-	return out
-}
-
-func (s *service) makeDir(c *call) result {
-	name := c.p.get("name")
-	if name == "" || strings.ContainsAny(name, "/|\\:?<>*\"") || name == "." || name == ".." {
-		return fail(errParameter)
-	}
-	real, err := s.m.ResolvePath(c.who.User, strings.Trim(c.p.get("path"), "/"))
+	ls, err := core.ListFolders(real, path)
 	if err != nil {
 		return fail(errFolderNotFound)
 	}
+	out := make([]dirEntry, 0, len(ls))
+	for _, f := range ls {
+		out = append(out, entryOf(f))
+	}
+	return result{"data": out}
+}
+
+func entryOf(f core.Folder) dirEntry {
+	w := 0
+	if f.Writable {
+		w = 1
+	}
+	return dirEntry{Dir: f.Name, Path: f.Path, Writtable: w, Temporary: w}
+}
+
+func (s *service) makeDir(c *call) result {
 	if !c.who.Admin {
-		home := s.m.UserDownloadDir(c.who.User)
-		if real != home && !strings.HasPrefix(real, home+"/") {
-			return fail(errFolderDenied)
-		}
+		return fail(errFolderDenied)
 	}
-	if err := os.Mkdir(filepath.Join(real, name), 0777); err != nil {
-		if os.IsExist(err) {
-			return result{}
-		}
-		return fail(errProcessFail)
+	_, err := s.m.MakeFolder(c.who.User, c.p.get("path"), strings.TrimSpace(c.p.get("name")))
+	switch {
+	case err == nil, errors.Is(err, core.ErrExists):
+		return result{}
+	case errors.Is(err, core.ErrBadName):
+		return fail(errParameter)
+	case errors.Is(err, core.ErrNoFolder):
+		return fail(errFolderNotFound)
+	case errors.Is(err, core.ErrFolder), errors.Is(err, core.ErrReadOnly):
+		return fail(errFolderDenied)
 	}
-	return result{}
+	return fail(errProcessFail)
 }
 
 // socks5 tests a SOCKS5 proxy. Only engines that can use SOCKS5 (libtorrent)

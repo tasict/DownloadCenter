@@ -96,9 +96,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, p *auth.Pri
 		Error(w, 400, "folder_not_found", "找不到暫存位置的資料夾")
 		return
 	}
+	if unusableFolder(w, st.TempDir) {
+		return
+	}
 	if st.MoveDir != "" {
 		if st.MoveDir, err = s.M.ResolvePath(p.User, st.MoveDir); err != nil {
 			Error(w, 400, "folder_not_found", "找不到「完成後移至」的資料夾")
+			return
+		}
+		if unusableFolder(w, st.MoveDir) {
 			return
 		}
 	}
@@ -272,4 +278,18 @@ func (s *Server) settingsRoutes() {
 		}
 		OK(w, map[string]any{"ok": true, "enabled": st.Schedule.Enabled, "days": st.Schedule.Days})
 	})
+}
+
+// unusableFolder answers for a folder that cannot hold downloads: on a
+// read-only volume, or the root of the homes share.
+func unusableFolder(w http.ResponseWriter, real string) bool {
+	switch {
+	case !core.Writable(real):
+		Error(w, 400, "folder_read_only", "這個資料夾無法寫入")
+	case !core.Choosable(real):
+		Error(w, 400, "folder_not_allowed", "不能使用這個資料夾")
+	default:
+		return false
+	}
+	return true
 }
