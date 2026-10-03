@@ -2,6 +2,16 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.0.1
+
+- Who can use Download Center is now set in QTS: Control Panel › Privilege › Users › Edit Application Privilege. QTS administrators can always use it and are its administrators. Accounts on the old user list, and whoever could use Download Station, are allowed automatically when you upgrade.
+- A new folder picker with a filter, free space, and a button to create folders. Read-only folders are marked and cannot be chosen; hidden and system folders are left out.
+- Links on HTTP/2 servers now really download over up to four connections. Before, the extra connections shared the first one, which is much slower from distant servers.
+- HTTPS downloads prefer ChaCha20 on NAS models whose CPU has no AES instructions, such as the 32-bit ARM models; it is much lighter on those CPUs.
+- Torrent settings follow the NAS's cores and memory, and TCP peers are no longer held back in favour of uTP peers.
+- The about page links to the project site, the releases and the issue tracker.
+- The update page only offers newer versions; going back to an older one is no longer offered.
+
 ## 1.0.0
 
 - Torrents now download into the hidden `@DownloadCenterTemp` folder like links, and move to their destination as soon as their data is complete; they keep seeding from there. Half-downloaded files never show up in your shared folders, and a move to another volume is copied out of sight first.
