@@ -5,6 +5,8 @@
 	'use strict';
 	var DC = window.DC, h = DC.h, add = DC.add, clear = DC.clear, icon = DC.icon, btn = DC.btn, R = DC.R;
 	var U = {view:null};
+	/* The project's pages, linked from the 關於與更新 page; the site has an English and a Traditional Chinese edition */
+	var SITE = 'https://tasict.github.io/DownloadCenter/', REPO = 'https://github.com/tasict/DownloadCenter';
 
 	function allowed(){ return DC.isAdmin() && DC.S.me && DC.S.me.via === 'session'; }
 	function load(){ return DC.api.get('update', null, {quiet:true}).then(function(v){ U.view = v; tag(); return v; }); }
@@ -171,8 +173,18 @@
 					DC.api.put('analytics', {enabled:el.checked}).then(function(r){ DC.S.me.analytics = r; }, function(e){ el.checked = !el.checked; DC.toast(DC.errText(e)); });
 				})
 			]) : null,
+			sec('link', DC.t('相關連結'), DC.t('說明、原始碼與問題回報都在 GitHub 上，會在新分頁開啟。'), [
+				ext(DC.t('產品網站'), DC.t('功能介紹、安裝方式與下載'), DC.lang === 'TCH' ? SITE + 'zh-TW/' : SITE),
+				ext(DC.t('原始碼'), DC.t('在 GitHub 公開，採用 MIT 授權'), REPO),
+				ext(DC.t('版本發布頁'), DC.t('每個版本的說明與安裝檔，也可以從這裡手動下載'), REPO + '/releases'),
+				ext(DC.t('回報問題'), DC.t('遇到問題或有建議時到 GitHub 開 issue，請附上版本 {version}（{arch}）', {version:v.current, arch:v.arch || '?'}), REPO + '/issues')
+			]),
 			sec('files', DC.t('所有版本'), DC.t('可以更新，也可以降回較舊的版本。每次更新前都會先備份資料庫。'), [releases(v)])
 		]);
+	}
+
+	function ext(label, help, url){
+		return DC.fieldDiv(label, help, h('a', {'class':'linkish', href:url, target:'_blank', rel:'noopener noreferrer'}, [icon('popout'), DC.t('開啟')]));
 	}
 
 	function releases(v){
