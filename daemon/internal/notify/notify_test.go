@@ -20,6 +20,7 @@ import (
 	"downloadcenter/internal/core"
 	"downloadcenter/internal/engine"
 	"downloadcenter/internal/netutil"
+	"downloadcenter/internal/qts"
 	"downloadcenter/internal/store"
 )
 
@@ -53,6 +54,13 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	// QTS grants boss, alice and bob the use of Download Center
+	t.Cleanup(qts.StubAppriv(func(args ...string) (string, int, error) {
+		if args[0] == "-C" && args[2] != "boss" && args[2] != "alice" && args[2] != "bob" {
+			return "Permission Deny", 254, nil
+		}
+		return "", 0, nil
+	}))
 	m := core.New(db, dir)
 	m.URL = stubURL{}
 	m.Engines["libtorrent"] = stubBT{}
@@ -63,9 +71,6 @@ func newEnv(t *testing.T) *env {
 	s.isAdmin = func(u string) bool { return e.adm[u] }
 	s.client = func(guard bool) *http.Client { return netutil.Client(5*time.Second, guard, "") }
 	e.s = s
-	for _, u := range []string{"boss", "alice", "bob"} {
-		db.X(`INSERT INTO users (name, role, qts_admin, created_at) VALUES (?, ?, 0, 0)`, u, map[bool]string{true: "admin", false: "user"}[u == "boss"])
-	}
 	e.adm["boss"] = true
 	return e
 }

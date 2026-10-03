@@ -1,5 +1,6 @@
-// dctok is a test helper: it lists users and creates or revokes a personal
-// access token directly in a package database. Not shipped.
+// dctok is a test helper: it lists who may use Download Center and creates
+// or revokes a personal access token directly in a package database. Not
+// shipped.
 package main
 
 import (
@@ -18,12 +19,20 @@ func main() {
 	a := auth.New(db)
 	switch os.Args[2] {
 	case "users":
-		for _, u := range a.Users() {
-			fmt.Println(u.Name, u.Role, u.QTSAdmin)
+		for _, u := range a.Members().Members {
+			fmt.Println(u.Name, u.Admin)
 		}
 	case "create":
-		t := &auth.Token{Owner: os.Args[3], Name: "test", Scopes: auth.AllScopes, Tasks: "all"}
-		v, err := a.CreateToken(t, true)
+		// What the owner may do, like a token made in the UI
+		admin := auth.IsAdmin(os.Args[3])
+		scopes := []string{}
+		for _, sc := range auth.AllScopes {
+			if admin || !auth.AdminScopes[sc] {
+				scopes = append(scopes, sc)
+			}
+		}
+		t := &auth.Token{Owner: os.Args[3], Name: "test", Scopes: scopes, Tasks: "all"}
+		v, err := a.CreateToken(t, admin)
 		if err != nil {
 			panic(err)
 		}

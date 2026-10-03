@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"downloadcenter/internal/engine"
+	"downloadcenter/internal/qts"
 	"downloadcenter/internal/store"
 	"downloadcenter/internal/torrent"
 )
@@ -1457,11 +1458,10 @@ func (m *Manager) cleanTempFolders() {
 	}
 }
 
+// isAdminOwner reports a task owner who is an administrator (a QTS
+// administrator).
 func (m *Manager) isAdminOwner(user string) bool {
-	var role string
-	var qa int
-	m.db.QueryRow(`SELECT role, qts_admin FROM users WHERE name = ?`, user).Scan(&role, &qa)
-	return role == "admin" && qa == 1
+	return qts.IsQTSAdmin(user)
 }
 
 // Live returns a snapshot of a task (nil if unknown or removed).

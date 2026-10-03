@@ -222,7 +222,7 @@
 			var srcWrap = h('span', {'class':'inline'}, [
 				toggle('tsUrl', DC.t('網址'), null, has('url')), toggle('tsTor', DC.t('種子檔'), null, has('torrent')), toggle('tsMag', DC.t('磁力連結'), null, has('magnet'))]);
 			DC.modal(isNew ? DC.t('建立權杖') : DC.t('編輯權杖'), 'ticket', [
-				h('p', {'class':'lead', text:DC.t('權杖能做的事不會超過你的帳號。帳號停用或從使用者清單移除時，權杖一起失效。')}),
+				h('p', {'class':'lead', text:DC.t('權杖能做的事不會超過你的帳號。帳號停用或在 QTS 取消 Download Center 的使用權限時，權杖一起失效。')}),
 				DC.mform([
 					field(DC.t('名稱'), DC.t('日後辨認是哪個程式在用'), name, 'tName'),
 					field(DC.t('權限'), null, presetSel, 'tPreset'), scopeWrap
@@ -541,7 +541,7 @@
 		for(i = 0; i < vols.length; i++){ unfinished += vols[i].unfinished || 0; completed += vols[i].completed || 0; accts += vols[i].accounts || 0; }
 		if(!r.available){ body.appendChild(sec('inbox', DC.t('從官方 Download Station 匯入'), null, [h('p', {'class':'note', text:DC.t('沒有找到官方 Download Station 的資料。')})])); return; }
 		var userBoxes = h('div');
-		for(i = 0; i < missing.length; i++) userBoxes.appendChild(toggle('imU' + i, DC.t('把 {name} 加入為一般使用者', {name:missing[i]}), DC.t('他在官方版有任務，但不在 Download Center 的使用者清單上'), true));
+		for(i = 0; i < missing.length; i++) userBoxes.appendChild(toggle('imU' + i, DC.t('開放 {name} 使用 Download Center', {name:missing[i]}), DC.t('他在官方版有任務，但在 QTS 還沒有 Download Center 的使用權限'), true));
 		body.appendChild(sec('inbox', DC.t('從官方 Download Station 匯入'), DC.t('匯入只讀取官方資料，不會修改或刪除它，可以重複執行。'), [
 			h('ol', {'class':'steps'}, [h('li', {'class':running ? 'on' : '', text:DC.t('1 停止官方版')}), h('li', {'class':running ? '' : 'on', text:DC.t('2 選擇項目並匯入')}), h('li', {text:DC.t('3 驗證')})]),
 			running ? h('div', null, [
@@ -627,7 +627,7 @@
 		if(sm.tasks_added) parts.push(DC.t('加入 {n} 個任務', {n:sm.tasks_added}));
 		if(sm.history_added) parts.push(DC.t('{n} 筆完成紀錄', {n:sm.history_added}));
 		if(sm.accounts_added) parts.push(DC.t('{n} 組網站帳號', {n:sm.accounts_added}));
-		if(sm.users_added) parts.push(DC.t('加入 {n} 位使用者', {n:sm.users_added}));
+		if(sm.users_added) parts.push(DC.t('開放 {n} 位使用者使用', {n:sm.users_added}));
 		if(sm.tasks_skipped) parts.push(DC.t('略過 {n} 個已存在的任務', {n:sm.tasks_skipped}));
 		return parts.join(DC.t('，'));
 	}

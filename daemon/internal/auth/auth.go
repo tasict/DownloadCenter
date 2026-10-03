@@ -1,7 +1,8 @@
 // Package auth resolves who is calling: a QTS session (NAS_SID, validated
 // with authLogin.cgi), a personal access token, or a linked chat account.
-// The package keeps its own user list; the effective administrator role
-// needs both the list's role and QTS administrator membership.
+// Who may use Download Center is QTS's application privilege (Control Panel ›
+// Privilege › Users › Edit Application Privilege); QTS administrators always
+// may, and they are Download Center's administrators.
 package auth
 
 import (
@@ -11,8 +12,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"math/big"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,9 +44,9 @@ var AdminScopes = map[string]bool{"settings:read": true, "settings:write": true}
 // Principal is the authenticated caller of a request.
 type Principal struct {
 	User     string
-	Role     string // admin | user (list role)
+	Role     string // admin | user
 	QTSAdmin bool
-	Admin    bool   // effective administrator
+	Admin    bool   // administrator: a QTS administrator
 	Via      string // session | token | v4 | chat
 	SID      string
 	Token    *Token
@@ -96,7 +99,8 @@ func (p *Principal) SourceAllowed(kind string) bool {
 	return false
 }
 
-// User is a row of the package user list.
+// User is what the package keeps per account (preferences, last sign-in);
+// the row is made at the first sign-in.
 type User struct {
 	Name      string         `json:"name"`
 	Role      string         `json:"role"`
@@ -108,11 +112,19 @@ type User struct {
 
 // Service is the auth service.
 type Service struct {
-	db    *store.DB
-	mu    sync.Mutex
-	cache map[string]sidEntry
-	rate  map[string]*bucket
-	fails map[string]*bucket
+	db      *store.DB
+	mu      sync.Mutex
+	cache   map[string]sidEntry
+	rate    map[string]*bucket
+	fails   map[string]*bucket
+	allowed map[string]checked
+	reg     checked
+}
+
+// checked is a cached answer from QTS.
+type checked struct {
+	ok      bool
+	expires time.Time
 }
 
 type sidEntry struct {
@@ -127,7 +139,7 @@ type bucket struct {
 }
 
 func New(db *store.DB) *Service {
-	return &Service{db: db, cache: map[string]sidEntry{}, rate: map[string]*bucket{}, fails: map[string]*bucket{}}
+	return &Service{db: db, cache: map[string]sidEntry{}, rate: map[string]*bucket{}, fails: map[string]*bucket{}, allowed: map[string]checked{}}
 }
 
 // FromSID authenticates a QTS session id. The answer is cached for 30 s.
@@ -181,32 +193,279 @@ func (s *Service) FromQTS(user string, qtsAdmin bool) (*Principal, error) {
 	return p, nil
 }
 
-// principal applies the user list. login records the sign-in.
+// principal applies QTS's application privilege. login records the sign-in
+// (and makes the account's row on the first one).
 func (s *Service) principal(user string, qtsAdmin bool, login bool) (*Principal, error) {
-	u, err := s.GetUser(user)
-	if err != nil {
-		// The first QTS administrator to sign in while the list has no
-		// administrator becomes one.
-		if qtsAdmin && s.adminCount() == 0 {
-			if err := s.AddUser(user, "admin"); err != nil {
-				return nil, err
-			}
-			u, _ = s.GetUser(user)
-		}
-		if u == nil {
-			return nil, ErrNotOnList
+	if !s.Allowed(user, qtsAdmin) {
+		return nil, ErrNotOnList
+	}
+	role := "user"
+	if qtsAdmin {
+		role = "admin"
+	}
+	if login {
+		u, err := s.GetUser(user)
+		now := time.Now().Unix()
+		if err != nil {
+			s.db.X(`INSERT INTO users (name, role, qts_admin, created_at, last_login_at) VALUES (?, ?, ?, ?, ?)
+				ON CONFLICT(name) DO NOTHING`, user, role, b2i(qtsAdmin), now, now)
+		} else if u.QTSAdmin != qtsAdmin || u.Role != role || now-u.LastLogin > 300 {
+			s.db.X(`UPDATE users SET role = ?, qts_admin = ?, last_login_at = ? WHERE name = ?`, role, b2i(qtsAdmin), now, user)
 		}
 	}
-	if login && (u.QTSAdmin != qtsAdmin || time.Now().Unix()-u.LastLogin > 300) {
-		s.db.X(`UPDATE users SET qts_admin = ?, last_login_at = ? WHERE name = ?`, b2i(qtsAdmin), time.Now().Unix(), user)
-	}
-	return &Principal{User: u.Name, Role: u.Role, QTSAdmin: qtsAdmin, Admin: u.Role == "admin" && qtsAdmin}, nil
+	return &Principal{User: user, Role: role, QTSAdmin: qtsAdmin, Admin: qtsAdmin}, nil
 }
 
-func (s *Service) adminCount() int {
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&n)
-	return n
+// IsAdmin reports whether an account is an administrator (a QTS
+// administrator), for callers without a session.
+func IsAdmin(user string) bool { return qts.IsQTSAdmin(user) }
+
+// Allowed reports whether an account may use Download Center: QTS
+// administrators always, everyone else when QTS's application privilege
+// grants it. QTS lets everyone use an application that is not registered, so
+// without the registration nobody else is let in. Answers are cached for 30 s.
+func (s *Service) Allowed(user string, qtsAdmin bool) bool {
+	if qtsAdmin {
+		return true
+	}
+	if user == "" || !s.registered() {
+		return false
+	}
+	now := time.Now()
+	s.mu.Lock()
+	c, ok := s.allowed[user]
+	s.mu.Unlock()
+	if ok && now.Before(c.expires) {
+		return c.ok
+	}
+	c = checked{ok: qts.AppAllowed(user), expires: now.Add(30 * time.Second)}
+	s.mu.Lock()
+	if len(s.allowed) > 1000 {
+		s.allowed = map[string]checked{}
+	}
+	s.allowed[user] = c
+	s.mu.Unlock()
+	return c.ok
+}
+
+func (s *Service) registered() bool {
+	now := time.Now()
+	s.mu.Lock()
+	c := s.reg
+	s.mu.Unlock()
+	if now.Before(c.expires) {
+		return c.ok
+	}
+	c = checked{ok: qts.AppRegistered(), expires: now.Add(30 * time.Second)}
+	s.mu.Lock()
+	s.reg = c
+	s.mu.Unlock()
+	return c.ok
+}
+
+// forget drops the cached answers (after the grants changed).
+func (s *Service) forget() {
+	s.mu.Lock()
+	s.allowed = map[string]checked{}
+	s.reg = checked{}
+	s.mu.Unlock()
+}
+
+// Member is an account that may use Download Center.
+type Member struct {
+	Name      string `json:"name"`
+	Admin     bool   `json:"admin"`
+	LastLogin int64  `json:"last_login_at"`
+}
+
+// Access describes who may use Download Center, for the users page.
+type Access struct {
+	Available  bool     `json:"available"`  // the firmware has application privileges
+	Registered bool     `json:"registered"` // Download Center is registered with them
+	Members    []Member `json:"members"`
+	Groups     []string `json:"groups"` // groups granted in QTS
+}
+
+// Members lists the local accounts that may use Download Center now. It asks
+// QTS once per account (fresh answers for the users page), so its cost grows
+// with the number of accounts.
+func (s *Service) Members() Access {
+	a := Access{Available: qts.AppPrivAvailable(), Members: []Member{}, Groups: []string{}}
+	s.forget()
+	a.Registered = a.Available && s.registered()
+	last := map[string]int64{}
+	if rows, err := s.db.Query(`SELECT name, last_login_at FROM users`); err == nil {
+		for rows.Next() {
+			var n string
+			var t int64
+			rows.Scan(&n, &t)
+			last[n] = t
+		}
+		rows.Close()
+	}
+	for _, acc := range qts.Accounts() {
+		if s.Allowed(acc.Name, acc.Admin) {
+			a.Members = append(a.Members, Member{Name: acc.Name, Admin: acc.Admin, LastLogin: last[acc.Name]})
+		}
+	}
+	if a.Registered {
+		for _, typ := range []int{qts.PrivLocalGroup, qts.PrivDomainGroup} {
+			gs, _ := qts.AppGrants(typ)
+			for _, g := range gs {
+				a.Groups = append(a.Groups, g.Name)
+			}
+		}
+	}
+	return a
+}
+
+// Grant lets an account use Download Center (QTS application privilege).
+func (s *Service) Grant(user string) error {
+	if _, _, ok := qts.Lookup(user); !ok {
+		return errors.New("找不到這個 QTS 帳號")
+	}
+	err := qts.AppGrant(qts.PrivEntry{Name: user, Type: qts.PrivLocalUser})
+	s.forget()
+	return err
+}
+
+// KeepAppPrivilege keeps Download Center registered with QTS's application
+// privileges, once at start and then every minute. The first time it grants
+// who could use Download Center or the official Download Station before (see
+// initialGrants); when the registration has disappeared it registers again
+// and restores the grants it last saw.
+func (s *Service) KeepAppPrivilege() {
+	if !qts.AppPrivAvailable() {
+		return
+	}
+	go func() {
+		for {
+			s.keepAppPrivilege()
+			time.Sleep(time.Minute)
+		}
+	}()
+}
+
+const (
+	metaPrivGrants   = "app_priv_grants"   // the grants last seen in QTS
+	metaPrivMigrated = "app_priv_migrated" // the first grants were decided
+	metaPrivPending  = "app_priv_pending"  // grants still to apply
+	metaPrivTries    = "app_priv_tries"    // attempts at the pending grants
+)
+
+var privTypes = []int{qts.PrivLocalUser, qts.PrivLocalGroup, qts.PrivDomainUser, qts.PrivDomainGroup}
+
+// privTargetExists skips grants for accounts and groups deleted since (tests
+// replace it).
+var privTargetExists = qts.PrivTargetExists
+
+func (s *Service) keepAppPrivilege() {
+	fresh := false
+	if !qts.AppRegistered() {
+		if err := qts.RegisterApp(); err != nil {
+			log.Printf("auth: register with QTS application privileges: %v", err)
+			return
+		}
+		fresh = true
+	}
+	// Decide what to grant once; applying it is retried until it succeeds
+	pending := s.db.Meta(metaPrivPending)
+	if pending == "" {
+		var grants []qts.PrivEntry
+		if s.db.Meta(metaPrivMigrated) == "" {
+			grants = s.initialGrants()
+			log.Printf("auth: registered with QTS application privileges, granting %d accounts and groups", len(grants))
+		} else if fresh {
+			json.Unmarshal([]byte(s.db.Meta(metaPrivGrants)), &grants)
+			log.Printf("auth: registered with QTS application privileges again, restoring %d grants", len(grants))
+		}
+		if len(grants) > 0 {
+			b, _ := json.Marshal(grants)
+			pending = string(b)
+			s.db.SetMeta(metaPrivPending, pending)
+		}
+		s.db.SetMeta(metaPrivMigrated, "1")
+	}
+	if pending != "" {
+		var grants, left []qts.PrivEntry
+		json.Unmarshal([]byte(pending), &grants)
+		for _, g := range grants {
+			if !privTargetExists(g) {
+				continue
+			}
+			if err := qts.AppGrant(g); err != nil {
+				log.Printf("auth: grant %s: %v", g.Name, err)
+				left = append(left, g)
+			}
+		}
+		s.forget()
+		if tries, _ := strconv.Atoi(s.db.Meta(metaPrivTries)); len(left) > 0 && tries < 10 {
+			b, _ := json.Marshal(left)
+			s.db.SetMeta(metaPrivPending, string(b))
+			s.db.SetMeta(metaPrivTries, strconv.Itoa(tries+1))
+			return
+		} else if len(left) > 0 {
+			log.Printf("auth: giving up granting %d accounts and groups", len(left))
+		}
+		s.db.SetMeta(metaPrivPending, "")
+		s.db.SetMeta(metaPrivTries, "")
+	}
+	s.saveGrants()
+}
+
+// initialGrants is who may use Download Center when it first registers: the
+// administrators group, the accounts on the package's own user list of
+// earlier versions, and the accounts and groups QTS let use the official
+// Download Station.
+func (s *Service) initialGrants() []qts.PrivEntry {
+	var grants []qts.PrivEntry
+	seen := map[qts.PrivEntry]bool{}
+	add := func(e qts.PrivEntry) {
+		if e.Name != "" && !seen[e] {
+			seen[e] = true
+			grants = append(grants, e)
+		}
+	}
+	add(qts.PrivEntry{Name: "administrators", Type: qts.PrivLocalGroup})
+	if rows, err := s.db.Query(`SELECT name FROM users ORDER BY name`); err == nil {
+		for rows.Next() {
+			var n string
+			rows.Scan(&n)
+			add(qts.PrivEntry{Name: n, Type: qts.PrivLocalUser})
+		}
+		rows.Close()
+	}
+	for _, typ := range []int{qts.PrivLocalUser, qts.PrivLocalGroup} {
+		for _, e := range qts.OfficialGrants(typ) {
+			add(e)
+		}
+	}
+	return grants
+}
+
+// saveGrants remembers the grants, to restore them should the registration
+// disappear.
+func (s *Service) saveGrants() {
+	all := []qts.PrivEntry{}
+	for _, typ := range privTypes {
+		gs, err := qts.AppGrants(typ)
+		if err != nil {
+			return
+		}
+		all = append(all, gs...)
+	}
+	b, _ := json.Marshal(all)
+	old := s.db.Meta(metaPrivGrants)
+	if string(b) == old {
+		return
+	}
+	if len(all) == 0 && old != "" && old != "[]" {
+		// Everything gone at once looks like QTS resetting its list rather
+		// than an administrator's choice: keep what can be restored
+		log.Printf("auth: QTS lists no grants for Download Center; keeping the last known ones")
+		return
+	}
+	s.db.SetMeta(metaPrivGrants, string(b))
 }
 
 // --- users ---
@@ -226,69 +485,6 @@ func (s *Service) GetUser(name string) (*User, error) {
 		u.Prefs = map[string]any{}
 	}
 	return u, nil
-}
-
-func (s *Service) Users() []User {
-	rows, err := s.db.Query(`SELECT name, role, qts_admin, created_at, last_login_at, prefs FROM users ORDER BY role, name`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []User
-	for rows.Next() {
-		var u User
-		var qa int
-		var prefs string
-		rows.Scan(&u.Name, &u.Role, &qa, &u.Created, &u.LastLogin, &prefs)
-		u.QTSAdmin = qa != 0
-		u.Prefs = map[string]any{}
-		out = append(out, u)
-	}
-	return out
-}
-
-// AddUser puts a QTS account on the list. Administrators must be QTS
-// administrators.
-func (s *Service) AddUser(name, role string) error {
-	if _, _, ok := qts.Lookup(name); !ok {
-		return errors.New("找不到這個 QTS 帳號")
-	}
-	if role != "admin" {
-		role = "user"
-	}
-	if role == "admin" && !qts.IsQTSAdmin(name) {
-		return errors.New("只有 QTS administrators 群組的成員可以是系統管理者")
-	}
-	_, err := s.db.X(`INSERT INTO users (name, role, qts_admin, created_at) VALUES (?, ?, ?, ?)
-		ON CONFLICT(name) DO UPDATE SET role = excluded.role`, name, role, b2i(qts.IsQTSAdmin(name)), time.Now().Unix())
-	return err
-}
-
-func (s *Service) SetRole(name, role string) error {
-	if role == "admin" && !qts.IsQTSAdmin(name) {
-		return errors.New("只有 QTS administrators 群組的成員可以是系統管理者")
-	}
-	if role != "admin" {
-		role = "user"
-		var cur string
-		s.db.QueryRow(`SELECT role FROM users WHERE name = ?`, name).Scan(&cur)
-		if cur == "admin" && s.adminCount() <= 1 {
-			return errors.New("至少要保留一位系統管理者")
-		}
-	}
-	_, err := s.db.X(`UPDATE users SET role = ? WHERE name = ?`, role, name)
-	return err
-}
-
-func (s *Service) RemoveUser(name string) error {
-	var cur string
-	s.db.QueryRow(`SELECT role FROM users WHERE name = ?`, name).Scan(&cur)
-	if cur == "admin" && s.adminCount() <= 1 {
-		return errors.New("至少要保留一位系統管理者")
-	}
-	_, err := s.db.X(`DELETE FROM users WHERE name = ?`, name)
-	s.db.X(`DELETE FROM chat_links WHERE qts_user = ?`, name)
-	return err
 }
 
 // SetPrefs merges per-user preferences (theme, sort, last folder).

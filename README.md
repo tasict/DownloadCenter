@@ -30,7 +30,7 @@ Download Center is not affiliated with, endorsed by or supported by QNAP Systems
 2. In App Center, choose **Install manually** and select the file.
 3. Open Download Center from the QTS desktop or at `https://<your NAS>/DownloadCenter/`.
 
-The first QTS administrator to sign in becomes the first Download Center administrator. Add other accounts under **Settings → Users**.
+QTS administrators can use Download Center right away and are its administrators. Allow other accounts in QTS: **Control Panel → Privilege → Users → Edit Application Privilege → Download Center**. **Settings → Users** lists who has access. On first start Download Center grants the accounts that could use the official Download Station.
 
 ## Build
 

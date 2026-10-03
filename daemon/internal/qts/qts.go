@@ -176,9 +176,38 @@ func Lookup(name string) (uid, gid int, ok bool) {
 	return 0, 0, false
 }
 
-// IsQTSAdmin reports membership of the administrators group.
+var (
+	adminMu    sync.Mutex
+	adminCache map[string]bool
+	adminAt    time.Time
+)
+
+// IsQTSAdmin reports membership of the administrators group (cached for 30
+// seconds: it is asked for every transfer and every token use).
 func IsQTSAdmin(name string) bool {
-	return name == "admin" || groupMembers("administrators")[name]
+	if name == "admin" {
+		return true
+	}
+	adminMu.Lock()
+	defer adminMu.Unlock()
+	if adminCache == nil || time.Since(adminAt) > 30*time.Second {
+		adminCache, adminAt = groupMembers("administrators"), time.Now()
+	}
+	return adminCache[name]
+}
+
+// GroupExists reports a local group.
+func GroupExists(name string) bool {
+	b, err := os.ReadFile("/etc/group")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if g, _, ok := strings.Cut(line, ":"); ok && g == name {
+			return true
+		}
+	}
+	return false
 }
 
 func groupMembers(group string) map[string]bool {

@@ -304,56 +304,10 @@ func (s *Server) miscRoutes() {
 	s.Route("GET /folders", "tasks:add", 0, s.folders)
 	s.Route("POST /folders", "", AdminOnly|Session, s.makeFolder)
 
-	// Users (administrators)
+	// Who may use Download Center: granted in QTS (application privilege),
+	// listed here for administrators
 	s.Route("GET /users", "", AdminOnly|Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-		users := s.Auth.Users()
-		if users == nil {
-			users = []auth.User{}
-		}
-		OK(w, map[string]any{"users": users, "accounts": qts.Accounts(), "homes_enabled": qts.HomesRoot() != ""})
-	})
-	s.Route("POST /users", "", AdminOnly|Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-		var b struct {
-			Name  string   `json:"name"`
-			Names []string `json:"names"`
-			Role  string   `json:"role"`
-		}
-		if err := Decode(r, &b); err != nil {
-			Error(w, 400, "bad_request", err.Error())
-			return
-		}
-		if b.Name != "" {
-			b.Names = append(b.Names, b.Name)
-		}
-		for _, n := range b.Names {
-			if err := s.Auth.AddUser(n, b.Role); err != nil {
-				Error(w, 400, "failed", n+"："+err.Error())
-				return
-			}
-		}
-		OK(w, map[string]any{"ok": true})
-	})
-	s.Route("PATCH /users/{name}", "", AdminOnly|Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-		var b struct {
-			Role string `json:"role"`
-		}
-		Decode(r, &b)
-		if err := s.Auth.SetRole(r.PathValue("name"), b.Role); err != nil {
-			Error(w, 400, "failed", err.Error())
-			return
-		}
-		OK(w, map[string]any{"ok": true})
-	})
-	s.Route("DELETE /users/{name}", "", AdminOnly|Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-		if r.PathValue("name") == p.User {
-			Error(w, 400, "failed", "不能移除自己")
-			return
-		}
-		if err := s.Auth.RemoveUser(r.PathValue("name")); err != nil {
-			Error(w, 400, "failed", err.Error())
-			return
-		}
-		OK(w, map[string]any{"ok": true})
+		OK(w, map[string]any{"access": s.Auth.Members(), "homes_enabled": qts.HomesRoot() != ""})
 	})
 
 	// Site and file-hosting accounts (each user their own)

@@ -158,15 +158,14 @@ func (s *Service) wake() {
 	}
 }
 
-// ownerAdmin reports the effective administrator role of a channel owner.
+// ownerAdmin reports whether a channel owner is an administrator.
 func (s *Service) ownerAdmin(user string) bool {
-	u, err := s.au.GetUser(user)
-	return err == nil && u.Role == "admin" && qts.IsQTSAdmin(user)
+	return auth.IsAdmin(user)
 }
 
+// onList reports whether a channel owner may still use Download Center.
 func (s *Service) onList(user string) bool {
-	_, err := s.au.GetUser(user)
-	return err == nil
+	return s.au.Allowed(user, s.isAdmin(user))
 }
 
 // defaultClient is the outbound HTTP client: internal addresses are refused

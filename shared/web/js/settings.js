@@ -446,90 +446,37 @@
 		return wrap;
 	}
 
-	/* ---------- 使用者 ---------- */
+	/* ---------- 使用者: who may use Download Center is set in QTS (application privilege); this page lists them ---------- */
 	function setUsers(body){
 		loadingInto(body);
 		DC.api.get('users').then(function(r){ clear(body); usersForm(body, r); }, function(e){ errorInto(body, e); });
 	}
+	/* Inside the QTS desktop its Control Panel opens on Users; in a tab of its own the QTS desktop does, after signing in if
+	   needed. QTS has no link to one account's application privileges, so Users is as far as it goes. */
+	function openQtsUsers(){
+		try{ if(DC.embedded && window.parent.os && window.parent.os.openApp){ window.parent.os.openApp('users'); return; } }catch(e){}
+		window.open('/cgi-bin/main.html?a=users', '_blank', 'noopener');
+	}
 	function usersForm(body, r){
-		var users = r.users || [], accts = r.accounts || [], list = h('div'), addBox = h('div');
-		function reload(){ DC.api.get('users').then(function(x){ r = x; users = x.users || []; accts = x.accounts || []; render(); }, function(e){ DC.toast(DC.errText(e)); }); }
-		function isQtsAdmin(n){ for(var i = 0; i < accts.length; i++) if(accts[i].name === n) return !!accts[i].admin; return false; }
-		function roleText(u){
-			var qa = isQtsAdmin(u.name);
-			return u.role === 'admin' ? (qa ? DC.t('看得到並管理所有下載與設定') : DC.t('清單上是系統管理者，但不是 QTS 管理員，目前只有一般使用者的權限'))
-				: (qa ? DC.t('只看得到自己的下載，檔案存到 home/Download') : DC.t('只看得到自己的下載，檔案存到 home/Download。不是 QTS 管理員，不能設為系統管理者'));
+		var a = r.access || {}, members = (a.members || []).slice(), list = h('div'), i;
+		members.sort(function(x, y){ return x.admin !== y.admin ? (x.admin ? -1 : 1) : (x.name < y.name ? -1 : x.name > y.name ? 1 : 0); });
+		for(i = 0; i < members.length; i++){
+			(function(u){
+				list.appendChild(h('div', {'class':'lrow'}, [icon('user'), h('div', null, [h('b', {text:u.name}),
+					h('div', {'class':'pills'}, [h('span', {text:u.admin ? DC.t('系統管理者') : DC.t('一般使用者')})]),
+					h('small', {text:(u.admin ? DC.t('看得到並管理所有下載與設定') : DC.t('只看得到自己的下載，檔案存到 home/Download')) +
+						(u.last_login_at ? DC.t('。最近登入 {time}', {time:DC.ftime(u.last_login_at)}) : '')})])]));
+			})(members[i]);
 		}
-		/* QTS accounts not on the list yet */
-		function candidates(){
-			var out = [], j, k, taken;
-			for(k = 0; k < accts.length; k++){
-				taken = false;
-				for(j = 0; j < users.length; j++) if(users[j].name === accts[k].name) taken = true;
-				if(!taken) out.push(accts[k]);
-			}
-			return out;
-		}
-		function roleOptions(name){ var o = [['user', DC.t('一般使用者')]]; if(isQtsAdmin(name)) o.unshift(['admin', DC.t('系統管理者')]); return o; }
-		/* Adding picks a QTS account and a role; editing changes the role. Administrators must be QTS administrators. */
-		function userForm(u){
-			var isNew = !u, cands = candidates(), pick = null, role, k, opts = [];
-			if(isNew){
-				for(k = 0; k < cands.length; k++) opts.push([cands[k].name, cands[k].admin ? DC.t('{user}（QTS 管理員）', {user:cands[k].name}) : cands[k].name]);
-				pick = DC.select('uPick', opts, opts[0][0], function(){ fillRole(this.value); });
-			}
-			var roleBox = h('span', {'class':'inline'});
-			function fillRole(name){
-				clear(roleBox);
-				role = DC.select('uRole', roleOptions(name), u && u.role === 'admin' && isQtsAdmin(name) ? 'admin' : 'user');
-				roleBox.appendChild(role);
-			}
-			fillRole(isNew ? pick.value : u.name);
-			DC.modal(isNew ? DC.t('加入使用者') : DC.t('編輯 {user}', {user:u.name}), 'user', [
-				h('p', {'class':'lead', text:isNew ? DC.t('選擇要讓哪個 QTS 帳號登入 Download Center。') : roleText(u)}),
-				DC.mform([
-					isNew ? field(DC.t('QTS 帳號'), null, pick, 'uPick') : null,
-					fieldDiv(DC.t('角色'), DC.t('系統管理者看得到所有下載與設定；一般使用者只看得到自己的下載'), roleBox)
-				]),
-				h('p', {'class':'note', text:DC.t('系統管理者只能指定給 QTS administrators 群組的成員，因為系統管理者可以把檔案存到 NAS 上任何共用資料夾。')})
-			], function(close){
-				var ok = btn(null, isNew ? DC.t('加入') : DC.t('儲存'), function(){
-					var n = isNew ? pick.value : u.name, v = role.value;
-					DC.busy(ok, true);
-					(isNew ? DC.api.post('users', {name:n, role:v}) : DC.api.patch('users/' + encodeURIComponent(n), {role:v})).then(function(){
-						close();
-						DC.toast(isNew ? DC.t('已加入 {user}', {user:n}) : (v === 'admin' ? DC.t('{user} 改為系統管理者', {user:n}) : DC.t('{user} 改為一般使用者', {user:n})));
-						reload();
-					}, function(e){ DC.busy(ok, false); DC.toast(DC.errText(e)); });
-				}, 'pri');
-				return [btn(null, DC.t('取消'), close), ok];
-			}, {nofocus:true});
-			(pick || role).focus();
-		}
-		function render(){
-			var j;
-			clear(list);
-			for(j = 0; j < users.length; j++){
-				(function(u){
-					list.appendChild(h('div', {'class':'lrow'}, [icon('user'), h('div', null, [h('b', {text:u.name}),
-						h('div', {'class':'pills'}, [h('span', {text:u.role === 'admin' ? DC.t('系統管理者') : DC.t('一般使用者')})]),
-						h('small', {text:roleText(u) + (u.last_login_at ? DC.t('。最近登入 {time}', {time:DC.ftime(u.last_login_at)}) : '')})]),
-						h('div', {'class':'acts2'}, [
-							ibtn('edit', DC.t('編輯'), function(){ userForm(u); }),
-							u.name === DC.me() ? null : ibtn('trash', DC.t('移除 {user}', {user:u.name}), function(){
-								DC.confirm(DC.t('移除 {user}', {user:u.name}), 'user', DC.t('{user} 將無法再登入 Download Center，他的任務仍會保留。', {user:u.name}), DC.t('移除'), function(){
-									DC.api.del('users/' + encodeURIComponent(u.name)).then(function(){ DC.toast(DC.t('已移除 {user}，他的任務仍保留', {user:u.name})); reload(); }, function(e){ DC.toast(DC.errText(e)); });
-								}, true);
-							})])]));
-				})(users[j]);
-			}
-			clear(addBox);
-			if(candidates().length) addBox.appendChild(DC.addRow(DC.t('加入使用者'), function(){ userForm(null); }));
-			else addBox.appendChild(h('p', {'class':'note', text:DC.t('所有 QTS 帳號都已經在清單上。')}));
-		}
-		render();
-		body.appendChild(sec('user', DC.t('使用者'), DC.t('只有清單上的帳號能登入 Download Center。系統管理者看得到所有下載；一般使用者只看得到自己的下載，檔案固定存到各自家目錄的 home/Download。'), [
-			list, addBox,
+		if(!members.length) list.appendChild(h('p', {'class':'note', text:DC.t('還沒有任何帳號可以使用。')}));
+		body.appendChild(sec('user', DC.t('使用者'), DC.t('誰可以使用 Download Center 在 QTS 設定：控制台 › 權限 › 使用者，在帳號的「編輯應用程式權限」勾選 Download Center。QTS 的系統管理者一律可以使用，也是這裡的系統管理者。'), [
+			!a.available ? h('p', {'class':'note warn', text:DC.t('這台 NAS 的 QTS 沒有應用程式權限，只有 QTS 的系統管理者可以使用 Download Center。')}) :
+				!a.registered ? h('p', {'class':'note warn', text:DC.t('Download Center 還沒登記到 QTS 的應用程式權限，一分鐘內會自動完成；在那之前只有系統管理者可以使用。')}) : null,
+			a.available ? DC.fieldDiv(DC.t('使用權限'), DC.t('在 QTS 開放或取消帳號的使用權限，回到這裡按重新整理就會看到。'),
+				[btn('popout', DC.t('到 QTS 設定'), openQtsUsers, 'pri'), ibtn('retry', DC.t('重新整理'), function(){ clear(body); setUsers(body); })]) : null,
+			h('div', {'class':'sphead', text:DC.t('可以使用的帳號（{n}）', {n:members.length})}),
+			list,
+			a.groups && a.groups.length ? h('p', {'class':'note', text:DC.t('QTS 也開放給這些群組的成員：{groups}', {groups:a.groups.join(DC.t('、'))})}) : null,
 			r.homes_enabled ? null : h('p', {'class':'note warn', text:DC.t('QTS 的家目錄服務沒有啟用：一般使用者的檔案會存到 Public。')})
 		]));
 	}

@@ -296,8 +296,7 @@ func migrated(last map[string]any) bool {
 }
 
 func (im *Importer) onList(user string) bool {
-	_, err := im.au.GetUser(user)
-	return err == nil
+	return im.au.Allowed(user, auth.IsAdmin(user))
 }
 
 // Request selects what to import.
@@ -337,7 +336,7 @@ func (im *Importer) Import(req Request) (*Summary, error) {
 		if im.onList(u) {
 			continue
 		}
-		if err := im.au.AddUser(u, "user"); err != nil {
+		if err := im.au.Grant(u); err != nil {
 			sum.Warnings = append(sum.Warnings, fmt.Sprintf("無法加入使用者 %s：%v", u, err))
 		} else {
 			sum.UsersAdded++

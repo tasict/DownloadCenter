@@ -108,7 +108,7 @@ The flow follows what QTS `authLogin.cgi` actually answers. It covers only what 
 
 | QTS answer | Screen |
 |---|---|
-| `authPassed=1` | Then the user list is checked: listed users go in; others stay on the sign-in page with "This account has no access to Download Center yet. Contact your administrator." |
+| `authPassed=1` | Then QTS's application privilege is checked: QTS administrators and accounts allowed to use Download Center go in; others stay on the sign-in page with "This account has no access to Download Center yet. Contact your administrator." |
 | `user_pw_expiry=1` or `pw_status=1` | "The password of this account has expired. Change it before signing in." with a "Change password in QTS" button (opens the QTS sign-in page in a new tab). The package does not change passwords itself |
 | `need_2_step_verification=1` | 2-step verification screen (below) |
 | `force_2sv=1` | "Your administrator requires 2-step verification for this account, but it is not set up yet." with an "Open QTS" button |
@@ -246,7 +246,7 @@ Wide screens show one page with tabs. Phones first show an iOS Settings style li
 | Tab | Contents | Regular users |
 |---|---|---|
 | Download | Default temporary location and move-to folder, finished tasks (default for removing them automatically), concurrent downloads, speed limits and the values for limited hours, torrents (torrent engine, ports, UPnP (libtorrent only), DHT/LSD/PEX, seeding conditions, incoming port test), proxy servers (HTTP; SOCKS5 as well when the torrent engine is libtorrent), sign-in (an explanation of the QTS rules, direct sign-in from the QTS desktop) | Only "Files are saved to home/Download in your home folder, owned by you" |
-| Users | Who can use Download Center, each as administrator or regular user. Picked from QTS accounts; only members of the QTS administrators group can be administrators, and for everyone else the role menu is locked to regular user with the reason shown. The QTS administrator is added automatically at install. A reminder appears when the home folder service is off | — |
+| Users | Who can use Download Center is set in QTS (Control Panel › Privilege › Users › Edit Application Privilege), so this page explains where, has a button that opens QTS there (the desktop's Control Panel inside the QTS desktop, the QTS desktop in a new tab otherwise) and lists the accounts that can use it now, administrators (QTS administrators) first, with the groups QTS allows. A reminder appears when the home folder service is off | — |
 | Schedule | 7×24 drag-to-paint: full speed, limited, paused; clicking a weekday paints the whole day, clicking an hour paints it across the week; a plain-language summary below | — |
 | Site accounts | Logins (HTTP/FTP sites) and file-hosting accounts (1fichier, Rapidgator, Real-Debrid, AllDebrid, cookies for other sites). Verified file-hosting accounts show their plan, expiry date and traffic left today, and can be verified again; MEGA and free downloads that need a captcha are not supported | Their own |
 | Access tokens | See below | Their own |

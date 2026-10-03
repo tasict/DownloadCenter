@@ -8,13 +8,13 @@ All paths below are relative to `/<Name>/api/v1/` on the QTS admin port (8080/44
 
 ### 1.1 Model
 
-A token belongs to exactly one account on the package's user list (the owner) and is created by that account in 設定 › 存取權杖. It never grants more than its owner currently has:
+A token belongs to exactly one account that may use Download Center (the owner) and is created by that account in 設定 › 存取權杖. Who may use Download Center is QTS's application privilege (Control Panel › Privilege › Users › Edit Application Privilege); QTS administrators always may and are Download Center's administrators. It never grants more than its owner currently has:
 
 ```
 effective rights = token scopes ∩ owner's current rights ∩ token restrictions
 ```
 
-If the owner is deleted or disabled in QTS, or removed from the package's user list, every token they own stops working immediately (checked per request, cached for at most 60 s). Admin-only scopes on a non-admin owner are rejected at creation and ignored at runtime.
+If the owner is deleted or disabled in QTS, or loses the Download Center application privilege, every token they own stops working (checked per request, cached for at most 60 s). Admin-only scopes, everyone's tasks and folder allowlists on a non-admin owner are rejected or dropped at creation and ignored at runtime, also when the owner stops being an administrator later; a token made by a regular user does not grow when its owner becomes one.
 
 | Field | Meaning |
 |---|---|

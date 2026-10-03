@@ -2,20 +2,11 @@ package auth
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
-
-	"downloadcenter/internal/store"
 )
 
 func TestUpdateToken(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "dc.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	db.X(`INSERT INTO users (name, role, qts_admin, created_at) VALUES ('joe', 'user', 0, 0)`)
-	s := New(db)
+	s, _ := newTestService(t, &fakeQTS{registered: map[string]bool{"DownloadCenter": true}, allow: map[string]bool{"joe": true}})
 	tok := &Token{Owner: "joe", Name: "bot", Scopes: []string{"tasks:read", "tasks:add"}}
 	value, err := s.CreateToken(tok, false)
 	if err != nil {

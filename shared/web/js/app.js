@@ -314,7 +314,6 @@
 				h('span', {'class':'note', text:DC.t('也會登出這個瀏覽器上的 QTS。')})]);
 		closeFn = DC.modal(DC.t('個人設定'), 'user', [
 			who,
-			me.role === 'admin' && !me.qts_admin ? h('p', {'class':'note warn', text:DC.t('清單上你是系統管理者，但這個帳號不是 QTS 管理員，所以目前只有一般使用者的權限。')}) : null,
 			h('h3', {'class':'me-h', text:DC.t('外觀')}),
 			DC.themeSeg(),
 			/* Glass level only inside the QTS desktop, where the window sits over the desktop wallpaper; a full tab keeps the default */

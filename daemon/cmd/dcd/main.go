@@ -145,6 +145,10 @@ func serve(args []string) {
 		log.Fatalf("manager: %v", err)
 	}
 	au := auth.New(db)
+	// Development instances share the NAS's QTS: leave its registration alone
+	if *devUser == "" {
+		au.KeepAppPrivilege()
+	}
 	srv := api.New(m, au, filepath.Join(*root, "web"), Version)
 	api.SetOfficialCheck(func() (bool, bool) { return qts.QPKGInstalled("DownloadStation") })
 	srv.DevUser = *devUser

@@ -4,8 +4,9 @@
 ######################################################################
 
 # Stop the daemon and engines, give /downloadstation back if we took it,
-# then remove the UI, the watchdog and the icons. data/ goes with the
-# package directory.
+# leave QTS's application privileges, then remove the UI, the watchdog and
+# the icons. data/ goes with the package directory. (Upgrades do not run
+# this.)
 PKG_PRE_REMOVE="{
     QPKG_ROOT=\$(/sbin/getcfg DownloadCenter Install_Path -f /etc/config/qpkg.conf)
     if [ -n \"\$QPKG_ROOT\" ] && [ -x \"\$QPKG_ROOT/DownloadCenter.sh\" ]; then
@@ -16,6 +17,7 @@ PKG_PRE_REMOVE="{
             esac
         fi
     fi
+    [ -x /sbin/appriv ] && /sbin/appriv --unregister_app DownloadCenter >/dev/null 2>&1
     rm -f /etc/default_config/apache/extra/apache-downloadcenter.conf
     sed -i '/DownloadCenter.sh watchdog/d' /etc/config/crontab
     crontab /etc/config/crontab
