@@ -1,6 +1,6 @@
 /* Updates, for administrators signed in to the UI: a quiet toolbar tag when a newer release is out, the update window with
-   its progress, and the 關於與更新 settings page (every release, going back to an older one). dcd fetches the release
-   index, checks the signature and runs the installer; the page only asks and shows. */
+   its progress, and the 關於與更新 settings page (every release, but only newer ones install; going back is deliberately
+   not offered). dcd fetches the release index, checks the signature and runs the installer; the page only asks and shows. */
 (function(){
 	'use strict';
 	var DC = window.DC, h = DC.h, add = DC.add, clear = DC.clear, icon = DC.icon, btn = DC.btn, R = DC.R;
@@ -47,28 +47,13 @@
 					DC.api.put('update/settings', {skip:e.version}).then(function(nv){ U.view = nv; tag(); DC.toast(DC.t('不會再提示 {version}', {version:e.version})); }, function(err){ DC.toast(DC.errText(err)); });
 				}}, DC.t('略過這個版本')) : null,
 				btn(null, DC.t('稍後'), close),
-				btn(null, DC.t('立即更新'), function(){ close(); start(e.version, false); }, 'pri')
+				btn(null, DC.t('立即更新'), function(){ close(); start(e.version); }, 'pri')
 			];
 		});
 	}
 
-	function goBack(e){
-		var can = !e.needs_restore || e.backup_at, text;
-		if(!e.needs_restore) text = DC.t('目前的資料庫會先備份，降版後繼續使用。');
-		else if(e.backup_at) text = DC.t('這一版使用較舊的資料庫格式，會改用 {time} 的資料庫備份；之後新增或變更的任務與設定都會消失。', {time:DC.ftime(e.backup_at)});
-		else text = DC.t('這一版使用較舊的資料庫格式，但找不到當時的資料庫備份，所以無法降回這一版。');
-		DC.modal(DC.t('降回 {version}？', {version:e.version}), 'dn', [
-			h('p', {'class':'lead', text:text}),
-			e.notes ? h('pre', {'class':'relnotes', text:e.notes}) : null
-		], function(close){
-			var ok = btn(null, DC.t('降回這一版'), function(){ close(); start(e.version, !!e.needs_restore); }, 'dan pri');
-			ok.disabled = !can;
-			return [btn(null, DC.t('取消'), close), ok];
-		});
-	}
-
-	function start(version, restore){
-		DC.api.post('update/install', {version:version, restore:restore}).then(function(v){ U.view = v; progress(version); }, function(err){ DC.toast(DC.errText(err)); });
+	function start(version){
+		DC.api.post('update/install', {version:version}).then(function(v){ U.view = v; progress(version); }, function(err){ DC.toast(DC.errText(err)); });
 	}
 
 	var FAIL = {
@@ -179,7 +164,7 @@
 				ext(DC.t('版本發布頁'), DC.t('每個版本的說明與安裝檔，也可以從這裡手動下載'), REPO + '/releases'),
 				ext(DC.t('回報問題'), DC.t('遇到問題或有建議時到 GitHub 開 issue，請附上版本 {version}（{arch}）', {version:v.current, arch:v.arch || '?'}), REPO + '/issues')
 			]),
-			sec('files', DC.t('所有版本'), DC.t('可以更新，也可以降回較舊的版本。每次更新前都會先備份資料庫。'), [releases(v)])
+			sec('files', DC.t('所有版本'), null, [releases(v)])
 		]);
 	}
 
@@ -194,11 +179,7 @@
 			(function(e){
 				var pills = h('div', {'class':'pills'}, [e.relation === 'current' ? h('span', {text:DC.t('目前版本')}) : null, e.prerelease ? h('span', {'class':'warn', text:DC.t('測試版')}) : null]);
 				var act = null;
-				if(e.relation !== 'current'){
-					if(!e.installable) act = h('small', {'class':'unit', text:DC.t('沒有適合這台 NAS 的套件')});
-					else if(e.relation === 'newer') act = btn(null, DC.t('更新'), function(){ offer(e); }, 'pri');
-					else act = btn(null, DC.t('降回這一版'), function(){ goBack(e); });
-				}
+				if(e.relation === 'newer') act = e.installable ? btn(null, DC.t('更新'), function(){ offer(e); }, 'pri') : h('small', {'class':'unit', text:DC.t('沒有適合這台 NAS 的套件')});
 				list.appendChild(h('div', {'class':'lrow relrow'}, [icon(e.relation === 'newer' ? 'up' : e.relation === 'older' ? 'dn' : 'done'), h('div', null, [
 					h('b', {'class':'num', text:e.version}), pills,
 					h('small', {'class':'num', text:[e.date, sizeText(e)].filter(function(x){ return !!x; }).join(DC.t('，'))}),
