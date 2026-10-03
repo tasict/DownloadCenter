@@ -74,6 +74,7 @@ Errors: HTTP status + `{"error": {"code": "folder_not_allowed", "message": "…"
 | `GET /tasks?state=&kind=&q=&sort=&order=&after=&limit=` | `tasks:read` | Cursor pagination. `sort` = `queue` (default) \| `status` \| `progress` \| `eta` \| `elapsed`; `order` = `asc` \| `desc` |
 | `GET /tasks/{id}` | `tasks:read` | `id` is the stable task hash (infohash or URL SHA-1) |
 | `GET /tasks/{id}/files` | `tasks:read` | |
+| `GET /tasks/{id}/folder` | `tasks:read` | `{"path": "/Download/…", "file": "…"}`: the folder the task's data is in right now (its temporary folder while it downloads) and, for a single file, the file to select |
 | `POST /tasks` | `tasks:add` | `{"source": "<url or magnet>", "folder": "/Download", "move_to": null, "files": "all"\|[indices], "auto_remove": null\|"completed"\|"seeded", "start": true}`. A source that duplicates an existing task returns `409 duplicate` with that task's id, unless it is the same torrent, which is merged (`200`, `"merged": true`); multiple sources via `"sources": [...]`. For regular users `folder` and `move_to` must be omitted (or equal their home `Download`), otherwise `folder_not_allowed` |
 | `POST /tasks/torrent` | `tasks:add` | `multipart/form-data`, field `file`, plus the same options |
 | `POST /tasks/{id}/pause` · `/resume` · `/retry` | `tasks:control` | |

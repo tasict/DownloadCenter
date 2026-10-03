@@ -323,6 +323,37 @@ func FreeSpace(p string) int64 {
 	return -1
 }
 
+// FolderOf is where "open folder" takes a task: the folder its data is in
+// right now (the temporary folder while it downloads), with the file to
+// select when the data is a single file. A folder that does not exist yet
+// gives way to the nearest one that does.
+func FolderOf(t *Task) (dir, file string) {
+	p := t.DataPath
+	if p == "" {
+		name := t.Name
+		if t.Kind != KindBT && t.Options.OutName != "" {
+			name = t.Options.OutName
+		}
+		if name != "" {
+			p = filepath.Join(t.SaveDir(), name)
+		}
+	}
+	if p != "" {
+		if st, err := os.Stat(p); err == nil {
+			if st.IsDir() {
+				return p, ""
+			}
+			return filepath.Dir(p), filepath.Base(p)
+		}
+	}
+	for _, d := range []string{t.SaveDir(), t.finalDir()} {
+		if st, err := os.Stat(d); err == nil && st.IsDir() {
+			return d, ""
+		}
+	}
+	return t.TempDir, ""
+}
+
 // inside reports whether p is dir or below it.
 func inside(p, dir string) bool {
 	p, dir = filepath.Clean(p), filepath.Clean(dir)

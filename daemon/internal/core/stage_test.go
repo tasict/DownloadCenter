@@ -259,3 +259,35 @@ func TestAdoptOfficialTemp(t *testing.T) {
 		t.Error("finished task adopted")
 	}
 }
+
+func TestFolderOf(t *testing.T) {
+	dir := t.TempDir()
+	temp, move := filepath.Join(dir, "Download"), filepath.Join(dir, "Movies")
+	work := filepath.Join(temp, TempDirName, stageHash)
+	os.MkdirAll(filepath.Join(work, "Show"), 0755)
+	os.MkdirAll(move, 0755)
+	os.WriteFile(filepath.Join(work, "film.mkv"), []byte("x"), 0644)
+	os.WriteFile(filepath.Join(move, "done.iso"), []byte("x"), 0644)
+	bt := func(name, data string, folder bool) *Task {
+		return &Task{Kind: KindBT, Name: name, TempDir: temp, MoveDir: move, WorkDir: work, DataPath: data, IsFolder: folder}
+	}
+	cases := []struct {
+		what      string
+		t         *Task
+		dir, file string
+	}{
+		{"downloading folder torrent", bt("Show", "", true), filepath.Join(work, "Show"), ""},
+		{"downloading single-file torrent", bt("film.mkv", "", false), work, "film.mkv"},
+		{"not started yet", bt("Other", "", true), work, ""},
+		{"seeding single file at its destination", bt("done.iso", filepath.Join(move, "done.iso"), false), move, "done.iso"},
+		{"data gone from its destination", bt("gone", filepath.Join(move, "gone"), true), move, ""},
+		{"temp folder not made yet", &Task{Kind: KindBT, Name: "x", TempDir: temp, MoveDir: move, WorkDir: filepath.Join(temp, TempDirName, "none")}, move, ""},
+		{"URL download in progress", &Task{Kind: KindHTTP, Name: "film.mkv", TempDir: temp, WorkDir: work}, work, "film.mkv"},
+		{"finished URL download", &Task{Kind: KindHTTP, Name: "done.iso", State: StDone, TempDir: temp, MoveDir: move, WorkDir: work, DataPath: filepath.Join(move, "done.iso")}, move, "done.iso"},
+	}
+	for _, c := range cases {
+		if d, f := FolderOf(c.t); d != c.dir || f != c.file {
+			t.Errorf("%s: %q %q, want %q %q", c.what, d, f, c.dir, c.file)
+		}
+	}
+}

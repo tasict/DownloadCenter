@@ -530,26 +530,28 @@
 		updateRow(t);
 		return r.el;
 	}
-	function folderOf(t){
-		var loc = t.location || t.folder || '';
-		if(t.state === 'done' && !t.is_folder) return loc.replace(/\/[^\/]*$/, '');
-		return loc;
-	}
-	DC.folderOf = folderOf;
-	/* Opens File Station on the task's current folder, with the file selected for single-file tasks.
+	/* Opens File Station on the folder the task's data is in right now (the server looks at the disk: the temporary folder
+	   while downloading, the destination once moved), with the file selected for single-file tasks.
 	   Inside the QTS desktop this is the desktop's own openApp message (the protocol of QMessageClient.js, as the official
 	   Download Station used it); in a plain tab the desktop is opened with the same app and config in its URL (the QTS login
 	   page passes a= and c= through to main.html the same way). File Station paths are share-relative with a leading slash. */
 	DC.openFolder = function(t){
 		DC.track('open_folder');
-		var f = folderOf(t), loc = t.location || '', cfg = {path:'/' + f.replace(/^\/+/, '')}, wid, msg;
-		if(t.state === 'done' && !t.is_folder && loc) cfg.file = loc.replace(/^.*\//, '');
-		if(DC.embedded && window.parent && window.parent !== window){
-			wid = (/[?&]windowId=([^&#]*)/.exec(location.href) || [])[1] || '';
-			msg = {CATEGORY:'QTS_DESKTOP', TYPE:'function', FN:'openApp', OPTION:{appId:'fileExplorer', config:cfg}, APP_ID:wid, CALLBACK:'fn_dc' + new Date().getTime()};
-			try{ window.parent.postMessage(JSON.stringify(msg), location.protocol + '//' + location.host); return; }catch(e){}
-		}
-		window.open('/cgi-bin/main.html?a=fileExplorer&c=' + encodeURIComponent(JSON.stringify(cfg)), '_blank', 'noopener');
+		var framed = DC.embedded && window.parent && window.parent !== window, w = null;
+		/* A tab opened when the answer arrives would count as a popup: open it now and point it there afterwards */
+		if(!framed) w = window.open('', '_blank');
+		DC.api.get('tasks/' + encodeURIComponent(t.id) + '/folder').then(function(r){
+			var cfg = {path:'/' + String(r.path || '').replace(/^\/+/, '')}, wid, msg, url;
+			if(r.file) cfg.file = r.file;
+			if(framed){
+				wid = (/[?&]windowId=([^&#]*)/.exec(location.href) || [])[1] || '';
+				msg = {CATEGORY:'QTS_DESKTOP', TYPE:'function', FN:'openApp', OPTION:{appId:'fileExplorer', config:cfg}, APP_ID:wid, CALLBACK:'fn_dc' + new Date().getTime()};
+				try{ window.parent.postMessage(JSON.stringify(msg), location.protocol + '//' + location.host); return; }catch(e){}
+			}
+			url = '/cgi-bin/main.html?a=fileExplorer&c=' + encodeURIComponent(JSON.stringify(cfg));
+			if(w){ w.opener = null; w.location.href = url; }
+			else window.open(url, '_blank', 'noopener');
+		}, function(){ if(w) w.close(); });
 	};
 	function updateRow(t){
 		var r = R.rows[t.id], i, on, cells, frac, pct, s = DC.uiState(t), key;

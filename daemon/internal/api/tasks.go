@@ -714,6 +714,14 @@ func (s *Server) taskRoutes() {
 		// The task's own rates come with the peers so the detail chart samples both at once
 		OK(w, map[string]any{"peers": peers, "down_rate": t.DownRate, "up_rate": t.UpRate})
 	})
+	s.Route("GET /tasks/{id}/folder", "tasks:read", 0, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
+		t := s.visibleTask(w, p, r.PathValue("id"))
+		if t == nil {
+			return
+		}
+		dir, file := core.FolderOf(t)
+		OK(w, map[string]any{"path": s.M.DisplayPath(p.User, dir), "file": file})
+	})
 	s.Route("GET /tasks/{id}/log", "tasks:read", 0, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		t := s.visibleTask(w, p, r.PathValue("id"))
 		if t == nil {
