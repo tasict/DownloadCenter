@@ -2,6 +2,15 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.0.0
+
+- Torrents now download into the hidden `@DownloadCenterTemp` folder like links, and move to their destination as soon as their data is complete; they keep seeding from there. Half-downloaded files never show up in your shared folders, and a move to another volume is copied out of sight first.
+- A name that is already taken at the destination gets " (1)" instead of replacing anything.
+- Torrents imported from Download Station leave its temporary folder once complete.
+- Removing an unfinished torrent also removes its partial data, as it already did for links.
+- Live traffic graphs in the connections tab of the task details.
+- Optional anonymous usage statistics: once a day, counts only (never names, links, accounts or paths). The administrator decides in the usage notice.
+
 ## 0.9.1
 
 First public release.

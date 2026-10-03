@@ -1,5 +1,9 @@
 build/*.qpkg
 build/*.md5
+# Written by tools/release.sh
+build/release.json
+build/SHA256SUMS
+build/SHA256SUMS.sig
 .DS_Store
 ._*
 __MACOSX/
