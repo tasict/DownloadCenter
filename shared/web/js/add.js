@@ -548,7 +548,8 @@
 			if(admin && folder.value) form.append('folder', folder.value);
 			DC.api.upload('tasks/probe', form).then(function(r){ if(!closed && my === gen) useMeta(r); }, function(e){ if(closed || my !== gen) return; clear(body); body.appendChild(h('p', {'class':'note warn', text:DC.errText(e)})); });
 		}
-		function setTitle(t){ var sp = box && box.querySelector('.mhead h2 span'); if(sp) sp.textContent = t; }
+		/* The title is the heading's last span; the first one is its icon */
+		function setTitle(t){ var sp = box && box.querySelector('.mhead h2 > span:last-child'); if(sp) sp.textContent = t; if(box) box.setAttribute('aria-label', t); }
 
 		/* (Re)fill everything that depends on the items. Late answers of an earlier load are dropped by the generation check. */
 		function load(list, page){
