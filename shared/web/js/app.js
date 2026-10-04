@@ -119,7 +119,7 @@
 			sv = String(p.sort || DC.ls('dc-sort') || 'queue:').split(':');
 			S.sort = sv[0] || 'queue'; S.dir = sv[1] ? +sv[1] : null;
 			if(!SORT_DIR[S.sort] && S.sort !== 'queue') S.sort = 'queue';
-			S.view = 'tasks'; S.filter = 'all'; S.sel = {};
+			readRoute(); S.sel = {};
 			build(); renderNav(); renderView();
 			S.live = true;
 			poll(); pollStats(); stream();
@@ -376,8 +376,23 @@
 		clear(R.main); R.rows = {}; R.list = null; R.paintEnd = null;
 		if(S.view === 'tasks') viewTasks();
 		else DC.settings.view(R.main);
+		saveRoute();
 	}
 	DC.renderView = function(){ renderView(); };
+	/* The page shown is kept in the address (#tasks/down, #settings/notify) so a reload or 在新分頁開啟 stays on it. It is
+	   replaced, never pushed: Back inside the QTS desktop must not walk through the app's pages. Written after the view has
+	   rendered, because settings fall back to 下載 when the tab is not available to this account. */
+	function readRoute(){
+		var m = /^#(tasks|settings)(?:\/([a-z]+))?$/.exec(location.hash) || [];
+		S.view = m[1] || 'tasks'; S.filter = 'all';
+		if(m[1] === 'tasks' && m[2]) S.filter = filterById(m[2]).id;
+		if(m[1] === 'settings'){ S.setOpen = !!m[2]; if(m[2]) S.setTab = m[2]; }
+	}
+	function saveRoute(){
+		var r = S.view === 'settings' ? '#settings' + (S.setOpen || !DC.phone() ? '/' + S.setTab : '') : S.filter !== 'all' ? '#tasks/' + S.filter : '';
+		if(location.hash === r) return;
+		try{ history.replaceState(history.state, '', location.pathname + location.search + r); }catch(e){}
+	}
 
 	/* ---------- tasks view ---------- */
 	function viewTasks(){

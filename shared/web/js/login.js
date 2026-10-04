@@ -279,6 +279,8 @@
 		var sid = getCookie('NAS_SID');
 		function done(){
 			delCookie('NAS_SID'); delCookie('NAS_USER'); delCookie('NAS_PW_STATUS'); delCookie('home'); delCookie('QDS_SID');
+			/* The next account signing in here starts on the task list, not on the page this one left open */
+			try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){}
 			location.reload();
 		}
 		DC.api.post('logout', {}, {quiet:true}).then(null, function(){}).then(function(){

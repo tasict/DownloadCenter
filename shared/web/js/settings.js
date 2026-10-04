@@ -8,9 +8,15 @@
 		dl:['down', DC.t('資料夾、同時下載數、速度、種子')], sched:['cal', DC.t('什麼時候全速、限速或暫停')], users:['user', DC.t('誰可以使用 Download Center')],
 		acct:['key', DC.t('需要登入的網站與免空帳號')], token:['ticket', DC.t('讓其他程式使用你的下載')], notify:['bell', DC.t('Telegram、Discord、Webhook')], import:['inbox', DC.t('設定、任務與網站帳號')], about:['retry', DC.t('版本、更新與相關連結')]
 	};
-	var importAvail = null;
+	var importAvail = null, importAsk = false;
 	/* After a successful import the section disappears (kept on screen until the next navigation, so the summary stays readable). */
 	DC.importDone = function(){ importAvail = false; };
+	/* The tab is shown once the backend says there is something to import; a reload on it waits for that answer. */
+	function importKnown(avail){
+		var S = DC.S;
+		importAvail = avail; importAsk = false;
+		if((avail || S.setTab === 'import') && S.view === 'settings' && !(S.dirty && S.dirty())) DC.renderView();
+	}
 
 	function tabs(){
 		var admin = DC.isAdmin(), t;
@@ -22,15 +28,17 @@
 		return t;
 	}
 	function view(main){
-		var S = DC.S, admin = DC.isAdmin(), list, tb, body, i, ok = false, label = '', ts;
+		var S = DC.S, admin = DC.isAdmin(), list, tb, body, i, ok = false, label = '', ts, wait;
 		if(admin && importAvail === null){
-			importAvail = false;
-			DC.api.get('import', null, {quiet:true}).then(function(r){ importAvail = !!(r && r.available); if(importAvail && S.view === 'settings' && !(S.dirty && S.dirty())) DC.renderView(); }, function(){ importAvail = false; });
+			importAvail = false; importAsk = true;
+			DC.api.get('import', null, {quiet:true}).then(function(r){ importKnown(!!(r && r.available)); }, function(){ importKnown(false); });
 		}
 		S.dirty = null;
 		ts = tabs();
 		for(i = 0; i < ts.length; i++) if(ts[i][0] === S.setTab){ ok = true; label = ts[i][1]; }
-		if(!ok){ S.setTab = 'dl'; label = ts[0][1]; }
+		wait = !ok && importAsk && S.setTab === 'import';
+		if(wait) label = DC.t('從官方版匯入');
+		else if(!ok){ S.setTab = 'dl'; label = ts[0][1]; }
 		/* Phone: seven tabs do not fit, so settings open on an index like the iOS Settings app and each section is its own page. */
 		if(DC.phone() && !S.setOpen){
 			list = h('div', {'class':'group setidx'});
@@ -47,7 +55,8 @@
 				onclick:(function(id){ return function(){ if(S.setTab !== id) DC.leave(function(){ S.setTab = id; DC.track('set_' + id); DC.renderView(); }); }; })(ts[i][0])}, ts[i][1]));
 		}
 		body = h('div');
-		if(S.setTab === 'dl') (admin ? setDownload : setDownloadUser)(body);
+		if(wait) loadingInto(body);
+		else if(S.setTab === 'dl') (admin ? setDownload : setDownloadUser)(body);
 		else if(S.setTab === 'sched') setSchedule(body);
 		else if(S.setTab === 'users') setUsers(body);
 		else if(S.setTab === 'acct') DC.setMore.accounts(body);
