@@ -114,6 +114,7 @@ func (m *Manager) Start() error {
 		return err
 	}
 	var resume []*Task
+	parts := map[string]string{}
 	m.mu.Lock()
 	for _, t := range ts {
 		if adoptOfficialTemp(t) {
@@ -125,13 +126,24 @@ func (m *Manager) Start() error {
 			// move runs in the engine and is followed by the loop.
 			resume = append(resume, t)
 		}
+		if t.Kind == KindBT && t.State == StDone {
+			parts[t.Hash] = t.SaveDir()
+		}
 		m.live[t.Hash] = t
 	}
 	for _, t := range resume {
 		m.resumeMove(t)
 	}
 	m.mu.Unlock()
-	m.wg.Add(1)
+	// Versions up to 1.0.2 left the part files of finished torrents behind;
+	// checked at every start
+	m.wg.Add(2)
+	go func() {
+		defer m.wg.Done()
+		for h, dir := range parts {
+			m.removePartFiles(h, dir)
+		}
+	}()
 	go m.loop()
 	return nil
 }
@@ -1072,6 +1084,7 @@ func (m *Manager) completed(t *Task, st *engine.Status, e engine.Engine) {
 		if fe, ok := e.(interface{ Forget(string) }); ok {
 			fe.Forget(t.EngineRef)
 		}
+		m.removePartFiles(t.Hash, st.Dir, t.SaveDir())
 		if t.DataPath == "" && t.MoveDir != "" && t.MoveDir != t.TempDir && t.Name != "" {
 			// Torrents of 0.9.x seed in place and move when seeding ends
 			m.startMove(t, filepath.Join(t.TempDir, t.Name), t.MoveDir, false)

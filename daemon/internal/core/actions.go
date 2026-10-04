@@ -155,14 +155,17 @@ func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
 		}
 	} else if t.InTemp() && ownTemp(t.WorkDir) {
 		removeTempDir(t.WorkDir)
-	} else if deleteData {
-		if t.DataPath != "" {
-			paths = append(paths, t.DataPath, filepath.Join(filepath.Dir(t.DataPath), "."+hash+".parts"))
-		} else if t.Name != "" {
-			dir := t.SaveDir()
-			p := filepath.Join(dir, t.Name)
-			paths = append(paths, p, p+".aria2", filepath.Join(dir, "."+hash+".parts"))
+	} else {
+		if deleteData {
+			if t.DataPath != "" {
+				paths = append(paths, t.DataPath)
+			} else if t.Name != "" {
+				p := filepath.Join(t.SaveDir(), t.Name)
+				paths = append(paths, p, p+".aria2")
+			}
 		}
+		// Kept data or not, the part file only served the torrent
+		m.removePartFiles(hash, t.SaveDir())
 	}
 	for _, p := range paths {
 		if taskDataOK(t, p) {

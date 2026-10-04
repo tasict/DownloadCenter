@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"downloadcenter/internal/qts"
+	"downloadcenter/internal/torrent"
 )
 
 // TempDirName is the folder at the root of a share where downloads stay
@@ -399,4 +400,36 @@ func removeEmptyDirs(dir string) {
 		}
 	}
 	os.Remove(dir)
+}
+
+// removePartFiles deletes what libtorrent keeps of a torrent beside its
+// data, ".<infohash>.parts" in the save folder (the pieces it shares with
+// unselected files), once the torrent has left the engine for good. A v2
+// torrent's part file is named after its truncated SHA-256 info hash;
+// content-merged tasks have one per source.
+func (m *Manager) removePartFiles(hash string, dirs ...string) {
+	hashes := []string{hash}
+	for _, s := range m.Sources(hash) {
+		hashes = append(hashes, s.Hash)
+	}
+	var names []string
+	for _, h := range hashes {
+		names = append(names, h)
+		if b, err := os.ReadFile(m.torrentPath(h)); err == nil {
+			if meta, err := torrent.Parse(b); err == nil && len(meta.InfoHashV2) >= 40 {
+				names = append(names, meta.InfoHashV2[:40])
+			}
+		}
+	}
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		for _, n := range names {
+			p := filepath.Join(dir, "."+n+".parts")
+			if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
+				os.Remove(p)
+			}
+		}
+	}
 }

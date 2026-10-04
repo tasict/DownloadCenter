@@ -319,3 +319,39 @@ func TestMagnetTakesTorrentName(t *testing.T) {
 		t.Errorf("name %q replaced", task.Name)
 	}
 }
+
+func TestPartFilesRemoved(t *testing.T) {
+	m, f, task, _, move := stageSetup(t, true)
+	work := task.WorkDir
+	os.MkdirAll(filepath.Join(work, "Sintel"), 0755)
+	st := seedingStatus(work, "Sintel")
+	apply(m, task, st, f)
+	os.Rename(filepath.Join(work, "Sintel"), filepath.Join(move, "Sintel"))
+	st.Dir = move
+	apply(m, task, st, f)
+	part := filepath.Join(move, "."+stageHash+".parts")
+	other := filepath.Join(move, "."+strings.Repeat("0", 40)+".parts")
+	os.WriteFile(part, []byte("x"), 0644)
+	os.WriteFile(other, []byte("x"), 0644)
+	apply(m, task, st, f)
+	if task.State != StSeeding || !pathExists(part) {
+		t.Fatalf("state %s: part file gone while seeding", task.State)
+	}
+	// Seeding over: the torrent left the engine, its part file goes
+	st.State = engine.Complete
+	apply(m, task, st, f)
+	if task.State != StDone || pathExists(part) {
+		t.Fatalf("after seeding: state %s, part file kept", task.State)
+	}
+	if !pathExists(other) {
+		t.Error("another torrent's part file removed")
+	}
+	// Removed with its data kept: a part file an older version left goes too
+	os.WriteFile(part, []byte("x"), 0644)
+	if err := m.Remove(stageHash, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if pathExists(part) || !pathExists(filepath.Join(move, "Sintel")) {
+		t.Errorf("after removal: part file %v, data %v", pathExists(part), pathExists(filepath.Join(move, "Sintel")))
+	}
+}
