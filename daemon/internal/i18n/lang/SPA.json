@@ -171,6 +171,7 @@
 	"下載完成，搬移檔案中": "Descarga completada; moviendo archivos",
 	"下載完成，開始做種": "Descarga completada; empieza la siembra",
 	"下載完成：{name}": "Descarga completada: {name}",
+	"下載後的資料夾：{name}": "Se guardará como carpeta: {name}",
 	"下載的內容": "Lo que descargas",
 	"下載的檔案不見了": "Los archivos descargados han desaparecido",
 	"下載的檔案都會存到你家目錄的 {home}，檔案擁有者是你。下載完成前先放在其中的 @DownloadCenterTemp，完成後才移到 {home}，種子會在那裡繼續做種。": "Todo lo que descargues se guarda en {home}, dentro de tu carpeta personal, y tú eres el propietario de los archivos. Hasta que terminan, las descargas se guardan en @DownloadCenterTemp dentro de esa carpeta y solo entonces se mueven a {home}; los torrents siguen sembrando desde allí.",

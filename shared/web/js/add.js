@@ -490,6 +490,8 @@
 			clear(body);
 			if(dupNote) body.appendChild(h('p', {'class':'note warn', text:DC.t('目的地已有同名的檔案，可能已經下載過。')}));
 			if(contentOf) body.appendChild(h('p', {'class':'note', text:DC.t('會作為既有任務的其他來源，下載到同一個資料夾。')}));
+			/* The torrent's own top folder, which the file paths below leave out; the window title is only the link's or file's name */
+			if(meta && meta.is_folder && meta.name) body.appendChild(h('p', {'class':'note root'}, [icon('folder'), h('span', {text:DC.t('下載後的資料夾：{name}', {name:meta.name})})]));
 			if(files.length > 1) body.appendChild(h('div', {'class':'tools'}, [
 				h('button', {type:'button', onclick:function(){ setAll(function(){ return true; }); }}, DC.t('全選')),
 				h('button', {type:'button', onclick:function(){ setAll(function(f){ return /\.(mp4|mkv|avi|mov|m4v|webm|ts|wmv|flv)$/i.test(f.path); }); }}, DC.t('只要影片')),
@@ -503,7 +505,6 @@
 			if(r.free !== undefined && r.free >= 0) free = r.free;
 			files = [];
 			for(var k = 0; k < (meta.files || []).length; k++) files.push({index:meta.files[k].index, path:meta.files[k].path.replace(/^[^\/]+\//, ''), size:meta.files[k].size, sel:true});
-			if(files.length === 1 && meta.files[0]) files[0].path = meta.files[0].path;
 			showFiles();
 		}
 		function cancelProbe(){

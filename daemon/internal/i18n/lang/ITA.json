@@ -171,6 +171,7 @@
 	"下載完成，搬移檔案中": "Download completato, spostamento dei file",
 	"下載完成，開始做種": "Download completato, seeding avviato",
 	"下載完成：{name}": "Download completato: {name}",
+	"下載後的資料夾：{name}": "Verrà salvato come cartella: {name}",
 	"下載的內容": "Cosa scarichi",
 	"下載的檔案不見了": "I file scaricati non sono più presenti",
 	"下載的檔案都會存到你家目錄的 {home}，檔案擁有者是你。下載完成前先放在其中的 @DownloadCenterTemp，完成後才移到 {home}，種子會在那裡繼續做種。": "Tutti i file scaricati vengono salvati in {home} nella tua cartella home e ne sei il proprietario. Fino al completamento i download restano in @DownloadCenterTemp al suo interno e solo dopo vengono spostati in {home}; i torrent continuano il seeding da lì.",
