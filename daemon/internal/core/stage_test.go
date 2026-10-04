@@ -291,3 +291,31 @@ func TestFolderOf(t *testing.T) {
 		}
 	}
 }
+
+func TestMagnetTakesTorrentName(t *testing.T) {
+	m := testManager(t)
+	f := &fakeBT{}
+	m.Engines["libtorrent"] = f
+	link := "magnet:?xt=urn:btih:" + stageHash + "&dn=[site]Sintel.torrent"
+	task := &Task{Hash: stageHash, Owner: "dc-test-nobody", Kind: KindBT, Source: link, Name: "[site]Sintel.torrent", Engine: "libtorrent",
+		State: StMetadata, TempDir: t.TempDir(), CreatedAt: 1}
+	task.Options.Magnet = link
+	task.EngineRef = stageHash
+	m.live[stageHash] = task
+	apply(m, task, &engine.Status{Ref: stageHash, State: engine.Active, IsMetadata: true, Name: "[site]Sintel.torrent"}, f)
+	if task.Name != "[site]Sintel.torrent" {
+		t.Fatalf("renamed before the metadata arrived: %q", task.Name)
+	}
+	st := &engine.Status{Ref: stageHash, State: engine.Active, Name: "]Sintel", Total: 100,
+		Files: []engine.File{{Index: 0, Path: "]Sintel/a.mp4", Size: 100, Selected: true}}}
+	apply(m, task, st, f)
+	if task.Name != "]Sintel" {
+		t.Fatalf("name %q, want the torrent's own", task.Name)
+	}
+	// A name that did not come from the link is kept
+	task.Name = "Sintel"
+	apply(m, task, st, f)
+	if task.Name != "Sintel" {
+		t.Errorf("name %q replaced", task.Name)
+	}
+}

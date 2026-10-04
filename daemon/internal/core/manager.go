@@ -706,8 +706,11 @@ func (m *Manager) applyStatus(t *Task, st *engine.Status, e engine.Engine, elaps
 		if t.DownTotal < t.DoneBytes {
 			t.DownTotal = t.DoneBytes
 		}
-		if t.Name == "" && st.Name != "" {
-			t.Name = torrent.SafeName(st.Name)
+		// A magnet task is called after the link's dn until the metadata
+		// arrives; from then on it carries the torrent's own name, which
+		// is also what its data is called
+		if n := torrent.SafeName(st.Name); n != "" && n != t.Name && (t.Name == "" || t.Kind == KindBT && t.Name == linkName(t)) {
+			t.Name = n
 			m.markDirty(t)
 		}
 		if t.Comment == "" && st.Comment != "" {
@@ -1021,6 +1024,23 @@ func (m *Manager) moveFailed(t *Task, e engine.Engine, msg string) {
 func (m *Manager) unstage(t *Task) {
 	t.TempDir, t.MoveDir, t.WorkDir = t.WorkDir, t.finalDir(), ""
 	m.markDirty(t)
+}
+
+// linkName is the name a magnet task's link suggests (its dn), "" for other
+// tasks.
+func linkName(t *Task) string {
+	link := t.Options.Magnet
+	if link == "" && t.IsMagnet() {
+		link = t.Source
+	}
+	if link == "" {
+		return ""
+	}
+	mg, err := torrent.ParseMagnet(link)
+	if err != nil {
+		return ""
+	}
+	return mg.Name
 }
 
 // torrentRoot is the name of a torrent's top folder (or single file) on disk.
