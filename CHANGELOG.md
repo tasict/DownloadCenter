@@ -2,6 +2,19 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.0.3
+
+- AI agents can manage your downloads. Settings › Access tokens has an AI Agent section: create a token for the agent and run the command it shows on the computer where Claude Code, Codex, Gemini CLI or another agent that reads skill files runs. The command installs a skill file served by your NAS; the agent can then add, check, pause and remove downloads for you. Its token never does more than your account and cannot delete files unless you allow it.
+- The first time an administrator opens Download Center on a NAS with Download Station, it offers to import Download Station's settings, tasks and site accounts. The import stays available in Settings › Import from official version.
+- A new default folder set in the settings is offered in the add window right away. The add window only remembers the folder of your last task when you picked one other than the default.
+- Links that cannot be added say why, for example that this NAS cannot download that kind of link, instead of showing an internal code.
+- Magnet links are shown in purple in the add window; red is kept for input that cannot be added.
+- Reloading the page keeps you on the page you were on.
+- Magnet tasks take the name of their torrent as soon as its file list has arrived.
+- Torrents no longer leave a hidden part file in the download folder once they are removed or finished; the ones left by earlier versions are cleaned up.
+- The add window shows the folder a torrent is saved as.
+- The interface is now written in English and translated into the other languages, Traditional Chinese included; a few English texts read slightly differently. For the API: a request without `X-DC-Lang` is answered in English, and adding a link that cannot be downloaded answers with its own error code (`url_unavailable`, `bt_unavailable`, `folder_read_only` …).
+
 ## 1.0.2
 
 - The traffic graph in the connections tab of the task details shows again. It was cut down to a thin strip in which only half of the download and upload labels could be seen.
