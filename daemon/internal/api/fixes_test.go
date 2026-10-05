@@ -122,3 +122,11 @@ func TestSettingsBTIdentity(t *testing.T) {
 		t.Errorf("bt_identity %v", id)
 	}
 }
+
+// Merging a private torrent with another has its own code and message.
+func TestPrivateTorrentError(t *testing.T) {
+	status, code, msg := coreError(core.ErrPrivate)
+	if status != 409 || code != "private_torrent" || msg == "private_torrent" {
+		t.Errorf("%d %s %q", status, code, msg)
+	}
+}

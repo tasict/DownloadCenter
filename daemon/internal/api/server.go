@@ -263,6 +263,8 @@ func coreError(err error) (status int, code, msg string) {
 	switch {
 	case errors.Is(err, core.ErrDuplicate):
 		return 409, "duplicate", "This task is already in the list"
+	case errors.Is(err, core.ErrPrivate):
+		return 409, "private_torrent", "Private torrents are not merged with other torrents"
 	case errors.Is(err, core.ErrFolder):
 		return 403, "folder_not_allowed", "This folder cannot be used"
 	case errors.Is(err, core.ErrReadOnly):

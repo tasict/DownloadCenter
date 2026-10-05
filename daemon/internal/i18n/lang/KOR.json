@@ -412,6 +412,7 @@
 	"Files to download updated": "다운로드할 파일을 업데이트했습니다",
 	"Filter folders": "폴더 필터",
 	"Find peers even without a tracker": "tracker 없이도 다른 피어 찾기",
+	"Finds peers only through its tracker": "tracker를 통해서만 피어를 찾습니다",
 	"Finished at": "완료 시간",
 	"Finished tasks": "완료된 작업",
 	"Folder": "폴더",
@@ -695,6 +696,9 @@
 	"Prevents the NAS's DNS lookups from revealing the sites you download from": "NAS의 DNS 조회로 다운로드하는 사이트가 노출되지 않게 합니다",
 	"Preview": "미리보기",
 	"Previewable": "미리 보기 가능",
+	"Private torrent": "비공개 토렌트",
+	"Private torrent: it finds peers only through its tracker, which may accept only certain clients.": "비공개 토렌트: tracker를 통해서만 피어를 찾으며, tracker는 특정 클라이언트만 허용할 수 있습니다.",
+	"Private torrents are not merged with other torrents": "비공개 토렌트는 다른 토렌트와 병합되지 않습니다",
 	"Progress": "진행률",
 	"Proxy": "프록시",
 	"Proxy changed": "프록시를 변경했습니다",
@@ -983,6 +987,7 @@
 	"This is a web page. The download links on it are listed below.": "웹 페이지입니다. 페이지 안의 다운로드 링크가 아래에 표시됩니다.",
 	"This is not your task": "내 작업이 아닙니다",
 	"This is taking too long. Reload the page later.": "너무 오래 걸리고 있습니다. 잠시 후 페이지를 새로 고치세요.",
+	"This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.": "'{task}'와(과) 같은 비공개 토렌트입니다. 비공개 토렌트는 병합하지 않으므로 아무것도 추가되지 않습니다.",
 	"This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.": "'{task}'와(과) 같은 토렌트입니다. 새 소스의 tracker는 기존 작업에 병합되며 중복 다운로드되지 않습니다.",
 	"This page has changes that are not saved yet. Leaving will undo them.": "이 페이지에 저장하지 않은 변경 사항이 있습니다. 나가면 원래대로 돌아갑니다.",
 	"This proxy cannot be used": "이 프록시 설정을 사용할 수 없습니다",
@@ -1237,5 +1242,6 @@
 	"“{name}” removed automatically; files kept": "'{name}'을(를) 자동으로 제거했습니다. 파일은 유지됩니다",
 	"“{name}” started downloading": "'{name}'이(가) 다운로드를 시작했습니다",
 	"“{path}” was not found; showing the folder above it.": "'{path}'을(를) 찾을 수 없어 상위 폴더를 표시합니다.",
-	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "목록의 '{task}'은(는) 이 토렌트와 파일 내용이 같습니다. 다른 소스로 병합하거나(한 번에 하나의 소스만 다운로드하며 멈추면 자동 전환), 그래도 새 작업으로 추가할 수 있습니다."
+	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "목록의 '{task}'은(는) 이 토렌트와 파일 내용이 같습니다. 다른 소스로 병합하거나(한 번에 하나의 소스만 다운로드하며 멈추면 자동 전환), 그래도 새 작업으로 추가할 수 있습니다.",
+	"“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task.": "목록의 '{task}'와(과) 파일이 같습니다. 비공개 토렌트는 다른 토렌트와 병합하지 않으므로 이 토렌트는 새 작업으로 추가됩니다."
 }

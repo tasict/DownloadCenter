@@ -331,6 +331,7 @@
 		"Files to download updated",
 		"Filter folders",
 		"Find peers even without a tracker",
+		"Finds peers only through its tracker",
 		"Finished at",
 		"Finished tasks",
 		"Folder",
@@ -558,6 +559,8 @@
 		"Prevents the NAS's DNS lookups from revealing the sites you download from",
 		"Preview",
 		"Previewable",
+		"Private torrent",
+		"Private torrent: it finds peers only through its tracker, which may accept only certain clients.",
 		"Progress",
 		"Proxy",
 		"Proxy changed",
@@ -766,6 +769,7 @@
 		"This is a .torrent file URL; the file will be downloaded first.",
 		"This is a web page. The download links on it are listed below.",
 		"This is taking too long. Reload the page later.",
+		"This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.",
 		"This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.",
 		"This page has changes that are not saved yet. Leaving will undo them.",
 		"This service can only receive notifications",
@@ -989,7 +993,8 @@
 		"“{name}” removed automatically; files kept",
 		"“{name}” started downloading",
 		"“{path}” was not found; showing the folder above it.",
-		"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway."
+		"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.",
+		"“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task."
 	],
 	"backend": [
 		"Task not found",
@@ -1257,6 +1262,7 @@
 		"The ticket is invalid or expired",
 		"QTS did not answer",
 		"The files of this task are being moved. Try again when the move has finished.",
-		"Invalid position"
+		"Invalid position",
+		"Private torrents are not merged with other torrents"
 	]
 }

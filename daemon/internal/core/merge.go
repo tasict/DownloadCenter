@@ -55,6 +55,11 @@ func (m *Manager) addContentSource(taskHash string, b []byte, meta *torrent.Meta
 	if err != nil || other.Name != meta.Name || !sameFiles(other, meta) {
 		return nil, errors.New("The file lists differ, so they cannot be merged")
 	}
+	// A private torrent finds peers only through its own tracker, which
+	// counts what it seeds: it never shares a task with another torrent
+	if meta.Private || other.Private || m.TorrentPrivate(taskHash) {
+		return nil, ErrPrivate
+	}
 	if err := os.WriteFile(m.torrentPath(meta.InfoHash), b, 0600); err != nil {
 		return nil, err
 	}

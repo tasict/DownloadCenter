@@ -412,6 +412,7 @@
 	"Files to download updated": "Te downloaden bestanden bijgewerkt",
 	"Filter folders": "Mappen filteren",
 	"Find peers even without a tracker": "Peers vinden zonder tracker",
+	"Finds peers only through its tracker": "Vindt peers alleen via de eigen tracker",
 	"Finished at": "Voltooid op",
 	"Finished tasks": "Voltooide taken",
 	"Folder": "Map",
@@ -695,6 +696,9 @@
 	"Prevents the NAS's DNS lookups from revealing the sites you download from": "Voorkomt dat DNS-query’s van de NAS verraden van welke sites u downloadt",
 	"Preview": "Bekijken",
 	"Previewable": "Te bekijken",
+	"Private torrent": "Privétorrent",
+	"Private torrent: it finds peers only through its tracker, which may accept only certain clients.": "Privétorrent: vindt peers alleen via de eigen tracker, die mogelijk alleen bepaalde clients accepteert.",
+	"Private torrents are not merged with other torrents": "Privétorrents worden niet met andere torrents samengevoegd",
 	"Progress": "Voortgang",
 	"Proxy": "Proxy",
 	"Proxy changed": "Proxy gewijzigd",
@@ -983,6 +987,7 @@
 	"This is a web page. The download links on it are listed below.": "Dit is een webpagina. De downloadlinks erop staan hieronder.",
 	"This is not your task": "Dit is niet uw taak",
 	"This is taking too long. Reload the page later.": "Dit duurt te lang. Laad de pagina later opnieuw.",
+	"This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.": "Dit is dezelfde privétorrent als ‘{task}’. Privétorrents worden niet samengevoegd, dus er wordt niets toegevoegd.",
 	"This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.": "Dit is dezelfde torrent als ‘{task}’. De trackers van de nieuwe bron worden aan de bestaande taak toegevoegd; er wordt niets dubbel gedownload.",
 	"This page has changes that are not saved yet. Leaving will undo them.": "Deze pagina heeft niet-opgeslagen wijzigingen. Als u weggaat, worden ze ongedaan gemaakt.",
 	"This proxy cannot be used": "Deze proxy kan niet worden gebruikt",
@@ -1237,5 +1242,6 @@
 	"“{name}” removed automatically; files kept": "‘{name}’ automatisch uit de lijst verwijderd; bestanden behouden",
 	"“{name}” started downloading": "‘{name}’ is begonnen met downloaden",
 	"“{path}” was not found; showing the folder above it.": "‘{path}’ is niet gevonden; de bovenliggende map wordt getoond.",
-	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "De bestanden van ‘{task}’ in de lijst zijn gelijk aan die van deze torrent. U kunt deze samenvoegen als extra bron (er downloadt steeds één bron; bij stilstand wordt automatisch gewisseld) of toch als nieuwe taak toevoegen."
+	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "De bestanden van ‘{task}’ in de lijst zijn gelijk aan die van deze torrent. U kunt deze samenvoegen als extra bron (er downloadt steeds één bron; bij stilstand wordt automatisch gewisseld) of toch als nieuwe taak toevoegen.",
+	"“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task.": "‘{task}’ in de lijst heeft dezelfde bestanden. Privétorrents worden niet met andere torrents samengevoegd, dus deze wordt als eigen taak toegevoegd."
 }

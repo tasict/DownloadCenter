@@ -412,6 +412,7 @@
 	"Files to download updated": "Herunterzuladende Dateien aktualisiert",
 	"Filter folders": "Ordner filtern",
 	"Find peers even without a tracker": "Peers auch ohne Tracker finden",
+	"Finds peers only through its tracker": "Findet Peers nur über seinen Tracker",
 	"Finished at": "Abgeschlossen am",
 	"Finished tasks": "Abgeschlossene Aufgaben",
 	"Folder": "Ordner",
@@ -695,6 +696,9 @@
 	"Prevents the NAS's DNS lookups from revealing the sites you download from": "Verhindert, dass DNS-Anfragen des NAS verraten, von welchen Websites heruntergeladen wird",
 	"Preview": "Vorschau",
 	"Previewable": "Vorschau möglich",
+	"Private torrent": "Privater Torrent",
+	"Private torrent: it finds peers only through its tracker, which may accept only certain clients.": "Privater Torrent: Er findet Peers nur über seinen Tracker, der eventuell nur bestimmte Clients akzeptiert.",
+	"Private torrents are not merged with other torrents": "Private Torrents werden nicht mit anderen Torrents zusammengeführt",
 	"Progress": "Fortschritt",
 	"Proxy": "Proxy",
 	"Proxy changed": "Proxy geändert",
@@ -983,6 +987,7 @@
 	"This is a web page. The download links on it are listed below.": "Dies ist eine Webseite. Ihre Download-Links werden unten aufgeführt.",
 	"This is not your task": "Dies ist nicht Ihre Aufgabe",
 	"This is taking too long. Reload the page later.": "Das dauert zu lange. Laden Sie die Seite später neu.",
+	"This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.": "Derselbe private Torrent wie „{task}“. Private Torrents werden nicht zusammengeführt, daher wird nichts hinzugefügt.",
 	"This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.": "Derselbe Torrent wie „{task}“. Die Tracker der neuen Quelle werden in die vorhandene Aufgabe übernommen; nichts wird doppelt heruntergeladen.",
 	"This page has changes that are not saved yet. Leaving will undo them.": "Diese Seite enthält ungespeicherte Änderungen. Beim Verlassen gehen sie verloren.",
 	"This proxy cannot be used": "Dieser Proxy kann nicht verwendet werden",
@@ -1237,5 +1242,6 @@
 	"“{name}” removed automatically; files kept": "„{name}“ automatisch entfernt, Dateien bleiben erhalten",
 	"“{name}” started downloading": "„{name}“ hat den Download gestartet",
 	"“{path}” was not found; showing the folder above it.": "„{path}“ wurde nicht gefunden; der übergeordnete Ordner wird angezeigt.",
-	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "„{task}“ in der Liste hat denselben Dateiinhalt wie dieser Torrent. Sie können ihn als weitere Quelle zusammenführen (es lädt immer nur eine Quelle; bei Stillstand wird automatisch gewechselt) oder trotzdem als neue Aufgabe hinzufügen."
+	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "„{task}“ in der Liste hat denselben Dateiinhalt wie dieser Torrent. Sie können ihn als weitere Quelle zusammenführen (es lädt immer nur eine Quelle; bei Stillstand wird automatisch gewechselt) oder trotzdem als neue Aufgabe hinzufügen.",
+	"“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task.": "„{task}“ in der Liste hat dieselben Dateien. Private Torrents werden nicht mit anderen Torrents zusammengeführt, daher wird dieser als eigene Aufgabe hinzugefügt."
 }

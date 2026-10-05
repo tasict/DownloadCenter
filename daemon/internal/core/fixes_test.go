@@ -1,11 +1,15 @@
 package core
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"downloadcenter/internal/torrent"
 )
 
 // cookieResolver answers like a file-host resolver.
@@ -251,5 +255,119 @@ func TestQueueRanks(t *testing.T) {
 	r := m.QueueRanks()
 	if r["d"] != 1 || r["e"] != 2 || r["a"] != 0 || r["p"] != 0 || len(r) != 2 {
 		t.Errorf("ranks %v", r)
+	}
+}
+
+// testTorrent is a one-file torrent announcing to tracker; private sets the
+// BEP 27 flag and salt (the "source" key) changes the info hash only.
+func testTorrent(tracker string, private bool, salt string) []byte {
+	info := "d6:lengthi16384e4:name5:movie12:piece lengthi16384e6:pieces20:" + strings.Repeat("a", 20)
+	if private {
+		info += "7:privatei1e"
+	}
+	if salt != "" {
+		info += "6:source" + strconv.Itoa(len(salt)) + ":" + salt
+	}
+	return []byte("d8:announce" + strconv.Itoa(len(tracker)) + ":" + tracker + "4:info" + info + "ee")
+}
+
+func btManager(t *testing.T) *Manager {
+	m := urlManager(t)
+	m.Engines["libtorrent"] = &fakeBT{}
+	return m
+}
+
+func infoHash(t *testing.T, b []byte) string {
+	meta, err := torrent.Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return meta.InfoHash
+}
+
+// Another link of a private torrent adds no trackers; a public one still does.
+func TestPrivateTorrentNotMerged(t *testing.T) {
+	m := btManager(t)
+	o := AddOptions{Owner: "admin", Admin: true, AutoRemove: "default"}
+	priv := testTorrent("https://pt.example.com/announce?passkey=1", true, "")
+	if _, err := m.AddTorrent(priv, o); err != nil {
+		t.Fatal(err)
+	}
+	id := infoHash(t, priv)
+	res, err := m.AddTorrent(testTorrent("https://pt.example.com/announce?passkey=2", true, ""), o)
+	var dup *DupError
+	if !errors.As(err, &dup) || dup.ID != id || res == nil || !res.Duplicate {
+		t.Fatalf("same private torrent: %v %+v", err, res)
+	}
+	res, err = m.AddMagnet("magnet:?xt=urn:btih:"+id+"&tr=udp%3A%2F%2Fpublic.example.com%3A1337", o)
+	if !errors.As(err, &dup) || res.Merged {
+		t.Fatalf("magnet of a private torrent: %v %+v", err, res)
+	}
+	if tr := m.Live(id).Options.Trackers; len(tr) != 0 {
+		t.Errorf("trackers added to a private torrent: %v", tr)
+	}
+	pub := testTorrent("https://a.example.com/announce", false, "")
+	m.AddTorrent(pub, o)
+	res, err = m.AddTorrent(testTorrent("https://b.example.com/announce", false, ""), o)
+	if err != nil || !res.Merged || len(m.Live(infoHash(t, pub)).Options.Trackers) != 1 {
+		t.Errorf("public torrent: %v %+v", err, res)
+	}
+}
+
+// A private torrent never becomes another source, nor gets one.
+func TestPrivateNotContentSource(t *testing.T) {
+	m := btManager(t)
+	o := AddOptions{Owner: "admin", Admin: true, AutoRemove: "default"}
+	pub := testTorrent("https://a.example.com/announce", false, "")
+	m.AddTorrent(pub, o)
+	o.ContentOf = infoHash(t, pub)
+	if _, err := m.AddTorrent(testTorrent("https://pt.example.com/announce", true, "PT"), o); err != ErrPrivate {
+		t.Errorf("private as a source: %v", err)
+	}
+	o.ContentOf = ""
+	priv := testTorrent("https://pt.example.com/announce", true, "")
+	m.AddTorrent(priv, o)
+	o.ContentOf = infoHash(t, priv)
+	if _, err := m.AddTorrent(testTorrent("https://a.example.com/announce", false, "other"), o); err != ErrPrivate {
+		t.Errorf("source for a private task: %v", err)
+	}
+	if len(m.Sources(infoHash(t, priv))) != 0 || len(m.Sources(infoHash(t, pub))) != 0 {
+		t.Error("sources recorded")
+	}
+	if !m.TorrentPrivate(infoHash(t, priv)) || m.TorrentPrivate(infoHash(t, pub)) {
+		t.Error("TorrentPrivate")
+	}
+}
+
+// The duplicate check says when a private torrent is involved.
+func TestCheckPrivate(t *testing.T) {
+	m := btManager(t)
+	o := AddOptions{Owner: "admin", Admin: true, AutoRemove: "default"}
+	priv := testTorrent("https://pt.example.com/announce", true, "")
+	m.AddTorrent(priv, o)
+	r := m.Check("admin", true, []CheckItem{
+		{Source: "a.torrent", Torrent: priv},
+		{Source: "magnet:?xt=urn:btih:" + infoHash(t, priv)},
+		{Source: "b.torrent", Torrent: testTorrent("https://a.example.com/announce", false, "x")},
+		{Source: "c.torrent", Torrent: testTorrent("https://a.example.com/announce", false, "")},
+	}, "")
+	if r[0].Status != "same_torrent" || !r[0].Private || r[1].Status != "same_torrent" || !r[1].Private {
+		t.Errorf("same private torrent: %+v %+v", r[0], r[1])
+	}
+	if r[2].Status != "same_content" || !r[2].Private {
+		t.Errorf("same files as a private task: %+v", r[2])
+	}
+	if r[3].Status != "same_content" || !r[3].Private {
+		t.Errorf("public torrent, private task: %+v", r[3])
+	}
+	m2 := btManager(t)
+	m2.AddTorrent(testTorrent("https://a.example.com/announce", false, ""), o)
+	r = m2.Check("admin", true, []CheckItem{{Source: "p.torrent", Torrent: testTorrent("https://pt.example.com/announce", true, "")}}, "")
+	if r[0].Status != "same_content" || !r[0].Private {
+		t.Errorf("private torrent, public task: %+v", r[0])
+	}
+	r = m2.Check("admin", true, []CheckItem{{Source: "q.torrent", Torrent: testTorrent("https://a.example.com/announce", false, "y")}}, "")
+	if r[0].Private {
+		t.Errorf("public only: %+v", r[0])
 	}
 }

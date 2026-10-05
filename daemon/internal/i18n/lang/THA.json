@@ -412,6 +412,7 @@
 	"Files to download updated": "อัปเดตไฟล์ที่จะดาวน์โหลดแล้ว",
 	"Filter folders": "กรองโฟลเดอร์",
 	"Find peers even without a tracker": "ค้นหาเพียร์ได้แม้ไม่มี tracker",
+	"Finds peers only through its tracker": "ค้นหาเพียร์ผ่าน tracker ของตัวเองเท่านั้น",
 	"Finished at": "เวลาที่เสร็จ",
 	"Finished tasks": "งานที่เสร็จแล้ว",
 	"Folder": "โฟลเดอร์",
@@ -695,6 +696,9 @@
 	"Prevents the NAS's DNS lookups from revealing the sites you download from": "ป้องกันไม่ให้การค้นหา DNS ของ NAS เปิดเผยเว็บไซต์ที่ดาวน์โหลด",
 	"Preview": "ดูตัวอย่าง",
 	"Previewable": "ดูตัวอย่างได้",
+	"Private torrent": "ทอร์เรนต์ส่วนตัว",
+	"Private torrent: it finds peers only through its tracker, which may accept only certain clients.": "ทอร์เรนต์ส่วนตัว: ค้นหาเพียร์ผ่าน tracker ของตัวเองเท่านั้น และ tracker อาจยอมรับเฉพาะไคลเอนต์บางตัว",
+	"Private torrents are not merged with other torrents": "ทอร์เรนต์ส่วนตัวจะไม่ถูกรวมกับทอร์เรนต์อื่น",
 	"Progress": "ความคืบหน้า",
 	"Proxy": "พร็อกซี",
 	"Proxy changed": "เปลี่ยนพร็อกซีแล้ว",
@@ -983,6 +987,7 @@
 	"This is a web page. The download links on it are listed below.": "นี่คือหน้าเว็บ ลิงก์ดาวน์โหลดในหน้าจะแสดงด้านล่าง",
 	"This is not your task": "นี่ไม่ใช่งานของคุณ",
 	"This is taking too long. Reload the page later.": "ใช้เวลานานเกินไป โปรดโหลดหน้าใหม่ภายหลัง",
+	"This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.": "เป็นทอร์เรนต์ส่วนตัวเดียวกับ “{task}” ทอร์เรนต์ส่วนตัวจะไม่ถูกรวม จึงไม่มีการเพิ่มสิ่งใด",
 	"This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.": "เป็นทอร์เรนต์เดียวกับ “{task}” tracker จากแหล่งใหม่จะถูกรวมเข้ากับงานที่มีอยู่ โดยไม่ดาวน์โหลดซ้ำ",
 	"This page has changes that are not saved yet. Leaving will undo them.": "หน้านี้มีการแก้ไขที่ยังไม่บันทึก หากออกจากหน้า การแก้ไขจะถูกยกเลิก",
 	"This proxy cannot be used": "ใช้การตั้งค่าพร็อกซีนี้ไม่ได้",
@@ -1237,5 +1242,6 @@
 	"“{name}” removed automatically; files kept": "นำ “{name}” ออกอัตโนมัติแล้ว ไฟล์ยังคงอยู่",
 	"“{name}” started downloading": "“{name}” เริ่มดาวน์โหลดแล้ว",
 	"“{path}” was not found; showing the folder above it.": "ไม่พบ “{path}” จึงแสดงโฟลเดอร์ระดับบนแทน",
-	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "ไฟล์ของ “{task}” ในรายการเหมือนกับทอร์เรนต์นี้ สามารถรวมเป็นแหล่งที่มาเพิ่มเติม (ดาวน์โหลดทีละแหล่ง และสลับอัตโนมัติเมื่อหยุดนิ่ง) หรือเพิ่มเป็นงานใหม่ก็ได้"
+	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "ไฟล์ของ “{task}” ในรายการเหมือนกับทอร์เรนต์นี้ สามารถรวมเป็นแหล่งที่มาเพิ่มเติม (ดาวน์โหลดทีละแหล่ง และสลับอัตโนมัติเมื่อหยุดนิ่ง) หรือเพิ่มเป็นงานใหม่ก็ได้",
+	"“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task.": "“{task}” ในรายการมีไฟล์เหมือนกัน ทอร์เรนต์ส่วนตัวจะไม่ถูกรวมกับทอร์เรนต์อื่น จึงเพิ่มรายการนี้เป็นงานใหม่"
 }

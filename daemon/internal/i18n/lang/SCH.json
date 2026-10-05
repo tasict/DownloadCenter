@@ -412,6 +412,7 @@
 	"Files to download updated": "已更新要下载的文件",
 	"Filter folders": "筛选文件夹",
 	"Find peers even without a tracker": "没有 tracker 也能找到其他用户",
+	"Finds peers only through its tracker": "只通过它的 tracker 寻找其他用户",
 	"Finished at": "完成时间",
 	"Finished tasks": "已完成的任务",
 	"Folder": "文件夹",
@@ -695,6 +696,9 @@
 	"Prevents the NAS's DNS lookups from revealing the sites you download from": "避免 NAS 的 DNS 查询泄露要下载的网站",
 	"Preview": "预览",
 	"Previewable": "可预览",
+	"Private torrent": "私有种子",
+	"Private torrent: it finds peers only through its tracker, which may accept only certain clients.": "私有种子：只通过它的 tracker 寻找其他用户，tracker 可能只接受特定的客户端。",
+	"Private torrents are not merged with other torrents": "私有种子不与其他种子合并",
 	"Progress": "进度",
 	"Proxy": "代理",
 	"Proxy changed": "已更改代理",
@@ -983,6 +987,7 @@
 	"This is a web page. The download links on it are listed below.": "这是网页，下方会列出页面中的下载链接。",
 	"This is not your task": "这不是你的任务",
 	"This is taking too long. Reload the page later.": "等太久还没有完成。请稍后重新加载页面。",
+	"This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.": "和“{task}”是同一个私有种子。私有种子不合并，因此不会添加任何内容。",
 	"This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.": "和“{task}”是同一个种子。新来源里的 tracker 会合并到已有任务，不会重复下载。",
 	"This page has changes that are not saved yet. Leaving will undo them.": "这一页有修改还没保存，离开后会还原。",
 	"This proxy cannot be used": "不能使用这个代理设置",
@@ -1237,5 +1242,6 @@
 	"“{name}” removed automatically; files kept": "已自动移除“{name}”，文件保留",
 	"“{name}” started downloading": "“{name}”开始下载",
 	"“{path}” was not found; showing the folder above it.": "找不到“{path}”，改为显示上一层。",
-	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "列表中的“{task}”文件内容和这个种子相同。可以把它作为其他来源合并（同一时间只有一个来源在下载，停滞时自动切换），或仍然添加为新任务。"
+	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "列表中的“{task}”文件内容和这个种子相同。可以把它作为其他来源合并（同一时间只有一个来源在下载，停滞时自动切换），或仍然添加为新任务。",
+	"“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task.": "列表中的“{task}”文件相同。私有种子不与其他种子合并，因此这个种子会作为新任务添加。"
 }

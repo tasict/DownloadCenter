@@ -60,6 +60,7 @@ type TaskJSON struct {
 	ProxyError  string         `json:"proxy_error,omitempty"`
 	RemovedAt   int64          `json:"removed_at,omitempty"`
 	QueueRank   int            `json:"queue_rank,omitempty"` // place among the tasks of its kind waiting for a slot
+	Private     bool           `json:"private,omitempty"`    // detail only: a private torrent
 	Bitfield    string         `json:"bitfield,omitempty"`
 	Pieces      int            `json:"pieces,omitempty"`
 }
@@ -652,6 +653,7 @@ func (s *Server) taskRoutes() {
 		}
 		j := s.taskJSON(p, t, true)
 		j.QueueRank = s.M.QueueRanks()[t.Hash]
+		j.Private = t.Kind == core.KindBT && s.M.TorrentPrivate(t.Hash)
 		OK(w, map[string]any{"task": j, "sources": s.M.Sources(t.Hash), "log": s.M.TaskLog(t.Hash, 50),
 			"trackers": t.Options.Trackers})
 	})

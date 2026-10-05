@@ -412,6 +412,7 @@
 	"Files to download updated": "Список скачиваемых файлов обновлён",
 	"Filter folders": "Фильтр папок",
 	"Find peers even without a tracker": "Поиск пиров без трекера",
+	"Finds peers only through its tracker": "Пиры ищутся только через его трекер",
 	"Finished at": "Время завершения",
 	"Finished tasks": "Завершённые задачи",
 	"Folder": "Папка",
@@ -695,6 +696,9 @@
 	"Prevents the NAS's DNS lookups from revealing the sites you download from": "Чтобы DNS-запросы NAS не раскрывали, с каких сайтов идёт загрузка",
 	"Preview": "Просмотр",
 	"Previewable": "Доступно для просмотра",
+	"Private torrent": "Закрытый торрент",
+	"Private torrent: it finds peers only through its tracker, which may accept only certain clients.": "Закрытый торрент: пиры ищутся только через его трекер, который может принимать только определённые клиенты.",
+	"Private torrents are not merged with other torrents": "Закрытые торренты не объединяются с другими торрентами",
 	"Progress": "Ход",
 	"Proxy": "Прокси",
 	"Proxy changed": "Прокси изменён",
@@ -983,6 +987,7 @@
 	"This is a web page. The download links on it are listed below.": "Это веб-страница. Ссылки для загрузки на ней показаны ниже.",
 	"This is not your task": "Это не ваша задача",
 	"This is taking too long. Reload the page later.": "Это занимает слишком много времени. Перезагрузите страницу позже.",
+	"This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.": "Это тот же закрытый торрент, что и «{task}». Закрытые торренты не объединяются, поэтому ничего не добавлено.",
 	"This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.": "Это тот же торрент, что и «{task}». Трекеры из нового источника будут добавлены к существующей задаче, повторной загрузки не будет.",
 	"This page has changes that are not saved yet. Leaving will undo them.": "На этой странице есть несохранённые изменения. При переходе они будут отменены.",
 	"This proxy cannot be used": "Этот прокси нельзя использовать",
@@ -1237,5 +1242,6 @@
 	"“{name}” removed automatically; files kept": "«{name}» автоматически убран из списка, файлы сохранены",
 	"“{name}” started downloading": "«{name}» начала загрузку",
 	"“{path}” was not found; showing the folder above it.": "«{path}» не найдена; показана папка уровнем выше.",
-	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "Файлы задачи «{task}» в списке совпадают с этим торрентом. Его можно объединить как дополнительный источник (одновременно скачивает только один источник, при остановке переключение происходит автоматически) или всё равно добавить как новую задачу."
+	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "Файлы задачи «{task}» в списке совпадают с этим торрентом. Его можно объединить как дополнительный источник (одновременно скачивает только один источник, при остановке переключение происходит автоматически) или всё равно добавить как новую задачу.",
+	"“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task.": "У «{task}» в списке те же файлы. Закрытые торренты не объединяются с другими торрентами, поэтому этот будет добавлен как отдельная задача."
 }

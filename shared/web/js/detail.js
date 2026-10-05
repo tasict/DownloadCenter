@@ -158,6 +158,7 @@
 			h('dt', {text:DC.t('Download time')}), h('dd', {text:DC.fdur(t.active_secs) + (s === 'down' && t.eta > 0 ? DC.t('; ') + DC.feta(t.eta) : '')}),
 			t.proto === 'bt' ? h('dt', {text:DC.t('Share ratio')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{ratio}, {size} uploaded', {ratio:(t.ratio || 0).toFixed(2), size:DC.fsize(t.up_total)})}) : null,
 			t.proto === 'bt' ? h('dt', {text:DC.t('Connections')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{peers} peers, {seeds} seeds', {peers:t.peers || 0, seeds:t.seeds || 0})}) : null,
+			xt.private ? h('dt', {text:DC.t('Private torrent')}) : null, xt.private ? h('dd', {text:DC.t('Finds peers only through its tracker')}) : null,
 			h('dt', {text:admin ? DC.t('Temporary location') : DC.t('Save to')}), path(t.folder),
 			inTemp && t.location ? h('dt', {text:DC.t('Files being downloaded')}) : null, inTemp && t.location ? path(t.location) : null,
 			t.move_to ? h('dt', {text:DC.t('Move to when finished')}) : null, t.move_to ? path(t.move_to) : null,

@@ -64,6 +64,7 @@ var (
 	ErrNoBT         = errors.New("bt_unavailable")
 	ErrMoving       = errors.New("task_moving")
 	ErrBadPosition  = errors.New("invalid position")
+	ErrPrivate      = errors.New("private_torrent")
 )
 
 // DupError carries the id of the existing task.
@@ -403,11 +404,15 @@ func (m *Manager) AddMagnet(link string, o AddOptions) (*AddResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	private := m.TorrentPrivate(mg.InfoHash)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if ex, ok := m.live[mg.InfoHash]; ok {
 		if ex.Owner != o.Owner && !o.Admin {
 			return nil, ErrOtherOwner
+		}
+		if private {
+			return &AddResult{ID: ex.Hash, Name: ex.Name, Duplicate: true}, &DupError{ID: ex.Hash}
 		}
 		return m.mergeTrackers(ex, append(mg.Trackers, o.Trackers...), link)
 	}
@@ -456,6 +461,10 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	if ex, ok := m.live[meta.InfoHash]; ok {
 		if ex.Owner != o.Owner && !o.Admin {
 			return nil, ErrOtherOwner
+		}
+		// The same info hash is the same info dictionary: private for both
+		if meta.Private {
+			return &AddResult{ID: ex.Hash, Name: ex.Name, Duplicate: true}, &DupError{ID: ex.Hash}
 		}
 		return m.mergeTrackers(ex, append(meta.Trackers, o.Trackers...), "")
 	}
@@ -576,8 +585,19 @@ func containsInt(l []int, v int) bool {
 	return false
 }
 
-// mergeTrackers folds another link of the same torrent into ex. Caller
-// holds m.mu.
+// TorrentPrivate reports whether a task's saved .torrent is a private
+// torrent (BEP 27). A magnet without its metadata yet is not known to be.
+func (m *Manager) TorrentPrivate(hash string) bool {
+	b, err := os.ReadFile(m.torrentPath(hash))
+	if err != nil {
+		return false
+	}
+	meta, err := torrent.Parse(b)
+	return err == nil && meta.Private
+}
+
+// mergeTrackers folds another link of the same torrent into ex; private
+// torrents never get here. Caller holds m.mu.
 func (m *Manager) mergeTrackers(ex *Task, trackers []string, link string) (*AddResult, error) {
 	added := 0
 	seen := map[string]bool{}
@@ -620,6 +640,7 @@ type CheckResult struct {
 	TaskID   string `json:"task_id,omitempty"`
 	TaskName string `json:"task_name,omitempty"`
 	Name     string `json:"name,omitempty"`
+	Private  bool   `json:"private,omitempty"` // the source or the matching task is a private torrent
 	Hoster   string `json:"hoster,omitempty"`
 }
 
@@ -655,8 +676,14 @@ func (m *Manager) Check(owner string, admin bool, items []CheckItem, destDir str
 		}
 		r.Name = name
 		r.Status = "new"
+		if meta != nil && meta.Private {
+			r.Private = true
+		}
 		if hash != "" {
 			if t := m.Live(hash); t != nil && (admin || t.Owner == owner) {
+				if m.TorrentPrivate(hash) {
+					r.Private = true
+				}
 				r.TaskID, r.TaskName = t.Hash, t.Name
 				if r.Kind == "url" {
 					r.Status = "in_list"
@@ -668,8 +695,11 @@ func (m *Manager) Check(owner string, admin bool, items []CheckItem, destDir str
 			}
 		}
 		if r.Status == "new" && meta != nil {
-			if id := m.sameContent(owner, admin, meta); id != "" {
+			if id, private := m.sameContent(owner, admin, meta); id != "" {
 				r.Status, r.TaskID = "same_content", id
+				if private {
+					r.Private = true
+				}
 			}
 		}
 		if r.Status == "new" && name != "" && destDir != "" {
@@ -685,8 +715,9 @@ func (m *Manager) Check(owner string, admin bool, items []CheckItem, destDir str
 }
 
 // sameContent finds a live torrent task with the same file list (names and
-// sizes) or the same BitTorrent v2 file roots.
-func (m *Manager) sameContent(owner string, admin bool, meta *torrent.Meta) string {
+// sizes) or the same BitTorrent v2 file roots, and whether its torrent is
+// private.
+func (m *Manager) sameContent(owner string, admin bool, meta *torrent.Meta) (string, bool) {
 	for _, t := range m.List() {
 		if t.Kind != KindBT || t.Hash == meta.InfoHash || (!admin && t.Owner != owner) {
 			continue
@@ -700,10 +731,10 @@ func (m *Manager) sameContent(owner string, admin bool, meta *torrent.Meta) stri
 			continue
 		}
 		if sameFiles(other, meta) {
-			return t.Hash
+			return t.Hash, other.Private
 		}
 	}
-	return ""
+	return "", false
 }
 
 func sameFiles(a, b *torrent.Meta) bool {

@@ -381,11 +381,14 @@
 		return fd;
 	}
 	/* Same torrent already listed: fold the new trackers in instead of a second task. */
-	function openMerge(it, taskName, doMerge){
+	/* A private torrent is never merged: its trackers would reach a task that announces elsewhere */
+	function openMerge(it, taskName, doMerge, priv){
 		DC.modal(it.name || it.text, it.kind === 'magnet' ? 'magnet' : 'torrent', [
 			h('p', {'class':'lead', text:DC.t('This torrent is already in the list.')}),
-			h('p', {'class':'note', text:DC.t('This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.', {task:taskName || DC.t('Existing task')})})
+			h('p', {'class':'note', text:priv ? DC.t('This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.', {task:taskName || DC.t('Existing task')})
+				: DC.t('This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.', {task:taskName || DC.t('Existing task')})})
 		], function(close){
+			if(priv) return [btn(null, DC.t('Close'), close, 'pri')];
 			return [btn(null, DC.t('Cancel'), close), btn(null, DC.t('Merge into existing task'), function(e){ DC.busy(e.currentTarget, true); doMerge(close); }, 'pri')];
 		});
 	}
@@ -396,7 +399,7 @@
 		opts = opts || {};
 		var compose = !!opts.compose;
 		var me = DC.S.me, admin = DC.isAdmin(), defs = me.defaults || {};
-		var one = null, single = null, files = null, picks = null, meta = null, free = -1, closed = false, contentOf = '', probeTimer = null, dupNote = false;
+		var one = null, single = null, files = null, picks = null, meta = null, free = -1, closed = false, contentOf = '', probeTimer = null, dupNote = false, privSame = '';
 		var hasBt = false, hasUrl = false, gen = 0, title = '', start = null, typing = null;
 		var body = h('div', {'class':'addbody'}), sum = h('div', {'class':'sum num'}), leadEl = h('p', {'class':'lead'});
 		var lastFolder = DC.pref('last_folder') || defs.folder || '';
@@ -490,6 +493,8 @@
 			clear(body);
 			if(dupNote) body.appendChild(h('p', {'class':'note warn', text:DC.t('A file with the same name already exists at the destination; it may have been downloaded before.')}));
 			if(contentOf) body.appendChild(h('p', {'class':'note', text:DC.t('Will be used as another source of the existing task and download to the same folder.')}));
+			if(privSame) body.appendChild(h('p', {'class':'note', text:DC.t('“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task.', {task:privSame})}));
+			if(meta && meta.private) body.appendChild(h('p', {'class':'note root'}, [icon('lock'), h('span', {text:DC.t('Private torrent: it finds peers only through its tracker, which may accept only certain clients.')})]));
 			/* The torrent's own top folder, which the file paths below leave out; the window title is only the link's or file's name */
 			if(meta && meta.is_folder && meta.name) body.appendChild(h('p', {'class':'note root'}, [icon('folder'), h('span', {text:DC.t('Saved as folder: {name}', {name:meta.name})})]));
 			if(files.length > 1) body.appendChild(h('div', {'class':'tools'}, [
@@ -561,7 +566,7 @@
 			single = !pageUrl && items.length === 1 ? items[0] : null;
 			if(single && single.kind === 'page'){ pageUrl = single.text; items = []; single = null; }
 			one = single && (single.kind === 'magnet' || single.kind === 'torrentfile') ? single : null;
-			files = picks = meta = null; contentOf = ''; dupNote = false;
+			files = picks = meta = null; contentOf = ''; dupNote = false; privSame = '';
 			hasBt = false; hasUrl = !!pageUrl;
 			for(i = 0; i < items.length; i++){
 				if(items[i].kind === 'magnet' || items[i].kind === 'torrentfile') hasBt = true;
@@ -598,7 +603,12 @@
 							DC.track('add_merge');
 							var p = it.kind === 'magnet' ? DC.api.post('tasks', {source:it.text}) : DC.api.upload('tasks/torrent', torrentForm([it.file]));
 							p.then(function(){ closeMerge(); DC.toast(DC.t('Merged into “{task}”', {task:s0.task_name || DC.t('Existing task')})); DC.pollNow(); }, function(e){ closeMerge(); DC.toast(DC.errText(e)); });
-						});
+						}, !!s0.private);
+						return;
+					}
+					if(s0 && s0.status === 'same_content' && s0.task_id && one.kind === 'torrentfile' && s0.private){
+						privSame = (DC.task(s0.task_id) || {}).name || s0.task_id;
+						loadTorrentFiles(my);
 						return;
 					}
 					if(s0 && s0.status === 'same_content' && s0.task_id && one.kind === 'torrentfile'){

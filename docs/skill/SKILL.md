@@ -112,7 +112,7 @@ Optional fields:
 | `auto_remove` | `"completed"` (remove the task when done) or `"seeded"` (after seeding); data is kept |
 | `name` | Links: save under this file name |
 
-Answers: `200 {"id", "name", "merged"}` for one source (`merged: true` when the same torrent was already there and was combined). `409 duplicate` with the existing task's `id`: tell the user it is already in the list and report that task. With several sources: `{"results": [{"source", "id", "name", "error"}]}`, check each `error`.
+Answers: `200 {"id", "name", "merged"}` for one source (`merged: true` when the same torrent was already there and was combined; a private torrent is never combined, it answers `409 duplicate`). `409 duplicate` with the existing task's `id`: tell the user it is already in the list and report that task. With several sources: `{"results": [{"source", "id", "name", "error"}]}`, check each `error`.
 
 Upload a `.torrent` file (multipart; the same options as form fields, `files` as `0,3`):
 
@@ -172,6 +172,7 @@ Poll `GET /tasks/{id}` until `state` is `done` or `seeding` (finished) or `error
 | `error` | `{"code", "message"}` when `state` is `error` |
 | `user_paused`, `sched_paused`, `wake_time` | Paused by a person, by the schedule, and when a timed pause ends (Unix time) |
 | `position` | Place in the queue |
+| `private` | `GET /tasks/{id}` only: `true` for a private torrent, which finds peers only through its own tracker |
 | `queue_rank` | Waiting tasks only: place among the waiting tasks of the same type (1 = next to start) |
 | `folder`, `move_to`, `location`, `in_temp` | Where it downloads, where it goes when finished, where the data is now, whether that is still the temporary folder |
 | `owner`, `created_at`, `finished_at` | Owner and Unix times |
@@ -195,6 +196,7 @@ Errors are an HTTP status plus `{"error": {"code", "message"}}`.
 | 403 `session_required` | That part is only available in the web page |
 | 404 `not_found` | No such task, or not one this token may see |
 | 409 `duplicate`, `duplicate_other_owner` | Already in the list (yours: `id` is given), or another user is downloading the same torrent |
+| 409 `private_torrent` | A private torrent cannot be another source of a task (`content_of`); add it as a task of its own |
 | 400 `url_not_supported`, `magnet_invalid`, `torrent_invalid` | The source is not usable |
 | 400 `url_unavailable`, `bt_unavailable` | The NAS cannot download this kind of source right now |
 | 429 `rate_limited` | Wait a minute |

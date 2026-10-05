@@ -412,6 +412,7 @@
 	"Files to download updated": "ダウンロードするファイルを更新しました",
 	"Filter folders": "フォルダーを絞り込む",
 	"Find peers even without a tracker": "tracker がなくても他のピアを見つけます",
+	"Finds peers only through its tracker": "tracker を通じてのみピアを探します",
 	"Finished at": "完了日時",
 	"Finished tasks": "完了したタスク",
 	"Folder": "フォルダー",
@@ -695,6 +696,9 @@
 	"Prevents the NAS's DNS lookups from revealing the sites you download from": "ダウンロード先のサイトが NAS の DNS クエリから漏れるのを防ぎます",
 	"Preview": "プレビュー",
 	"Previewable": "プレビュー可能",
+	"Private torrent": "プライベートトレント",
+	"Private torrent: it finds peers only through its tracker, which may accept only certain clients.": "プライベートトレント：tracker を通じてのみピアを探します。tracker が受け付けるクライアントは限られている場合があります。",
+	"Private torrents are not merged with other torrents": "プライベートトレントは他のトレントと統合されません",
 	"Progress": "進捗",
 	"Proxy": "プロキシ",
 	"Proxy changed": "プロキシを変更しました",
@@ -983,6 +987,7 @@
 	"This is a web page. The download links on it are listed below.": "Web ページです。ページ内のダウンロードリンクが下に表示されます。",
 	"This is not your task": "あなたのタスクではありません",
 	"This is taking too long. Reload the page later.": "時間がかかりすぎています。しばらくしてからページを再読み込みしてください。",
+	"This is the same private torrent as “{task}”. Private torrents are not merged, so nothing is added.": "「{task}」と同じプライベートトレントです。プライベートトレントは統合しないため、何も追加されません。",
 	"This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.": "「{task}」と同じトレントです。新しいソースの tracker は既存のタスクに統合され、重複してダウンロードされることはありません。",
 	"This page has changes that are not saved yet. Leaving will undo them.": "このページには保存していない変更があります。移動すると元に戻ります。",
 	"This proxy cannot be used": "このプロキシ設定は使用できません",
@@ -1237,5 +1242,6 @@
 	"“{name}” removed automatically; files kept": "「{name}」を自動的に削除しました。ファイルは残ります",
 	"“{name}” started downloading": "「{name}」がダウンロードを開始しました",
 	"“{path}” was not found; showing the folder above it.": "「{path}」が見つからないため、上の階層を表示しています。",
-	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "リストにある「{task}」はこのトレントとファイル内容が同じです。別のソースとして統合する（同時にダウンロードするソースは 1 つだけで、停滞すると自動的に切り替えます）か、新しいタスクとして追加できます。"
+	"“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.": "リストにある「{task}」はこのトレントとファイル内容が同じです。別のソースとして統合する（同時にダウンロードするソースは 1 つだけで、停滞すると自動的に切り替えます）か、新しいタスクとして追加できます。",
+	"“{task}” in the list has the same files. Private torrents are not merged with other torrents, so this one is added as its own task.": "リストの「{task}」とファイルが同じです。プライベートトレントは他のトレントと統合しないため、このトレントは新しいタスクとして追加されます。"
 }
