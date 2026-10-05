@@ -370,6 +370,8 @@ input[type=range]{accent-color:var(--accent)}
 /* Reordering the queue (queue order only): a handle at the trailing edge, the gap where the task will land with what dropping
    there does, and a glass copy of the row following the pointer */
 .grip{display:none}
+/* The handle is also an .ib.sq button, whose display wins over .grip alone: outside queue order a stronger rule hides it */
+.list:not(.qsort) .row .grip{display:none}
 .qsort .row .grip{display:grid;cursor:grab;color:var(--label3);opacity:0;transition:opacity .15s;touch-action:none}
 .qsort .row:hover .grip,.qsort .row:focus-within .grip{opacity:1}
 .qsort .row .grip:active{cursor:grabbing}
