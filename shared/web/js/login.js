@@ -5,7 +5,7 @@
 	'use strict';
 	var DC = window.DC, h = DC.h, add = DC.add, clear = DC.clear, icon = DC.icon, btn = DC.btn;
 	var CGI = '/cgi-bin/authLogin.cgi';
-	var QUESTIONS = {1:DC.t('你的寵物叫什麼名字？'), 2:DC.t('你最喜歡的運動是什麼？'), 3:DC.t('你最喜歡的顏色是什麼？')};
+	var QUESTIONS = {1:DC.t('What is your pet\'s name?'), 2:DC.t('What is your favorite sport?'), 3:DC.t('What is your favorite color?')};
 
 	function b64(s){ return btoa(unescape(encodeURIComponent(s))); }
 	function form(o){
@@ -50,7 +50,7 @@
 	}
 	DC.getCookie = getCookie;
 
-	/* "記住帳號" keeps only the user name in this browser. */
+	/* "Remember user name" keeps only the user name in this browser. */
 	function loadUser(){ return DC.ls('dc-user') || ''; }
 	function saveUser(u){ DC.ls('dc-user', u || null); }
 	function cidKey(u){ return 'dc-cid-' + u; }
@@ -67,9 +67,9 @@
 			/* Inside the QTS desktop the QTS sign-in applies; never show our own page there. */
 			app.appendChild(h('div', {'class':'login'}, h('div', {'class':'lbox'}, [
 				h('div', {'class':'brand'}, [h('img', {'class':'mark', src:'img/logo.png', alt:''}), 'Download Center']),
-				h('h1', {text:msg || DC.t('QTS 的登入已失效。')}),
-				h('p', {'class':'lmsg', text:DC.t('請重新整理，或從 QTS 重新登入後再開啟。')}),
-				btn('retry', DC.t('重新整理'), function(){ location.reload(); }, 'pri')
+				h('h1', {text:msg || DC.t('Your QTS sign-in has expired.')}),
+				h('p', {'class':'lmsg', text:DC.t('Refresh, or sign in to QTS again and reopen.')}),
+				btn('retry', DC.t('Refresh'), function(){ location.reload(); }, 'pri')
 			])));
 			return;
 		}
@@ -87,17 +87,17 @@
 		function countdown(el, secs){
 			stopTimer();
 			function upd(){
-				el.textContent = DC.t('剩 {time}', {time:Math.floor(secs / 60) + ':' + DC.pad(secs % 60)});
-				if(secs-- <= 0){ stopTimer(); forget(); step1(DC.t('驗證時間已過，請重新登入。')); }
+				el.textContent = DC.t('{time} left', {time:Math.floor(secs / 60) + ':' + DC.pad(secs % 60)});
+				if(secs-- <= 0){ stopTimer(); forget(); step1(DC.t('The verification time has passed. Sign in again.')); }
 			}
 			upd(); timer = setInterval(function(){ if(!box.parentNode){ stopTimer(); return; } upd(); }, 1000);
 		}
-		function backLink(){ return h('button', {'class':'ib quiet lback', type:'button', onclick:function(){ forget(); step1(); }}, [icon('back'), DC.t('使用其他帳號')]); }
+		function backLink(){ return h('button', {'class':'ib quiet lback', type:'button', onclick:function(){ forget(); step1(); }}, [icon('back'), DC.t('Use another account')]); }
 		function trustBox(){
-			return h('label', {'class':'lrem', 'for':'lTrust'}, [h('input', {type:'checkbox', id:'lTrust', checked:trust, onchange:function(){ trust = this.checked; }}), DC.t('在這台裝置上不要再驗證')]);
+			return h('label', {'class':'lrem', 'for':'lTrust'}, [h('input', {type:'checkbox', id:'lTrust', checked:trust, onchange:function(){ trust = this.checked; }}), DC.t('Don\'t verify again on this device')]);
 		}
 		function screen(title, kids){ stopTimer(); err.textContent = ''; clear(box); add(box, [brand(), h('h1', {text:title})].concat(kids)); }
-		function generic(){ err.textContent = DC.t('登入認證不正確，或是帳戶已不再有效。'); }
+		function generic(){ err.textContent = DC.t('Invalid credentials, or the account is no longer valid.'); }
 
 		function baseParams(extra){
 			var u = cred.user, p = {user:u, pwd:b64(cred.pass), serviceKey:'1', client_app:'DownloadCenter', client_agent:navigator.userAgent, r:Math.random()}, cid = DC.ls(cidKey(u)), vt = DC.ls(vtKey(u)), k;
@@ -130,36 +130,36 @@
 			if(a.force_2sv === '1'){ forget(); stepEnrol(); return; }
 			generic();
 		}
-		function netErr(){ err.textContent = DC.t('無法連線到 QTS，請稍後再試。'); }
+		function netErr(){ err.textContent = DC.t('Cannot connect to QTS. Try again later.'); }
 
 		function step1(msg){
 			stopTimer();
-			var go = h('button', {'class':'ib btn pri', type:'submit'}, [icon('lock'), h('span', {text:DC.t('登入')})]);
-			var eye = h('button', {'class':'ib sq leye', type:'button', 'aria-label':DC.t('顯示密碼'), 'aria-pressed':'false', onclick:function(){
+			var go = h('button', {'class':'ib btn pri', type:'submit'}, [icon('lock'), h('span', {text:DC.t('Sign in')})]);
+			var eye = h('button', {'class':'ib sq leye', type:'button', 'aria-label':DC.t('Show password'), 'aria-pressed':'false', onclick:function(){
 				var showPw = pass.type === 'password'; pass.type = showPw ? 'text' : 'password';
-				eye.setAttribute('aria-pressed', showPw ? 'true' : 'false'); eye.setAttribute('aria-label', showPw ? DC.t('隱藏密碼') : DC.t('顯示密碼'));
+				eye.setAttribute('aria-pressed', showPw ? 'true' : 'false'); eye.setAttribute('aria-label', showPw ? DC.t('Hide password') : DC.t('Show password'));
 				clear(eye).appendChild(icon(showPw ? 'eyeoff' : 'eye')); pass.focus();
 			}}, icon('eye'));
 			var warn = h('div', {'class':'lwarn', hidden:true});
-			screen(DC.t('用 NAS 帳號登入'), [
+			screen(DC.t('Sign in with your NAS account'), [
 				warn,
 				h('form', {onsubmit:function(e){
 					e.preventDefault();
 					var u = user.value.replace(/^\s+|\s+$/g, '');
-					if(!u){ err.textContent = DC.t('請輸入帳號。'); user.focus(); return; }
-					if(!pass.value){ err.textContent = DC.t('請輸入密碼。'); pass.focus(); return; }
+					if(!u){ err.textContent = DC.t('Enter the user name.'); user.focus(); return; }
+					if(!pass.value){ err.textContent = DC.t('Enter the password.'); pass.focus(); return; }
 					saveUser(rem.checked ? u : '');
 					cred = {user:u, pass:pass.value};
 					info = {};
-					DC.busy(go, true, DC.t('登入中…')); err.textContent = '';
+					DC.busy(go, true, DC.t('Signing in…')); err.textContent = '';
 					cgi(baseParams()).then(function(a){ DC.busy(go, false); evaluate(a); if(a.authPassed !== '1') pass.select(); }, function(){ DC.busy(go, false); netErr(); });
 				}}, [
-					h('label', {'class':'lfield', 'for':'lUser'}, [h('span', {text:DC.t('帳號')}), user]),
-					h('label', {'class':'lfield', 'for':'lPass'}, [h('span', {text:DC.t('密碼')}), h('span', {'class':'lpw'}, [pass, eye])]),
-					h('label', {'class':'lrem', 'for':'lRem'}, [rem, DC.t('記住帳號')]),
+					h('label', {'class':'lfield', 'for':'lUser'}, [h('span', {text:DC.t('Account')}), user]),
+					h('label', {'class':'lfield', 'for':'lPass'}, [h('span', {text:DC.t('Password')}), h('span', {'class':'lpw'}, [pass, eye])]),
+					h('label', {'class':'lrem', 'for':'lRem'}, [rem, DC.t('Remember user name')]),
 					go, err
 				]),
-				h('div', {'class':'lnote'}, [h('div', {text:DC.t('與 QTS 使用同一組帳號。從 QTS 桌面開啟時會直接登入。也可以在手機瀏覽器把這頁加入主畫面。')}), DC.themeSeg ? DC.themeSeg() : null])
+				h('div', {'class':'lnote'}, [h('div', {text:DC.t('Uses the same account as QTS. Opening from the QTS desktop signs you in directly. On a phone, you can add this page to the home screen.')}), DC.themeSeg ? DC.themeSeg() : null])
 			]);
 			if(msg) err.textContent = msg;
 			httpWarning(warn);
@@ -170,22 +170,22 @@
 			var len = +(info.security_code_length || 6) || 6;
 			var code = h('input', {type:'text', id:'lCode', inputmode:'numeric', autocomplete:'one-time-code', maxlength:String(len), pattern:'[0-9]*', 'class':'code', enterkeyhint:'go',
 				oninput:function(){ this.value = this.value.replace(/\D/g, '').slice(0, len); if(this.value.length === len && !go.disabled) submit(); }});
-			var left = h('span', {'class':'num'}), go = h('button', {'class':'ib btn pri', type:'submit'}, [icon('lock'), h('span', {text:DC.t('驗證並登入')})]);
+			var left = h('span', {'class':'num'}), go = h('button', {'class':'ib btn pri', type:'submit'}, [icon('lock'), h('span', {text:DC.t('Verify and sign in')})]);
 			function submit(){
-				if(!/^\d+$/.test(code.value) || code.value.length < 4){ err.textContent = DC.t('請輸入驗證碼。'); code.focus(); return; }
-				DC.busy(go, true, DC.t('驗證中…'));
+				if(!/^\d+$/.test(code.value) || code.value.length < 4){ err.textContent = DC.t('Enter the verification code.'); code.focus(); return; }
+				DC.busy(go, true, DC.t('Verifying…'));
 				cgi(baseParams({security_code:code.value, dont_verify_2sv_again:trust ? '1' : '0'})).then(function(a){
 					DC.busy(go, false);
 					evaluate(a, function(ans){
-						err.textContent = ans.timestring ? DC.t('驗證碼不正確，請再試一次。NAS 目前時間是 {time}，驗證器的時間要和它一致。', {time:ans.timestring.replace(/^\d+\/\d+\/\d+\s+/, '').replace(/:\d+$/, '')}) : DC.t('驗證碼不正確，請再試一次。');
+						err.textContent = ans.timestring ? DC.t('Incorrect verification code. Try again. The NAS time is now {time}; your authenticator\'s time must match it.', {time:ans.timestring.replace(/^\d+\/\d+\/\d+\s+/, '').replace(/:\d+$/, '')}) : DC.t('Incorrect verification code. Try again.');
 						code.select();
 					});
 				}, function(){ DC.busy(go, false); netErr(); });
 			}
-			var f = h('form', {onsubmit:function(e){ e.preventDefault(); submit(); }}, [h('label', {'class':'lfield', 'for':'lCode'}, [h('span', {text:mailed ? DC.t('信中的驗證碼') : DC.t('驗證碼')}), code]), trustBox(), go, err]);
-			screen(mailed ? DC.t('驗證碼已寄到這個帳號的備援信箱。') : DC.t('這個帳號開啟了兩步驟驗證，請輸入驗證器上的 {n} 位數。', {n:len}), [
+			var f = h('form', {onsubmit:function(e){ e.preventDefault(); submit(); }}, [h('label', {'class':'lfield', 'for':'lCode'}, [h('span', {text:mailed ? DC.t('Code from the email') : DC.t('Verification code')}), code]), trustBox(), go, err]);
+			screen(mailed ? DC.t('The verification code has been sent to this account\'s backup email.') : DC.t('This account has 2-step verification enabled. Enter the {n}-digit code from your authenticator.', {n:len}), [
 				f,
-				h('div', {'class':'lalt'}, [left, h('button', {'class':'ib linkish', type:'button', onclick:stepOther}, DC.t('換個方式驗證'))]),
+				h('div', {'class':'lalt'}, [left, h('button', {'class':'ib linkish', type:'button', onclick:stepOther}, DC.t('Verify another way'))]),
 				h('div', {'class':'lnote'}, backLink())
 			]);
 			countdown(left, mailed ? 300 : 180);
@@ -194,64 +194,64 @@
 		/* Only the methods the account has (security_code_en, lost_phone). */
 		function stepOther(){
 			var opts = h('div', {'class':'lopts'}), lp = info.lost_phone, tooMany = lp === '-1' || (+info.emergency_try_limit > 0 && +info.emergency_try_count >= +info.emergency_try_limit);
-			if(info.security_code_en !== '0') opts.appendChild(h('button', {'class':'ib lopt', type:'button', onclick:function(){ stepCode(); }}, [icon('lock'), h('span', null, [h('b', {text:DC.t('驗證器的 6 位數')}), h('small', {text:DC.t('Google Authenticator、QNAP Authenticator 等')})]), icon('chev', 'chev')]));
+			if(info.security_code_en !== '0') opts.appendChild(h('button', {'class':'ib lopt', type:'button', onclick:function(){ stepCode(); }}, [icon('lock'), h('span', null, [h('b', {text:DC.t('6-digit code from the authenticator')}), h('small', {text:DC.t('Google Authenticator, QNAP Authenticator, etc.')})]), icon('chev', 'chev')]));
 			if(lp === '1') opts.appendChild(h('button', {'class':'ib lopt', type:'button', disabled:tooMany, onclick:function(e){
 				var b = e.currentTarget; b.disabled = true;
 				cgi(baseParams({send_mail:'1', q_lang:DC.lang || 'TCH'})).then(function(a){
 					b.disabled = false;
 					if(a.send_result === '1') stepCode(true);
-					else if(a.send_result === '-1') err.textContent = DC.t('NAS 沒有設定寄信伺服器，無法寄出驗證碼。');
-					else err.textContent = DC.t('驗證碼寄送失敗，請稍後再試。');
+					else if(a.send_result === '-1') err.textContent = DC.t('The NAS has no mail server configured, so the verification code cannot be sent.');
+					else err.textContent = DC.t('Failed to send the verification code. Try again later.');
 				}, function(){ b.disabled = false; netErr(); });
-			}}, [icon('bell'), h('span', null, [h('b', {text:DC.t('寄驗證碼到備援信箱')}), h('small', {text:DC.t('寄到設定兩步驟驗證時填的信箱')})]), icon('chev', 'chev')]));
-			if(lp === '2') opts.appendChild(h('button', {'class':'ib lopt', type:'button', disabled:tooMany, onclick:stepQuestion}, [icon('key'), h('span', null, [h('b', {text:DC.t('回答安全問題')}), h('small', {text:DC.t('設定兩步驟驗證時選的問題')})]), icon('chev', 'chev')]));
-			screen(DC.t('選擇其他驗證方式'), [
+			}}, [icon('bell'), h('span', null, [h('b', {text:DC.t('Send code to backup email')}), h('small', {text:DC.t('Sent to the email address entered when setting up 2-step verification')})]), icon('chev', 'chev')]));
+			if(lp === '2') opts.appendChild(h('button', {'class':'ib lopt', type:'button', disabled:tooMany, onclick:stepQuestion}, [icon('key'), h('span', null, [h('b', {text:DC.t('Answer security question')}), h('small', {text:DC.t('The question chosen when setting up 2-step verification')})]), icon('chev', 'chev')]));
+			screen(DC.t('Choose another verification method'), [
 				opts,
-				tooMany ? h('p', {'class':'lmsg', text:DC.t('替代驗證方式嘗試太多次。請聯絡系統管理者協助。')}) : null,
+				tooMany ? h('p', {'class':'lmsg', text:DC.t('Too many attempts with the alternative verification method. Contact your administrator for help.')}) : null,
 				err,
 				h('div', {'class':'lnote'}, backLink())
 			]);
 		}
 		function stepQuestion(){
-			var ans = h('input', {type:'text', id:'lAns', autocomplete:'off', enterkeyhint:'go'}), left = h('span', {'class':'num'}), q = h('p', {'class':'lq', text:DC.t('讀取問題中…')});
-			var go = h('button', {'class':'ib btn pri', type:'submit'}, [icon('lock'), h('span', {text:DC.t('驗證並登入')})]);
-			screen(DC.t('回答你設定的安全問題。'), [
+			var ans = h('input', {type:'text', id:'lAns', autocomplete:'off', enterkeyhint:'go'}), left = h('span', {'class':'num'}), q = h('p', {'class':'lq', text:DC.t('Loading question…')});
+			var go = h('button', {'class':'ib btn pri', type:'submit'}, [icon('lock'), h('span', {text:DC.t('Verify and sign in')})]);
+			screen(DC.t('Answer the security question you set up.'), [
 				h('form', {onsubmit:function(e){
 					e.preventDefault();
-					if(!ans.value){ err.textContent = DC.t('請輸入答案。'); ans.focus(); return; }
-					DC.busy(go, true, DC.t('驗證中…'));
+					if(!ans.value){ err.textContent = DC.t('Enter the answer.'); ans.focus(); return; }
+					DC.busy(go, true, DC.t('Verifying…'));
 					cgi(baseParams({security_answer:ans.value, dont_verify_2sv_again:trust ? '1' : '0'})).then(function(a){
 						DC.busy(go, false);
 						if(a.authPassed === '1' || a.user_pw_expiry === '1' || a.pw_status === '1' || a.force_2sv === '1'){ evaluate(a); return; }
 						if(a.lost_phone === '-1' || (+a.emergency_try_limit > 0 && +a.emergency_try_count >= +a.emergency_try_limit)){
-							err.textContent = DC.t('替代驗證問題答錯太多次。請聯絡系統管理者協助。'); go.disabled = true; ans.disabled = true; return;
+							err.textContent = DC.t('Too many wrong answers to the alternative verification question. Contact your administrator for help.'); go.disabled = true; ans.disabled = true; return;
 						}
-						err.textContent = DC.t('答案不正確。'); ans.select();
+						err.textContent = DC.t('Incorrect answer.'); ans.select();
 					}, function(){ DC.busy(go, false); netErr(); });
-				}}, [q, h('label', {'class':'lfield', 'for':'lAns'}, [h('span', {text:DC.t('答案')}), ans]), trustBox(), go, err]),
-				h('div', {'class':'lalt'}, [left, h('button', {'class':'ib linkish', type:'button', onclick:stepOther}, DC.t('換個方式驗證'))]),
+				}}, [q, h('label', {'class':'lfield', 'for':'lAns'}, [h('span', {text:DC.t('Answer')}), ans]), trustBox(), go, err]),
+				h('div', {'class':'lalt'}, [left, h('button', {'class':'ib linkish', type:'button', onclick:stepOther}, DC.t('Verify another way'))]),
 				h('div', {'class':'lnote'}, backLink())
 			]);
 			countdown(left, 300);
 			cgi(baseParams({get_question:'1'})).then(function(a){
 				var n = a.security_question_no;
 				/* A custom question is the user's own text: shown with textContent only. */
-				q.textContent = n === '4' ? (a.security_question_text || DC.t('自訂問題')) : (QUESTIONS[n] || DC.t('安全問題'));
-			}, function(){ q.textContent = DC.t('無法讀取問題。'); });
+				q.textContent = n === '4' ? (a.security_question_text || DC.t('Custom question')) : (QUESTIONS[n] || DC.t('Security question'));
+			}, function(){ q.textContent = DC.t('Cannot load the question.'); });
 			ans.focus();
 		}
 		/* QTS answers these without a session; the fix happens in QTS, so the page says where and links there. */
 		function stepExpired(){
-			screen(DC.t('這個帳號的密碼已過期，要先變更密碼才能登入。'), [
-				h('p', {'class':'lmsg', text:DC.t('請到 QTS 登入並依指示變更密碼，再回到這裡用新密碼登入。')}),
-				btn('popout', DC.t('到 QTS 變更密碼'), function(){ window.open('/cgi-bin/', '_blank', 'noopener'); }, 'pri'),
+			screen(DC.t('The password of this account has expired. Change it before signing in.'), [
+				h('p', {'class':'lmsg', text:DC.t('Sign in to QTS and change your password as instructed, then come back here and sign in with the new password.')}),
+				btn('popout', DC.t('Change password in QTS'), function(){ window.open('/cgi-bin/', '_blank', 'noopener'); }, 'pri'),
 				h('div', {'class':'lnote'}, backLink())
 			]);
 		}
 		function stepEnrol(){
-			screen(DC.t('系統管理者要求這個帳號使用兩步驟驗證，但還沒有設定。'), [
-				h('p', {'class':'lmsg', text:DC.t('請先到 QTS 桌面的「個人設定 › 安全性」設定兩步驟驗證，再回到這裡登入。')}),
-				btn('popout', DC.t('開啟 QTS'), function(){ window.open('/cgi-bin/', '_blank', 'noopener'); }, 'pri'),
+			screen(DC.t('The administrator requires this account to use 2-step verification, but it has not been set up yet.'), [
+				h('p', {'class':'lmsg', text:DC.t('Set up 2-step verification in the QTS desktop under “Options › Security” first, then come back here to sign in.')}),
+				btn('popout', DC.t('Open QTS'), function(){ window.open('/cgi-bin/', '_blank', 'noopener'); }, 'pri'),
 				h('div', {'class':'lnote'}, backLink())
 			]);
 		}
@@ -266,11 +266,11 @@
 			var port = a.stunnelPort || '443';
 			if(a.stunnelEnabled === '0') return;
 			clear(el).hidden = false;
-			add(el, [h('span', {text:DC.t('目前是未加密的連線，密碼會以明文傳送。')}),
-				h('button', {'class':'ib linkish', type:'button', onclick:function(){ location.href = 'https://' + location.hostname + (port === '443' ? '' : ':' + port) + location.pathname; }}, DC.t('改用加密連線'))]);
+			add(el, [h('span', {text:DC.t('This connection is not encrypted. Your password will be sent in plain text.')}),
+				h('button', {'class':'ib linkish', type:'button', onclick:function(){ location.href = 'https://' + location.hostname + (port === '443' ? '' : ':' + port) + location.pathname; }}, DC.t('Use encrypted connection'))]);
 		}, function(){
 			clear(el).hidden = false;
-			el.appendChild(h('span', {text:DC.t('目前是未加密的連線，密碼會以明文傳送。')}));
+			el.appendChild(h('span', {text:DC.t('This connection is not encrypted. Your password will be sent in plain text.')}));
 		});
 	}
 

@@ -4,7 +4,7 @@
 	var DC = window.DC, h = DC.h, add = DC.add, clear = DC.clear, icon = DC.icon, ibtn = DC.ibtn, btn = DC.btn, R = DC.R;
 
 	var KIND_ICON = {empty:'link', url:'link', mixed:'link', page:'link', magnet:'magnet', torrent:'torrent', bad:'error'};
-	var KIND_TEXT = {url:DC.t('網址'), page:DC.t('網頁'), magnet:DC.t('磁力'), torrent:DC.t('種子檔')};
+	var KIND_TEXT = {url:DC.t('URL'), page:DC.t('Web page'), magnet:DC.t('Magnet'), torrent:DC.t('Torrent file')};
 	var UNSUPPORTED = {'mega.nz':'MEGA', 'mega.co.nz':'MEGA'};
 
 	function hostOf(u){ var m = /^[a-z]+:\/\/(?:[^@\/]*@)?(?:www\.)?([^\/:?#]+)/i.exec(u); return m ? m[1].toLowerCase() : ''; }
@@ -79,7 +79,7 @@
 		var pb = {lastKind:null, sheet:sheet};
 		on = on || {};
 		pb.kind = h('div', {'class':'kind'}, icon('link'));
-		pb.input = h('textarea', {'class':'addInput', rows:'1', 'aria-label':DC.t('要下載的網址或磁力連結'), placeholder:DC.t('貼上網址或磁力連結'), autocapitalize:'off', autocomplete:'off', spellcheck:'false', enterkeyhint:'go',
+		pb.input = h('textarea', {'class':'addInput', rows:'1', 'aria-label':DC.t('URLs or magnet links to download'), placeholder:DC.t('Paste URLs or magnet links'), autocapitalize:'off', autocomplete:'off', spellcheck:'false', enterkeyhint:'go',
 			oninput:function(){ onInput(pb); if(on.type) on.type(); }, onkeydown:function(e){ if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); if(on.enter) on.enter(); else submit(pb); } },
 			onpaste:function(){ if(on.paste) setTimeout(function(){ onInput(pb); on.paste(); }, 0); }});
 		/* No accept filter: iOS greys out .torrent files it has no type for, so the extension is checked after picking. */
@@ -99,14 +99,14 @@
 		if(c.ftp) out.push('FTP', 'FTPS');
 		if(c.sftp) out.push('SFTP');
 		if(c.scp) out.push('SCP');
-		if(me.bt_engine) out.push(DC.t('磁力連結'), DC.t('種子檔'));
-		return out.join(DC.t('、'));
+		if(me.bt_engine) out.push(DC.t('Magnet link'), DC.t('Torrent file'));
+		return out.join(DC.t(', '));
 	}
 	function hintIdle(pb){
 		var list = protocols();
 		clear(pb.hint).className = 'addHint';
-		if(!pb.sheet) pb.hint.appendChild(h('span', {text:DC.t('可以貼一個或多個網址、磁力連結、一段含連結的文字或網頁網址，也可以把 .torrent 檔拖進視窗。')}));
-		if(list) pb.hint.appendChild(h('span', {'class':'protos', text:DC.t('支援：{list}', {list:list})}));
+		if(!pb.sheet) pb.hint.appendChild(h('span', {text:DC.t('Paste one or more URLs, magnet links, text containing links, or a web page URL. You can also drag .torrent files into the window.')}));
+		if(list) pb.hint.appendChild(h('span', {'class':'protos', text:DC.t('Supported: {list}', {list:list})}));
 	}
 	function onInput(pb){
 		var el = pb.input, d = detect(el.value), one, hint = pb.hint;
@@ -120,13 +120,13 @@
 		if(d.kind === 'empty'){ hintIdle(pb); return; }
 		hint.className = 'addHint' + (d.kind === 'bad' ? ' bad' : '');
 		one = d.items && d.items.length === 1 ? d.items[0] : null;
-		if(d.kind === 'bad') hint.textContent = DC.t('沒有找到可以下載的連結。支援：{list}。', {list:protocols()});
-		else if(!one) hint.textContent = d.loose ? DC.t('從文字中找到 {n} 個連結，在下方勾選要下載的項目。', {n:d.items.length}) : DC.t('{n} 個連結，在下方勾選要下載的項目。', {n:d.items.length});
-		else if(one.kind === 'page') hint.textContent = DC.t('這是網頁，下方會列出頁面裡的下載連結。');
-		else if(one.kind === 'magnet') hint.textContent = DC.t('選好存放位置就能按「開始下載」；檔案清單取得後可以挑選要下載的檔案。');
-		else if(one.kind === 'torrent') hint.textContent = DC.t('這是 .torrent 檔的網址，會先下載這個檔案。');
-		else if(one.host) hint.textContent = one.host.unsupported ? DC.t('{service} 目前不支援。', {service:one.host.name}) : DC.t('會用你的 {service} 帳號登入後下載。', {service:one.host.name});
-		else hint.textContent = DC.t('選好存放位置後按「開始下載」。');
+		if(d.kind === 'bad') hint.textContent = DC.t('No downloadable link found. Supported: {list}.', {list:protocols()});
+		else if(!one) hint.textContent = d.loose ? DC.t('Found {n} links in the text. Select the items to download below.', {n:d.items.length}) : DC.t('{n} links. Select the items to download below.', {n:d.items.length});
+		else if(one.kind === 'page') hint.textContent = DC.t('This is a web page. The download links on it are listed below.');
+		else if(one.kind === 'magnet') hint.textContent = DC.t('Choose where to save, then click “Start download”. Once the file list is available, you can choose which files to download.');
+		else if(one.kind === 'torrent') hint.textContent = DC.t('This is a .torrent file URL; the file will be downloaded first.');
+		else if(one.host) hint.textContent = one.host.unsupported ? DC.t('{service} is not supported yet.', {service:one.host.name}) : DC.t('Signs in with your {service} account to download.', {service:one.host.name});
+		else hint.textContent = DC.t('Choose where to save, then click “Start download”.');
 	}
 	function submit(pb){
 		var d = detect(pb.input.value);
@@ -152,7 +152,7 @@
 			if(/\.torrent$/i.test(fileList[i].name)) files.push(fileList[i]);
 			else bad.push(fileList[i].name);
 		}
-		if(bad.length && !files.length){ DC.toast(DC.t('{file} 不是 .torrent 檔', {file:bad[0]})); return; }
+		if(bad.length && !files.length){ DC.toast(DC.t('{file} is not a .torrent file', {file:bad[0]})); return; }
 		if(!files.length) return;
 		var items = [];
 		for(i = 0; i < files.length; i++) items.push({kind:'torrentfile', file:files[i], text:files[i].name, name:files[i].name.replace(/\.torrent$/i, '')});
@@ -168,28 +168,28 @@
 	function folderPicker(id, initial, allowNone, onChange, opts){
 		opts = opts || {};
 		var fp = {value:initial || ''}, gen = 0, cur = null, busyT = null;
-		var noneLabel = opts.noneLabel || DC.t('不移動（留在暫存位置）');
+		var noneLabel = opts.noneLabel || DC.t('Don\'t move (keep in temporary location)');
 		var label = h('span', {'class':'fp-path'});
 		var trigger = h('button', {'class':'ib fpick-btn', type:'button', id:id, 'aria-expanded':'false', 'aria-controls':id + 'Panel',
 			onclick:function(){ if(panel.hidden) open(parentOf(fp.value), fp.value); else close(false); }}, [icon('folder'), label, icon('chev', 'chev')]);
-		var back = ibtn('back', DC.t('上一層'), function(){ if(cur && cur.path) open(parentOf(cur.path), cur.path); });
+		var back = ibtn('back', DC.t('Up one level'), function(){ if(cur && cur.path) open(parentOf(cur.path), cur.path); });
 		var crumbs = h('div', {'class':'fpcrumbs'});
 		var note = h('p', {'class':'note warn', role:'status', hidden:true});
-		var filter = h('input', {type:'search', 'class':'fpfilter', placeholder:DC.t('篩選資料夾'), 'aria-label':DC.t('篩選資料夾'), hidden:true,
+		var filter = h('input', {type:'search', 'class':'fpfilter', placeholder:DC.t('Filter folders'), 'aria-label':DC.t('Filter folders'), hidden:true,
 			oninput:function(){ if(cur) fill(cur.r.folders || [], null); }});
 		var list = h('div', {'class':'fplist'});
 		var free = h('p', {'class':'note num fpfree', hidden:true});
 		var msg = h('span', {'class':'fpmsg'});
 		var noneB = allowNone ? h('button', {'class':'ib linkish', type:'button', onclick:function(){ set(''); }}, [icon('close'), noneLabel]) : null;
-		var newB = h('button', {'class':'ib linkish', type:'button', hidden:true, onclick:function(){ newB.hidden = true; newRow.hidden = false; newIn.value = ''; newIn.focus(); }}, [icon('plus'), DC.t('新增資料夾')]);
+		var newB = h('button', {'class':'ib linkish', type:'button', hidden:true, onclick:function(){ newB.hidden = true; newRow.hidden = false; newIn.value = ''; newIn.focus(); }}, [icon('plus'), DC.t('New folder')]);
 		var useB = btn(null, '', function(){ if(cur && cur.path) set(cur.path); }, 'pri');
 		useB.hidden = true;
-		var newIn = h('input', {type:'text', maxlength:'255', placeholder:DC.t('新資料夾名稱'), 'aria-label':DC.t('新資料夾名稱'), autocapitalize:'off',
+		var newIn = h('input', {type:'text', maxlength:'255', placeholder:DC.t('New folder name'), 'aria-label':DC.t('New folder name'), autocapitalize:'off',
 			onkeydown:function(e){ if(e.key === 'Enter'){ e.preventDefault(); create(); } }});
-		var createB = btn(null, DC.t('建立'), function(){ create(); }, 'pri');
-		var newRow = h('div', {'class':'fpnew', hidden:true}, [newIn, createB, btn(null, DC.t('取消'), function(){ hideNew(true); })]);
+		var createB = btn(null, DC.t('Create'), function(){ create(); }, 'pri');
+		var newRow = h('div', {'class':'fpnew', hidden:true}, [newIn, createB, btn(null, DC.t('Cancel'), function(){ hideNew(true); })]);
 		var foot = h('div', {'class':'fpfoot'}, [noneB, newB, msg, useB]);
-		var panel = h('div', {'class':'fpick', id:id + 'Panel', role:'group', 'aria-label':DC.t('選擇資料夾'), hidden:true}, [
+		var panel = h('div', {'class':'fpick', id:id + 'Panel', role:'group', 'aria-label':DC.t('Choose a folder'), hidden:true}, [
 			h('div', {'class':'fphead'}, [back, crumbs]), note, filter, list, free,
 			foot, newRow]);
 
@@ -197,7 +197,7 @@
 			var v = fp.value, k = v.lastIndexOf('/');
 			clear(label);
 			trigger.title = v;
-			if(!v){ label.className = 'fp-path none'; label.textContent = allowNone ? noneLabel : DC.t('請選擇'); return; }
+			if(!v){ label.className = 'fp-path none'; label.textContent = allowNone ? noneLabel : DC.t('Select…'); return; }
 			label.className = 'fp-path mono';
 			if(k >= 0) label.appendChild(h('span', {'class':'fp-dir', text:v.slice(0, k + 1)}));
 			label.appendChild(h('span', {'class':'fp-leaf', text:v.slice(k + 1)}));
@@ -225,7 +225,7 @@
 			else{
 				crumbsFor(path); back.hidden = !path;
 				note.hidden = filter.hidden = free.hidden = foot.hidden = newRow.hidden = true;
-				clear(list).appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('讀取中…')]));
+				clear(list).appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('Loading…')]));
 			}
 			panel.setAttribute('aria-busy', 'true');
 			DC.api.get('folders', path ? {path:path} : null).then(function(r){
@@ -244,15 +244,15 @@
 			crumbsFor(path);
 			back.hidden = !path;
 			note.hidden = !missing;
-			note.textContent = missing ? DC.t('找不到「{path}」，改為顯示上一層。', {path:missing}) : '';
+			note.textContent = missing ? DC.t('“{path}” was not found; showing the folder above it.', {path:missing}) : '';
 			filter.value = '';
 			filter.hidden = (r.folders || []).length <= FP_FILTER;
 			target = fill(r.folders || [], focusPath);
 			free.hidden = !(path && r.free >= 0 && !opts.noFree);
-			free.textContent = free.hidden ? '' : DC.t('還有 {size} 可用。', {size:DC.fsize(r.free)});
+			free.textContent = free.hidden ? '' : DC.t('{size} available.', {size:DC.fsize(r.free)});
 			useB.hidden = !here;
-			useB.lastChild.textContent = here ? DC.t('使用「{name}」', {name:path.slice(path.lastIndexOf('/') + 1)}) : '';
-			msg.textContent = !path ? '' : r.writable === false ? DC.t('這個資料夾無法寫入，請選擇其他資料夾。') : !here ? DC.t('請從下面選一個資料夾。') : '';
+			useB.lastChild.textContent = here ? DC.t('Use “{name}”', {name:path.slice(path.lastIndexOf('/') + 1)}) : '';
+			msg.textContent = !path ? '' : r.writable === false ? DC.t('This folder cannot be written to. Choose another folder.') : !here ? DC.t('Choose one of the folders below.') : '';
 			hideNew(false);
 			foot.hidden = !(noneB || here || msg.textContent || !newB.hidden);
 			if(target){ target.focus({preventScroll:true}); if(target.scrollIntoView) target.scrollIntoView({block:'nearest'}); }
@@ -263,7 +263,7 @@
 			back.hidden = !path;
 			note.hidden = true; filter.hidden = true; free.hidden = true; useB.hidden = true; newB.hidden = true; newRow.hidden = true; msg.textContent = '';
 			foot.hidden = !noneB;
-			clear(list).appendChild(h('div', {'class':'fperr'}, [h('p', {'class':'note warn', text:DC.errText(e)}), btn('retry', DC.t('重試'), function(){ open(path, null); })]));
+			clear(list).appendChild(h('div', {'class':'fperr'}, [h('p', {'class':'note warn', text:DC.errText(e)}), btn('retry', DC.t('Retry'), function(){ open(path, null); })]));
 		}
 		/* The rows matching the filter, at most FP_MAX of them; returns the row to focus (focusPath's, else the first) */
 		function fill(fs, focusPath){
@@ -276,26 +276,26 @@
 				if(!first) first = row.firstChild;
 				if(focusPath && hits[i].path === focusPath) want = row.firstChild;
 			}
-			if(hits.length > FP_MAX) list.appendChild(h('p', {'class':'note', text:DC.t('還有 {n} 個資料夾沒有列出，請用篩選縮小範圍。', {n:hits.length - FP_MAX})}));
-			if(!hits.length) list.appendChild(h('p', {'class':'note', text:q ? DC.t('沒有符合的資料夾。') : DC.t('沒有子資料夾。')}));
+			if(hits.length > FP_MAX) list.appendChild(h('p', {'class':'note', text:DC.t('{n} more folders are not listed. Use the filter to narrow them down.', {n:hits.length - FP_MAX})}));
+			if(!hits.length) list.appendChild(h('p', {'class':'note', text:q ? DC.t('No matching folders.') : DC.t('No subfolders.')}));
 			return want || first;
 		}
 		function rowOf(f){
 			var sel = !!fp.value && f.path === fp.value, ok = f.choosable !== false, meta = '';
-			if(f.writable === false) meta = DC.t('唯讀');
-			else if(sel) meta = DC.t('目前選擇');
-			else if(f.free >= 0) meta = DC.t('{size} 可用', {size:DC.fsize(f.free)});
+			if(f.writable === false) meta = DC.t('Read only');
+			else if(sel) meta = DC.t('Current choice');
+			else if(f.free >= 0) meta = DC.t('{size} free', {size:DC.fsize(f.free)});
 			return h('div', {'class':'fprow' + (sel ? ' sel' : '') + (ok ? '' : ' ro')}, [
 				h('button', {'class':'ib fpitem', type:'button', 'aria-current':sel ? 'true' : null, onclick:function(){ if(ok) set(f.path); else open(f.path, null); }},
 					[icon(f.writable === false ? 'lock' : sel ? 'done' : 'folder'), h('span', {'class':'nm', text:f.name}), meta ? h('small', {'class':'num', text:meta}) : null]),
-				h('button', {'class':'fpgo', type:'button', 'aria-label':DC.t('打開「{name}」', {name:f.name}), title:DC.t('打開「{name}」', {name:f.name}), onclick:function(){ open(f.path, null); }}, icon('chev'))
+				h('button', {'class':'fpgo', type:'button', 'aria-label':DC.t('Open “{name}”', {name:f.name}), title:DC.t('Open “{name}”', {name:f.name}), onclick:function(){ open(f.path, null); }}, icon('chev'))
 			]);
 		}
-		/* 共用資料夾 › Share › … › Parent › Folder: long paths keep their first folder and the last two */
+		/* Shared folders › Share › … › Parent › Folder: long paths keep their first folder and the last two */
 		function crumbsFor(path){
 			var segs = path ? path.split('/') : [], items = [], i;
 			clear(crumbs);
-			items.push(crumb(DC.t('共用資料夾'), '', segs[0] || null, !segs.length));
+			items.push(crumb(DC.t('Shared folders'), '', segs[0] || null, !segs.length));
 			for(i = 0; i < segs.length; i++){
 				if(segs.length > 4 && i >= 1 && i < segs.length - 2){
 					if(i === 1) items.push(h('span', {'class':'fpell', 'aria-hidden':'true', text:'…'}));
@@ -345,7 +345,7 @@
 	DC.folderPicker = folderPicker;
 
 	/* ---------- the add dialog ---------- */
-	var STATUS_LABEL = {in_list:DC.t('已在清單中'), downloaded:DC.t('已下載過'), same_torrent:DC.t('已在清單中'), same_content:DC.t('內容相同的種子已在清單中')};
+	var STATUS_LABEL = {in_list:DC.t('Already in the list'), downloaded:DC.t('Downloaded before'), same_torrent:DC.t('Already in the list'), same_content:DC.t('A torrent with the same content is already in the list')};
 	function pickList(picks, onChange){
 		var list = h('div', {'class':'items files'}), boxes = [], exts = {}, extList = [], i, tools = null, e;
 		function set(fn){ for(var k = 0; k < picks.length; k++){ if(picks[k].blocked) continue; picks[k].sel = fn(picks[k]); boxes[k].checked = picks[k].sel; } onChange(); }
@@ -356,21 +356,21 @@
 				var cb = h('input', {type:'checkbox', id:'pk' + idx, checked:pk.sel, disabled:pk.blocked, onchange:function(){ pk.sel = this.checked; onChange(); }});
 				boxes.push(cb);
 				if(pk.status && STATUS_LABEL[pk.status]) label = STATUS_LABEL[pk.status];
-				else if(it.host) label = it.host.unsupported ? DC.t('{service} 不支援', {service:it.host.name}) : DC.t('{service} 帳號', {service:it.host.name});
-				else if(it.kind === 'torrentfile') label = DC.t('種子檔');
+				else if(it.host) label = it.host.unsupported ? DC.t('{service} is not supported', {service:it.host.name}) : DC.t('{service} account', {service:it.host.name});
+				else if(it.kind === 'torrentfile') label = DC.t('Torrent file');
 				else if(it.kind === 'url' && hostOf(it.text)) label = /^(s?ftps?|scp):/i.test(it.text) ? it.text.split(':')[0].toUpperCase() + ' · ' + hostOf(it.text) : hostOf(it.text);
-				else if(it.kind === 'torrent' && hostOf(it.text)) label = DC.t('{host} 的種子檔', {host:hostOf(it.text)});
+				else if(it.kind === 'torrent' && hostOf(it.text)) label = DC.t('Torrent file from {host}', {host:hostOf(it.text)});
 				else label = KIND_TEXT[it.kind];
 				list.appendChild(h('label', {'class':'item', 'for':'pk' + idx}, [cb, h('span', {text:it.name || it.text}), h('em', {'class':pk.status && pk.status !== 'new' || pk.blocked ? 'dup' : '', text:label})]));
 			})(picks[i], i);
 		}
 		if(picks.length > 1){
-			tools = h('div', {'class':'tools'}, h('button', {type:'button', onclick:function(){ set(function(pk){ return pk.it.kind !== 'page'; }); }}, DC.t('全選')));
+			tools = h('div', {'class':'tools'}, h('button', {type:'button', onclick:function(){ set(function(pk){ return pk.it.kind !== 'page'; }); }}, DC.t('Select all')));
 			for(i = 0; i < extList.length && i < 6; i++){
 				e = extList[i];
-				tools.appendChild(h('button', {type:'button', onclick:(function(x){ return function(){ set(function(pk){ return DC.extOf(pk.it.name) === x; }); }; })(e)}, DC.t('只要 .{ext}', {ext:e})));
+				tools.appendChild(h('button', {type:'button', onclick:(function(x){ return function(){ set(function(pk){ return DC.extOf(pk.it.name) === x; }); }; })(e)}, DC.t('Only .{ext}', {ext:e})));
 			}
-			tools.appendChild(h('button', {type:'button', onclick:function(){ set(function(){ return false; }); }}, DC.t('全不選')));
+			tools.appendChild(h('button', {type:'button', onclick:function(){ set(function(){ return false; }); }}, DC.t('Select none')));
 		}
 		return [tools, list];
 	}
@@ -383,10 +383,10 @@
 	/* Same torrent already listed: fold the new trackers in instead of a second task. */
 	function openMerge(it, taskName, doMerge){
 		DC.modal(it.name || it.text, it.kind === 'magnet' ? 'magnet' : 'torrent', [
-			h('p', {'class':'lead', text:DC.t('這個種子已經在清單中。')}),
-			h('p', {'class':'note', text:DC.t('和「{task}」是同一個種子。新來源裡的 tracker 會併入既有任務，不會重複下載。', {task:taskName || DC.t('既有任務')})})
+			h('p', {'class':'lead', text:DC.t('This torrent is already in the list.')}),
+			h('p', {'class':'note', text:DC.t('This is the same torrent as “{task}”. Trackers from the new source will be merged into the existing task; nothing is downloaded twice.', {task:taskName || DC.t('Existing task')})})
 		], function(close){
-			return [btn(null, DC.t('取消'), close), btn(null, DC.t('併入既有任務'), function(e){ DC.busy(e.currentTarget, true); doMerge(close); }, 'pri')];
+			return [btn(null, DC.t('Cancel'), close), btn(null, DC.t('Merge into existing task'), function(e){ DC.busy(e.currentTarget, true); doMerge(close); }, 'pri')];
 		});
 	}
 	/* The add dialog. With opts.compose it is the whole add flow in one window: the paste field sits on top and the files,
@@ -402,17 +402,17 @@
 		var lastFolder = DC.pref('last_folder') || defs.folder || '';
 		var folder = admin ? folderPicker('addFolder', lastFolder, false, function(){ refreshFree(); }, {noFree:true}) : null;
 		var move = admin ? folderPicker('addMove', defs.move_to || '', true) : null;
-		var moveLabel = h('label', {'for':'addMove', text:DC.t('完成後移至')});
+		var moveLabel = h('label', {'for':'addMove', text:DC.t('Move to when finished')});
 		/* Site account for URL downloads, as in the official dialog: automatic by host, none, a saved account, or typed in for this task only. */
-		var manualOpt = h('option', {value:'manual', text:DC.t('手動輸入…')}), acctLoaded = false;
-		var acct = h('select', {id:'addAcct', onchange:function(){ manual.hidden = this.value !== 'manual'; }}, [h('option', {value:'auto', text:DC.t('自動（依網站找預存帳號）')}), h('option', {value:'none', text:DC.t('不使用')}), manualOpt]);
-		var acctLabel = h('label', {'for':'addAcct', text:DC.t('網站帳號')});
+		var manualOpt = h('option', {value:'manual', text:DC.t('Enter manually…')}), acctLoaded = false;
+		var acct = h('select', {id:'addAcct', onchange:function(){ manual.hidden = this.value !== 'manual'; }}, [h('option', {value:'auto', text:DC.t('Auto (find saved account by site)')}), h('option', {value:'none', text:DC.t('None')}), manualOpt]);
+		var acctLabel = h('label', {'for':'addAcct', text:DC.t('Site accounts')});
 		var manual = h('div', {'class':'opts', hidden:true}, [
-			h('label', {'for':'addUser', text:DC.t('帳號')}), h('input', {type:'text', id:'addUser', autocomplete:'off', autocapitalize:'off', spellcheck:'false'}),
-			h('label', {'for':'addPass', text:DC.t('密碼')}), h('input', {type:'password', id:'addPass', autocomplete:'new-password'})]);
+			h('label', {'for':'addUser', text:DC.t('Account')}), h('input', {type:'text', id:'addUser', autocomplete:'off', autocapitalize:'off', spellcheck:'false'}),
+			h('label', {'for':'addPass', text:DC.t('Password')}), h('input', {type:'password', id:'addPass', autocomplete:'new-password'})]);
 		/* Proxy for URL downloads: automatic (site rules, else the default), none, or a saved profile. Torrents use the profile set for
 		   them in the settings; the row stays hidden when no profile exists and going direct is allowed. */
-		var pxSel = h('select', {id:'addProxy'}), pxLabel = h('label', {'for':'addProxy', text:DC.t('代理')}), pxInfo = null;
+		var pxSel = h('select', {id:'addProxy'}), pxLabel = h('label', {'for':'addProxy', text:DC.t('Proxy')}), pxInfo = null;
 		pxSel.hidden = pxLabel.hidden = true;
 		function loadProxies(){
 			if(pxInfo) return;
@@ -420,17 +420,17 @@
 			DC.api.get('proxies', null, {quiet:true}).then(function(r){
 				var k, autoText;
 				pxInfo = r;
-				if(r.by_site) autoText = r['default'] ? DC.t('自動（依網站，否則用 {name}）', {name:r['default']}) : DC.t('自動（依網站，否則不使用）');
-				else autoText = r['default'] ? DC.t('預設（{name}）', {name:r['default']}) : DC.t('預設（不使用）');
+				if(r.by_site) autoText = r['default'] ? DC.t('Automatic (by site, otherwise {name})', {name:r['default']}) : DC.t('Automatic (by site, otherwise no proxy)');
+				else autoText = r['default'] ? DC.t('Default ({name})', {name:r['default']}) : DC.t('Default (no proxy)');
 				clear(pxSel).appendChild(h('option', {value:'auto', text:autoText}));
-				if(r.can_direct) pxSel.appendChild(h('option', {value:'none', text:DC.t('不使用代理')}));
+				if(r.can_direct) pxSel.appendChild(h('option', {value:'none', text:DC.t('No proxy')}));
 				for(k = 0; k < (r.profiles || []).length; k++) pxSel.appendChild(h('option', {value:r.profiles[k].id, text:r.profiles[k].name}));
 				syncOptions();
 			}, function(){});
 		}
 		function proxyOffered(){ return !!(pxInfo && !pxInfo.loading && ((pxInfo.profiles || []).length || pxInfo['default'] || pxInfo.by_site || !pxInfo.can_direct)); }
-		var seededOpt = h('option', {value:'seeded', text:DC.t('做種完成後移除')});
-		var auto = h('select', {id:'addAuto'}, [h('option', {value:'', text:DC.t('保留在清單')}), h('option', {value:'completed', text:DC.t('下載完成後移除')}), seededOpt]);
+		var seededOpt = h('option', {value:'seeded', text:DC.t('Remove when seeded')});
+		var auto = h('select', {id:'addAuto'}, [h('option', {value:'', text:DC.t('Keep in list')}), h('option', {value:'completed', text:DC.t('Remove when downloaded')}), seededOpt]);
 		auto.value = defs.auto_remove || '';
 		function loadAccounts(){
 			if(acctLoaded) return;
@@ -439,7 +439,7 @@
 				var a, k;
 				for(k = 0; k < (r.accounts || []).length; k++){
 					a = r.accounts[k];
-					if(a.kind === 'site' && a.enabled) acct.insertBefore(h('option', {value:'id:' + a.id, text:DC.t('{site}（{user}）', {site:a.host, user:a.username})}), manualOpt);
+					if(a.kind === 'site' && a.enabled) acct.insertBefore(h('option', {value:'id:' + a.id, text:DC.t('{site} ({user})', {site:a.host, user:a.username})}), manualOpt);
 				}
 			}, function(){});
 		}
@@ -451,8 +451,8 @@
 			seededOpt.hidden = seededOpt.disabled = !(hasBt || pageUrl);
 			if(seededOpt.disabled && auto.value === 'seeded') auto.value = 'completed';
 		}
-		function where(){ return admin ? (folder.value || DC.t('暫存位置')) : (me.home_folder || 'home/Download'); }
-		function freeText(){ return free >= 0 ? DC.t('{folder} 還有 {size} 可用。', {folder:where(), size:DC.fsize(free)}) : ''; }
+		function where(){ return admin ? (folder.value || DC.t('Temporary location')) : (me.home_folder || 'home/Download'); }
+		function freeText(){ return free >= 0 ? DC.t('{folder} has {size} available.', {folder:where(), size:DC.fsize(free)}) : ''; }
 		function refreshFree(){
 			if(!admin){
 				DC.api.get('stats', null, {quiet:true}).then(function(r){ if(r.folders && r.folders[0]){ free = r.folders[0].free; total(); } }, function(){});
@@ -468,13 +468,13 @@
 			var n = 0, sz = 0, j;
 			if(picks){
 				for(j = 0; j < picks.length; j++) if(picks[j].sel) n++;
-				sum.textContent = DC.sentences(DC.t('已選 {n} / {total} 個。', {n:n, total:picks.length}), freeText());
+				sum.textContent = DC.sentences(DC.t('{n} / {total} selected.', {n:n, total:picks.length}), freeText());
 				if(start) start.disabled = !n;
 				return;
 			}
 			if(!files){ sum.textContent = one ? freeText() : ''; return; }
 			for(j = 0; j < files.length; j++) if(files[j].sel){ n++; sz += files[j].size; }
-			sum.textContent = DC.sentences(DC.t('已選 {n} / {total} 個檔案，共 {size}。', {n:n, total:files.length, size:DC.fsize(sz)}), freeText());
+			sum.textContent = DC.sentences(DC.t('{n} / {total} files selected, {size} in total.', {n:n, total:files.length, size:DC.fsize(sz)}), freeText());
 			if(start) start.disabled = !n;
 		}
 		function showFiles(){
@@ -488,14 +488,14 @@
 				})(files[j], j);
 			}
 			clear(body);
-			if(dupNote) body.appendChild(h('p', {'class':'note warn', text:DC.t('目的地已有同名的檔案，可能已經下載過。')}));
-			if(contentOf) body.appendChild(h('p', {'class':'note', text:DC.t('會作為既有任務的其他來源，下載到同一個資料夾。')}));
+			if(dupNote) body.appendChild(h('p', {'class':'note warn', text:DC.t('A file with the same name already exists at the destination; it may have been downloaded before.')}));
+			if(contentOf) body.appendChild(h('p', {'class':'note', text:DC.t('Will be used as another source of the existing task and download to the same folder.')}));
 			/* The torrent's own top folder, which the file paths below leave out; the window title is only the link's or file's name */
-			if(meta && meta.is_folder && meta.name) body.appendChild(h('p', {'class':'note root'}, [icon('folder'), h('span', {text:DC.t('下載後的資料夾：{name}', {name:meta.name})})]));
+			if(meta && meta.is_folder && meta.name) body.appendChild(h('p', {'class':'note root'}, [icon('folder'), h('span', {text:DC.t('Saved as folder: {name}', {name:meta.name})})]));
 			if(files.length > 1) body.appendChild(h('div', {'class':'tools'}, [
-				h('button', {type:'button', onclick:function(){ setAll(function(){ return true; }); }}, DC.t('全選')),
-				h('button', {type:'button', onclick:function(){ setAll(function(f){ return /\.(mp4|mkv|avi|mov|m4v|webm|ts|wmv|flv)$/i.test(f.path); }); }}, DC.t('只要影片')),
-				h('button', {type:'button', onclick:function(){ setAll(function(){ return false; }); }}, DC.t('全不選'))]));
+				h('button', {type:'button', onclick:function(){ setAll(function(){ return true; }); }}, DC.t('Select all')),
+				h('button', {type:'button', onclick:function(){ setAll(function(f){ return /\.(mp4|mkv|avi|mov|m4v|webm|ts|wmv|flv)$/i.test(f.path); }); }}, DC.t('Only videos')),
+				h('button', {type:'button', onclick:function(){ setAll(function(){ return false; }); }}, DC.t('Select none'))]));
 			add(body, [flist, sum]);
 			total();
 		}
@@ -519,7 +519,7 @@
 				probeTimer = setTimeout(function(){ probeMagnet(my); }, 2000);
 			}, function(e){
 				if(closed || my !== gen) return;
-				clear(body); body.appendChild(h('p', {'class':'note warn', text:DC.t('{error}。仍可以直接開始下載，檔案清單之後在任務詳細裡挑選。', {error:DC.errText(e)})}));
+				clear(body); body.appendChild(h('p', {'class':'note warn', text:DC.t('{error}. You can still start the download and choose files later in the task details.', {error:DC.errText(e)})}));
 			});
 		}
 		function makePicks(list, statuses){
@@ -571,23 +571,23 @@
 			clear(body);
 			if(start) start.disabled = true;
 			n = items.length;
-			title = pageUrl ? DC.t('網頁裡的連結') : one ? (one.name || one.text) : (n === 1 ? (items[0].name || items[0].text) : n ? DC.t('加入 {n} 個下載', {n:n}) : DC.t('加入下載'));
+			title = pageUrl ? DC.t('Links on the page') : one ? (one.name || one.text) : (n === 1 ? (items[0].name || items[0].text) : n ? DC.t('Add {n} downloads', {n:n}) : DC.t('Add download'));
 			if(compose) leadEl.textContent = n || pageUrl ? (pageUrl ? pageUrl : title) : '';
-			else { setTitle(title); leadEl.textContent = pageUrl ? pageUrl : one ? (one.kind === 'magnet' ? DC.t('磁力連結') : DC.t('種子檔')) : (n > 1 ? DC.t('勾選要下載的項目，選好存放位置就開始。') : DC.t('選好存放位置就開始下載。')); }
+			else { setTitle(title); leadEl.textContent = pageUrl ? pageUrl : one ? (one.kind === 'magnet' ? DC.t('Magnet link') : DC.t('Torrent file')) : (n > 1 ? DC.t('Select the items to download, choose where to save them, and start.') : DC.t('Choose where to save, and the download starts.')); }
 			leadEl.className = 'lead' + (pageUrl ? ' mono' : '') + (compose ? ' cmp-what' : '');
 			leadEl.hidden = compose && !(n || pageUrl);
 			if(!n && !pageUrl){ total(); return; }
 			if(pageUrl){
-				body.appendChild(loading(DC.t('正在讀取頁面裡的連結…')));
+				body.appendChild(loading(DC.t('Reading links on the page…')));
 				DC.api.post('tasks/extract', {url:pageUrl}).then(function(r){
 					if(closed || my !== gen) return;
 					var list2 = [], k, l;
 					for(k = 0; k < (r.links || []).length; k++){ l = r.links[k]; list2.push({kind:l.kind, text:l.url, name:l.name || nameFrom(l.url), host:l.hoster ? {name:l.hoster, acct:true} : null}); }
-					if(!list2.length){ clear(body); body.appendChild(h('p', {'class':'note', text:DC.t('這個網頁裡沒有找到下載連結。')})); return; }
+					if(!list2.length){ clear(body); body.appendChild(h('p', {'class':'note', text:DC.t('No download links found on this page.')})); return; }
 					checkThen(list2, function(st){ if(closed || my !== gen) return; items = list2; picks = makePicks(list2, st); showPicks(); });
 				}, function(e){ if(closed || my !== gen) return; clear(body); body.appendChild(h('p', {'class':'note warn', text:DC.errText(e)})); });
 			}else if(one){
-				body.appendChild(loading(one.kind === 'magnet' ? DC.t('正在檢查…') : DC.t('正在讀取種子檔…')));
+				body.appendChild(loading(one.kind === 'magnet' ? DC.t('Checking…') : DC.t('Reading torrent file…')));
 				checkThen([one], function(st){
 					if(closed || my !== gen) return;
 					var s0 = st && st[0];
@@ -597,32 +597,32 @@
 						openMerge(it, s0.task_name, function(closeMerge){
 							DC.track('add_merge');
 							var p = it.kind === 'magnet' ? DC.api.post('tasks', {source:it.text}) : DC.api.upload('tasks/torrent', torrentForm([it.file]));
-							p.then(function(){ closeMerge(); DC.toast(DC.t('已併入「{task}」', {task:s0.task_name || DC.t('既有任務')})); DC.pollNow(); }, function(e){ closeMerge(); DC.toast(DC.errText(e)); });
+							p.then(function(){ closeMerge(); DC.toast(DC.t('Merged into “{task}”', {task:s0.task_name || DC.t('Existing task')})); DC.pollNow(); }, function(e){ closeMerge(); DC.toast(DC.errText(e)); });
 						});
 						return;
 					}
 					if(s0 && s0.status === 'same_content' && s0.task_id && one.kind === 'torrentfile'){
 						var t = DC.task(s0.task_id);
 						clear(body);
-						body.appendChild(h('p', {'class':'note', text:DC.t('清單中的「{task}」檔案內容和這個種子相同。可以把它當作其他來源合併（同一時間只有一個來源在下載，停滯時自動切換），或仍然加入為新任務。', {task:t ? t.name : s0.task_id})}));
+						body.appendChild(h('p', {'class':'note', text:DC.t('“{task}” in the list has the same files as this torrent. You can merge it as another source (only one source downloads at a time, switching automatically when stalled) or add it as a new task anyway.', {task:t ? t.name : s0.task_id})}));
 						body.appendChild(h('div', {'class':'srcs'}, [
-							btn(null, DC.t('合併為其他來源'), function(){ contentOf = s0.task_id; loadTorrentFiles(my); }, 'pri'),
-							btn(null, DC.t('仍要加入'), function(){ loadTorrentFiles(my); })]));
+							btn(null, DC.t('Merge as another source'), function(){ contentOf = s0.task_id; loadTorrentFiles(my); }, 'pri'),
+							btn(null, DC.t('Add anyway'), function(){ loadTorrentFiles(my); })]));
 						return;
 					}
 					dupNote = !!(s0 && s0.status === 'downloaded');
 					if(one.kind === 'magnet'){
 						clear(body);
-						if(dupNote) body.appendChild(h('p', {'class':'note warn', text:DC.t('目的地已有同名的檔案，可能已經下載過。')}));
-						body.appendChild(loading(DC.t('正在取得檔案清單…')));
-						body.appendChild(h('p', {'class':'note', text:DC.t('不用等：現在按「開始下載」就會放入下載佇列，取得檔案清單後可以在任務詳細的「檔案」挑選要下載的檔案。')}));
+						if(dupNote) body.appendChild(h('p', {'class':'note warn', text:DC.t('A file with the same name already exists at the destination; it may have been downloaded before.')}));
+						body.appendChild(loading(DC.t('Getting file list…')));
+						body.appendChild(h('p', {'class':'note', text:DC.t('No need to wait: click “Start download” now to put it in the download queue. Once the file list is available, choose files under “Files” in the task details.')}));
 						if(start) start.disabled = false;
 						probeTimer = 0;
 						probeMagnet(my);
 					}else loadTorrentFiles(my);
 				});
 			}else{
-				body.appendChild(loading(DC.t('正在檢查是否重複…')));
+				body.appendChild(loading(DC.t('Checking for duplicates…')));
 				checkThen(items, function(st){ if(closed || my !== gen) return; picks = makePicks(items, st); showPicks(); });
 			}
 			refreshFree();
@@ -663,7 +663,7 @@
 						if(/\.torrent$/i.test(fl[i].name)) list.push({kind:'torrentfile', file:fl[i], text:fl[i].name, name:fl[i].name.replace(/\.torrent$/i, '')});
 						else bad.push(fl[i].name);
 					}
-					if(!list.length){ if(bad.length) DC.toast(DC.t('{file} 不是 .torrent 檔', {file:bad[0]})); return; }
+					if(!list.length){ if(bad.length) DC.toast(DC.t('{file} is not a .torrent file', {file:bad[0]})); return; }
 					pb.input.value = ''; onInput(pb);
 					load(list);
 				}
@@ -671,28 +671,28 @@
 		}
 		var pasteRow = compose ? [
 			h('div', {'class':'add add-cmp' + (opts.sheet ? ' add-sheet' : '')}, [pb.kind, pb.input,
-				clip ? abtn('paste', DC.t('貼上'), DC.t('貼上剪貼簿'), function(){
-					navigator.clipboard.readText().then(function(t){ DC.track('add_clip'); pb.input.value = t; onInput(pb); fromText(); pb.input.focus(); }, function(){ DC.toast(DC.t('無法讀取剪貼簿，請在輸入框貼上')); pb.input.focus(); });
+				clip ? abtn('paste', DC.t('Paste'), DC.t('Paste from clipboard'), function(){
+					navigator.clipboard.readText().then(function(t){ DC.track('add_clip'); pb.input.value = t; onInput(pb); fromText(); pb.input.focus(); }, function(){ DC.toast(DC.t('Cannot read the clipboard. Paste into the input box instead')); pb.input.focus(); });
 				}) : null,
-				abtn('torrent', '.torrent', DC.t('選擇 .torrent 檔'), function(){ pb.file.click(); }), pb.file]),
+				abtn('torrent', '.torrent', DC.t('Choose .torrent file'), function(){ pb.file.click(); }), pb.file]),
 			pb.hint] : null;
 
 		var box = null;
-		var closeBox = DC.modal(compose ? DC.t('加入下載') : '', compose ? 'plus' : 'link', [
+		var closeBox = DC.modal(compose ? DC.t('Add download') : '', compose ? 'plus' : 'link', [
 			pasteRow,
 			leadEl,
 			body,
 			h('div', {'class':'opts'}, [
-				admin ? [h('label', {'for':'addFolder', text:DC.t('暫存位置')}), folder.el, moveLabel, move.el]
-					: [h('span', {'class':'unit', text:DC.t('存放位置')}), h('span', {'class':'mono', text:DC.t('{folder}（你的家目錄）', {folder:me.home_folder || 'home/Download'})})],
+				admin ? [h('label', {'for':'addFolder', text:DC.t('Temporary location')}), folder.el, moveLabel, move.el]
+					: [h('span', {'class':'unit', text:DC.t('Save to')}), h('span', {'class':'mono', text:DC.t('{folder} (your home folder)', {folder:me.home_folder || 'home/Download'})})],
 				acctLabel, acct,
 				pxLabel, pxSel,
-				h('label', {'for':'addAuto', text:DC.t('完成後')}), auto]),
+				h('label', {'for':'addAuto', text:DC.t('When finished')}), auto]),
 			manual
 		], function(close){
-			start = btn(null, DC.t('開始下載'), function(){ go(close); }, 'pri');
+			start = btn(null, DC.t('Start download'), function(){ go(close); }, 'pri');
 			start.disabled = true;
-			return [btn(null, DC.t('取消'), close), start];
+			return [btn(null, DC.t('Cancel'), close), start];
 		}, {nofocus:compose, wide:compose, onclose:function(){ closed = true; clearTimeout(typing); cancelProbe(); },
 			guard:function(){ return !!((pb && pb.input.value.replace(/\s+/g, '')) || (items && items.length) || pageUrl); }});
 		var boxes = document.querySelectorAll('.modal');
@@ -725,11 +725,11 @@
 			closeBox();
 			if(DC.S.view !== 'tasks') DC.go('tasks');
 			var parts = [];
-			if(ok) parts.push(ok === 1 && n === 1 ? DC.t('已加入：{name}', {name:res[0].name || title}) : DC.t('已加入 {n} 個下載', {n:ok}));
-			if(merged) parts.push(DC.t('併入 {n} 個既有任務', {n:merged}));
-			if(dup) parts.push(DC.t('{n} 個已在清單中', {n:dup}));
-			if(errs.length) parts.push(DC.t('{n} 個失敗：{error}', {n:errs.length, error:errs[0]}));
-			DC.toast(parts.join(DC.t('，')) || DC.t('沒有加入任何下載'));
+			if(ok) parts.push(ok === 1 && n === 1 ? DC.t('Added: {name}', {name:res[0].name || title}) : DC.t('{n} downloads added', {n:ok}));
+			if(merged) parts.push(DC.t('Merge into {n} existing tasks', {n:merged}));
+			if(dup) parts.push(DC.t('{n} already in the list', {n:dup}));
+			if(errs.length) parts.push(DC.t('{n} failed: {error}', {n:errs.length, error:errs[0]}));
+			DC.toast(parts.join(DC.t('; ')) || DC.t('No downloads added'));
 			if(ok === 1 && res.length === 1){
 				var it0 = items && items.length === 1 ? items[0] : null;
 				flyIn(res[0].name || title, it0 ? it0.kind : 'url', function(){ DC.bumpCount(); DC.pollNow(); });
@@ -738,9 +738,9 @@
 		function failed(e){ DC.busy(start, false); DC.toast(DC.errText(e)); }
 		function go(){
 			var o = options(), j, sel = [], list = [];
-			if(hasUrl && acct.value === 'manual' && !DC.val('addUser')){ DC.toast(DC.t('請輸入網站帳號')); return; }
-			if(admin && !o.folder){ DC.toast(DC.t('請選擇暫存位置')); return; }
-			DC.busy(start, true, DC.t('加入中…'));
+			if(hasUrl && acct.value === 'manual' && !DC.val('addUser')){ DC.toast(DC.t('Enter the site account')); return; }
+			if(admin && !o.folder){ DC.toast(DC.t('Select a temporary location')); return; }
+			DC.busy(start, true, DC.t('Adding…'));
 			if(one){
 				for(j = 0; files && j < files.length; j++) if(files[j].sel) sel.push(files[j].index);
 				if(one.kind === 'magnet'){
@@ -778,7 +778,7 @@
 				form.append('auto_remove', o.auto_remove || '');
 				DC.api.upload('tasks/torrent', form).then(function(r){ part(r); step(); }, function(e){ partErr(e); step(); });
 			}
-			if(!pending){ DC.busy(start, false); DC.toast(DC.t('請至少勾選一個項目')); }
+			if(!pending){ DC.busy(start, false); DC.toast(DC.t('Select at least one item')); }
 		}
 
 		if(compose){
@@ -804,7 +804,7 @@
 		compose(text);
 	});
 	/* One orchestrated moment for an add: the panel folds, a chip with the task flies from the launcher into the queue, the row
-	   lands with a bounce and the 全部 count pops. Without Web Animations or with reduced motion the row simply appears. */
+	   lands with a bounce and the All count pops. Without Web Animations or with reduced motion the row simply appears. */
 	function flyIn(name, kind, done){
 		var from = R.launch && R.launch.getBoundingClientRect(), to = R.list && R.list.getBoundingClientRect(), chip, reduce = false;
 		try{ reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(x){}

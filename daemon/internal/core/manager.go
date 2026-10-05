@@ -197,7 +197,7 @@ func (m *Manager) resumeMove(t *Task) {
 			return
 		}
 	}
-	m.fail(t, "move", "搬移檔案時 Download Center 重新啟動，找不到搬移中的檔案")
+	m.fail(t, "move", "Download Center restarted while moving files; the files being moved cannot be found")
 }
 
 // Stop ends the loop and saves every task.
@@ -457,7 +457,7 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 		req.Dir = t.SaveDir()
 		if t.InTemp() {
 			if err := os.MkdirAll(req.Dir, 0775); err != nil {
-				return req, fmt.Errorf("無法建立暫存資料夾：%v", err)
+				return req, fmt.Errorf("Cannot create temporary folder: %v", err)
 			}
 		}
 		req.Root = t.Options.Root
@@ -468,7 +468,7 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 		} else if t.Options.Magnet != "" {
 			req.Magnet = t.Options.Magnet
 		} else {
-			return req, errors.New("找不到這個任務的 .torrent 檔")
+			return req, errors.New("The .torrent file of this task cannot be found")
 		}
 		req.Select = t.Options.Select
 		req.Trackers = t.Options.Trackers
@@ -488,7 +488,7 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 		t.WorkDir = m.workDirFor(t.TempDir, t.Hash)
 	}
 	if err := os.MkdirAll(t.WorkDir, 0775); err != nil {
-		return req, fmt.Errorf("無法建立暫存資料夾：%v", err)
+		return req, fmt.Errorf("Cannot create temporary folder: %v", err)
 	}
 	req.Dir = t.WorkDir
 	req.Out = t.Options.OutName
@@ -516,9 +516,9 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 
 // Proxy choice errors: the task must not run rather than go direct.
 var (
-	ErrProxyGone       = errors.New("這個任務使用的代理設定已被刪除，請在任務詳細改選代理")
-	ErrProxyNotAllowed = errors.New("不能使用這個代理設定")
-	ErrProxyRequired   = errors.New("系統管理者要求一般使用者必須使用代理，這個任務沒有可用的代理")
+	ErrProxyGone       = errors.New("The proxy this task uses was deleted; choose another proxy in the task details")
+	ErrProxyNotAllowed = errors.New("This proxy cannot be used")
+	ErrProxyRequired   = errors.New("The administrator requires regular users to use a proxy, and none is available for this task")
 )
 
 // ProxyFor resolves the proxy of a URL. choice is "" or "auto" (a profile
@@ -619,7 +619,7 @@ func (m *Manager) SetProxy(hash, choice string) error {
 		}
 	}
 	m.markDirty(t)
-	m.Log(hash, "已更改代理設定")
+	m.Log(hash, "Proxy setting changed")
 	go m.Kick()
 	return nil
 }
@@ -819,7 +819,7 @@ func (m *Manager) metadataDone(t *Task, st *engine.Status, e engine.Engine) {
 	if len(t.Options.Select) > 0 {
 		e.SetFiles(t.EngineRef, t.Options.Select, nil)
 	}
-	m.Log(t.Hash, "已取得種子的檔案清單")
+	m.Log(t.Hash, "Got the torrent's file list")
 	m.setState(t, StQueued)
 	m.markDirty(t)
 }
@@ -836,7 +836,7 @@ func (m *Manager) engineError(t *Task, st *engine.Status, e engine.Engine) {
 		t.Options.Retries++
 		t.Options.Direct = ""
 		t.EngineRef = ""
-		m.Log(t.Hash, "下載網址可能已過期，重新取得中")
+		m.Log(t.Hash, "The download URL may have expired; getting a new one")
 		m.markDirty(t)
 		return
 	}
@@ -845,7 +845,7 @@ func (m *Manager) engineError(t *Task, st *engine.Status, e engine.Engine) {
 	pu, _ := m.proxyFor(t)
 	viaProxy := pu != ""
 	if viaProxy && (strings.Contains(st.ErrorMsg, "Failed to establish connection") || strings.Contains(st.ErrorMsg, "Proxy")) {
-		m.fail(t, "proxy_unreachable", "無法連上代理伺服器，任務不會改走直連。請檢查 設定 › 下載 › 代理伺服器。")
+		m.fail(t, "proxy_unreachable", "Cannot connect to the proxy server; the task will not fall back to a direct connection. Check Settings › Downloads › Proxy server.")
 		return
 	}
 	if transient(st) && t.Options.AutoRetries < 6 && !(viaProxy && st.ErrorCode == "1") {
@@ -858,7 +858,7 @@ func (m *Manager) engineError(t *Task, st *engine.Status, e engine.Engine) {
 		t.EngineRef = ""
 		t.State = StQueued
 		t.DownRate, t.UpRate = 0, 0
-		m.Log(t.Hash, fmt.Sprintf("暫時無法下載（%s），%d 秒後重試", truncate(st.ErrorMsg, 80), delay))
+		m.Log(t.Hash, fmt.Sprintf("Temporarily unable to download (%s); retrying in %d s", truncate(st.ErrorMsg, 80), delay))
 		m.markDirty(t)
 		return
 	}
@@ -871,7 +871,7 @@ func (m *Manager) fail(t *Task, code, msg string) {
 	t.ErrorCode, t.ErrorMsg = code, msg
 	t.DownRate, t.UpRate = 0, 0
 	m.markDirty(t)
-	m.Log(t.Hash, "錯誤："+msg)
+	m.Log(t.Hash, "Error: "+msg)
 	m.TaskEvent("task.failed", t, map[string]any{"error": map[string]any{"code": code, "message": msg, "retryable": true}})
 }
 
@@ -897,7 +897,7 @@ func (m *Manager) downloadDone(t *Task, st *engine.Status, e engine.Engine) {
 	if t.FinishedAt == 0 {
 		t.FinishedAt = time.Now().Unix()
 	}
-	m.Log(t.Hash, "下載完成，開始做種")
+	m.Log(t.Hash, "Download finished; seeding started")
 	if p := t.dataPath(); p != "" {
 		if u := ownerFor(t.Owner, m.isAdminOwner(t.Owner), p); u != "" {
 			go chownPath(p, u, true)
@@ -946,7 +946,7 @@ func (m *Manager) moveTorrent(t *Task, st *engine.Status, e engine.Engine) {
 		return
 	}
 	if t.State != StMoving {
-		m.Log(t.Hash, "下載完成，搬移檔案中")
+		m.Log(t.Hash, "Download finished; moving files")
 	}
 	t.Options.Root = root
 	t.Options.MoveDst, t.Options.MoveAt = dst, time.Now().Unix()
@@ -1001,7 +1001,7 @@ func (m *Manager) torrentMoved(t *Task, st *engine.Status, e engine.Engine) {
 	if u := ownerFor(t.Owner, m.isAdminOwner(t.Owner), t.DataPath); u != "" {
 		go chownPath(t.DataPath, u, true)
 	}
-	m.Log(t.Hash, "檔案已搬移完成")
+	m.Log(t.Hash, "Files moved")
 	if report {
 		m.TaskEvent("task.completed", t, nil)
 		if t.MoveDir != "" {
@@ -1028,7 +1028,7 @@ func (m *Manager) moveFailed(t *Task, e engine.Engine, msg string) {
 		t.Options.Root = "" // the rename did not happen
 	}
 	t.Options.MoveDst, t.Options.MoveAt = "", 0
-	m.fail(t, "move", "搬移檔案失敗："+msg)
+	m.fail(t, "move", "Failed to move files: "+msg)
 }
 
 // unstage falls back to how 0.9.x handled torrents when the engine cannot
@@ -1132,7 +1132,7 @@ func (m *Manager) startMove(t *Task, src, dst string, urlTask bool) {
 		defer m.mu.Unlock()
 		delete(m.moving, t.Hash)
 		if err != nil {
-			m.fail(t, "move", "搬移檔案失敗："+err.Error())
+			m.fail(t, "move", "Failed to move files: "+err.Error())
 			return
 		}
 		t.DataPath = final
@@ -1173,7 +1173,7 @@ func moveURLResult(work, dst string) (string, error) {
 		}
 	}
 	if first == "" {
-		return "", errors.New("下載的檔案不見了")
+		return "", errors.New("The downloaded files are missing")
 	}
 	return first, nil
 }
@@ -1185,7 +1185,7 @@ func (m *Manager) finish(t *Task) {
 	t.EngineRef = ""
 	m.markDirty(t)
 	m.saveTask(t)
-	m.Log(t.Hash, "完成")
+	m.Log(t.Hash, "Done")
 	if t.AutoRemove == "completed" || t.AutoRemove == "seeded" {
 		go m.autoRemove(t.Hash)
 	}
@@ -1439,7 +1439,7 @@ func (m *Manager) checkDisk(min int64) {
 			if !t.UserPaused {
 				t.UserPaused = true
 				m.markDirty(t)
-				m.Log(t.Hash, "剩餘空間不足，已暫停")
+				m.Log(t.Hash, "Not enough free space; paused")
 				m.TaskEvent("task.paused", t, map[string]any{"by": "disk"})
 			}
 		}

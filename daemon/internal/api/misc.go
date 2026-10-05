@@ -203,11 +203,11 @@ func (s *Server) folders(w http.ResponseWriter, r *http.Request, p *auth.Princip
 	}
 	real, err := s.M.ResolvePath(p.User, path)
 	if err != nil {
-		Error(w, 404, "folder_not_found", "找不到這個資料夾")
+		Error(w, 404, "folder_not_found", "Folder not found")
 		return
 	}
 	if !s.folderAllowed(p, real) {
-		Error(w, 403, "folder_not_allowed", "不能使用這個資料夾")
+		Error(w, 403, "folder_not_allowed", "This folder cannot be used")
 		return
 	}
 	if freeOnly {
@@ -216,7 +216,7 @@ func (s *Server) folders(w http.ResponseWriter, r *http.Request, p *auth.Princip
 	}
 	out, err := core.ListFolders(real, path)
 	if err != nil {
-		Error(w, 404, "folder_not_found", "找不到這個資料夾")
+		Error(w, 404, "folder_not_found", "Folder not found")
 		return
 	}
 	OK(w, map[string]any{"folders": out, "free": core.FreeSpace(real), "writable": core.Writable(real), "choosable": core.Choosable(real)})
@@ -265,18 +265,18 @@ func (s *Server) makeFolder(w http.ResponseWriter, r *http.Request, p *auth.Prin
 	case err == nil:
 		OK(w, map[string]any{"path": np})
 	case errors.Is(err, core.ErrBadName):
-		Error(w, 400, "bad_name", "資料夾名稱不能以 . @ # 開頭或以空格、句點結尾，也不能包含 / \\ | : ? < > * \"")
+		Error(w, 400, "bad_name", "A folder name cannot start with . @ # or end with a space or a dot, and cannot contain / \\ | : ? < > * \"")
 	case errors.Is(err, core.ErrExists):
-		Error(w, 409, "folder_exists", "已經有同名的資料夾")
+		Error(w, 409, "folder_exists", "A folder with this name already exists")
 	case errors.Is(err, core.ErrReadOnly):
-		Error(w, 403, "folder_read_only", "這個資料夾無法寫入")
+		Error(w, 403, "folder_read_only", "This folder cannot be written to")
 	case errors.Is(err, core.ErrNoFolder):
-		Error(w, 404, "folder_not_found", "找不到這個資料夾")
+		Error(w, 404, "folder_not_found", "Folder not found")
 	case errors.Is(err, core.ErrFolder):
-		Error(w, 403, "folder_not_allowed", "不能使用這個資料夾")
+		Error(w, 403, "folder_not_allowed", "This folder cannot be used")
 	default:
 		log.Printf("api: make folder %q in %q: %v", b.Name, b.Path, err)
-		Error(w, 500, "failed", "無法建立資料夾")
+		Error(w, 500, "failed", "Cannot create folder")
 	}
 }
 
@@ -348,7 +348,7 @@ func (s *Server) miscRoutes() {
 	s.Route("PATCH /accounts/{id}", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		a, err := s.M.Account(r.PathValue("id"))
 		if err != nil || a.Owner != p.User {
-			Error(w, 404, "not_found", "找不到這個帳號")
+			Error(w, 404, "not_found", "Account not found")
 			return
 		}
 		var b struct {
@@ -380,7 +380,7 @@ func (s *Server) miscRoutes() {
 	s.Route("DELETE /accounts/{id}", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		a, err := s.M.Account(r.PathValue("id"))
 		if err != nil || a.Owner != p.User {
-			Error(w, 404, "not_found", "找不到這個帳號")
+			Error(w, 404, "not_found", "Account not found")
 			return
 		}
 		s.M.DeleteAccount(a.ID)
@@ -389,7 +389,7 @@ func (s *Server) miscRoutes() {
 	s.Route("POST /accounts/{id}/verify", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		a, err := s.M.Account(r.PathValue("id"))
 		if err != nil || a.Owner != p.User {
-			Error(w, 404, "not_found", "找不到這個帳號")
+			Error(w, 404, "not_found", "Account not found")
 			return
 		}
 		if a.Kind == "site" || Verifier == nil {
@@ -432,7 +432,7 @@ func (s *Server) miscRoutes() {
 			IPAllow: b.IPAllow, RateLimit: b.RateLimit}
 		for _, f := range t.Folders {
 			if _, err := s.M.ResolvePath(p.User, f); err != nil {
-				Error(w, 400, "folder_not_found", "找不到資料夾 "+f)
+				Error(w, 400, "folder_not_found", "Folder "+f+" not found")
 				return
 			}
 		}
@@ -452,7 +452,7 @@ func (s *Server) miscRoutes() {
 	s.Route("PATCH /tokens/{id}", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		t := s.Auth.TokenOf(r.PathValue("id"), p.User)
 		if t == nil {
-			Error(w, 404, "not_found", "找不到這個權杖")
+			Error(w, 404, "not_found", "Token not found")
 			return
 		}
 		var b struct {
@@ -482,7 +482,7 @@ func (s *Server) miscRoutes() {
 			t.Folders = *b.Folders
 			for _, f := range t.Folders {
 				if _, err := s.M.ResolvePath(p.User, f); err != nil {
-					Error(w, 400, "folder_not_found", "找不到資料夾 "+f)
+					Error(w, 400, "folder_not_found", "Folder "+f+" not found")
 					return
 				}
 			}
@@ -511,7 +511,7 @@ func (s *Server) miscRoutes() {
 	s.Route("POST /tokens/{id}/regenerate", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		value, err := s.Auth.RegenerateToken(r.PathValue("id"), p.User)
 		if err != nil {
-			Error(w, 404, "not_found", "找不到這個權杖")
+			Error(w, 404, "not_found", "Token not found")
 			return
 		}
 		OK(w, map[string]any{"value": value})

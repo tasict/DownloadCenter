@@ -13,11 +13,11 @@
 
 	/* Errors carry {status, code, message, body}; messages from the server are already in the UI language (X-DC-Lang). */
 	function fail(status, body){
-		var e = {status:status, code:'failed', message:DC.t('發生錯誤，請稍後再試。'), body:body || {}};
+		var e = {status:status, code:'failed', message:DC.t('An error occurred. Try again later.'), body:body || {}};
 		if(body && body.error){ e.code = body.error.code || e.code; e.message = body.error.message || e.message; }
-		else if(status === 0){ e.code = 'network'; e.message = DC.t('無法連線到 NAS。'); }
-		else if(status === 404){ e.code = 'not_found'; e.message = DC.t('找不到。'); }
-		else if(status === 502 || status === 503){ e.code = 'unavailable'; e.message = DC.t('Download Center 服務沒有回應，請稍後再試。'); }
+		else if(status === 0){ e.code = 'network'; e.message = DC.t('Cannot connect to the NAS.'); }
+		else if(status === 404){ e.code = 'not_found'; e.message = DC.t('Not found.'); }
+		else if(status === 502 || status === 503){ e.code = 'unavailable'; e.message = DC.t('The Download Center service is not responding. Try again later.'); }
 		return e;
 	}
 
@@ -28,7 +28,7 @@
 			x.open(method, BASE + path, true);
 			x.setRequestHeader('Accept', 'application/json');
 			if(method !== 'GET') x.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-			x.setRequestHeader('X-DC-Lang', DC.lang || 'TCH');
+			x.setRequestHeader('X-DC-Lang', DC.lang || 'ENG');
 			x.timeout = opts.timeout || 120000;
 			x.onreadystatechange = function(){
 				if(x.readyState !== 4) return;
@@ -42,7 +42,7 @@
 				}
 				reject(err);
 			};
-			x.ontimeout = function(){ reject({status:0, code:'timeout', message:DC.t('NAS 沒有在時間內回應。'), body:{}}); };
+			x.ontimeout = function(){ reject({status:0, code:'timeout', message:DC.t('The NAS did not respond in time.'), body:{}}); };
 			if(body instanceof FormData) x.send(body);
 			else if(body !== undefined && body !== null){ x.setRequestHeader('Content-Type', 'application/json'); x.send(JSON.stringify(body)); }
 			else x.send();
@@ -64,7 +64,7 @@
 			return new Promise(function(resolve, reject){
 				var x = new XMLHttpRequest();
 				x.open('GET', BASE + path, true);
-				x.setRequestHeader('X-DC-Lang', DC.lang || 'TCH');
+				x.setRequestHeader('X-DC-Lang', DC.lang || 'ENG');
 				if(limit) x.setRequestHeader('Range', 'bytes=0-' + (limit - 1));
 				x.onreadystatechange = function(){
 					if(x.readyState !== 4) return;
@@ -77,5 +77,5 @@
 	};
 
 	/* Error text for a toast. */
-	DC.errText = function(e){ return (e && e.message) || DC.t('發生錯誤，請稍後再試。'); };
+	DC.errText = function(e){ return (e && e.message) || DC.t('An error occurred. Try again later.'); };
 })();

@@ -133,46 +133,46 @@ func urlUserinfo(user, pass string) string {
 }
 
 // engineError maps an engine error code (engine.Err*) to the task's error
-// code and a zh-TW message.
+// code and a message.
 func engineError(code, msg string) (string, string) {
 	texts := map[string]string{
-		"1":                   "下載失敗（未知的錯誤）",
-		"2":                   "連線逾時",
-		"3":                   "找不到檔案（404）",
-		"4":                   "多次找不到檔案",
-		"5":                   "下載速度太慢，已中止",
-		"6":                   "網路發生問題",
-		"8":                   "伺服器不支援續傳",
-		"9":                   "磁碟空間不足",
-		"10":                  "分段大小與控制檔不符",
-		"11":                  "已經在下載同一個檔案",
-		"12":                  "已經在下載同一個種子",
-		"13":                  "目的地已有同名檔案",
-		"14":                  "無法重新命名檔案",
-		"15":                  "無法開啟已存在的檔案",
-		"16":                  "無法建立檔案",
-		"17":                  "讀寫檔案失敗",
-		"18":                  "無法建立資料夾",
-		"19":                  "無法解析網址的主機名稱",
-		"21":                  "FTP 指令失敗",
-		"22":                  "伺服器回應不正確",
-		"23":                  "重新導向次數過多",
-		"24":                  "需要登入或帳號密碼錯誤。到 設定 › 網站帳號 確認這個網站的帳號密碼",
-		"25":                  "種子檔格式不正確",
-		"26":                  "種子檔已損壞",
-		"27":                  "磁力連結格式不正確",
-		"28":                  "參數不正確",
-		"29":                  "伺服器忙碌中（503），請稍後再試",
-		"32":                  "檔案校驗失敗",
-		engine.ErrNoTransport: "這台 NAS 無法下載這種網址（下載元件 dc-dl 無法使用）",
-		engine.ErrHostKey:     "SFTP 伺服器的主機金鑰和上次連線時不同，為了安全已停止下載",
+		"1":                   "Download failed (unknown error)",
+		"2":                   "Connection timed out",
+		"3":                   "File not found (404)",
+		"4":                   "File not found too many times",
+		"5":                   "Download too slow; aborted",
+		"6":                   "Network problem",
+		"8":                   "The server does not support resuming",
+		"9":                   "Not enough disk space",
+		"10":                  "Piece size does not match the control file",
+		"11":                  "The same file is already being downloaded",
+		"12":                  "The same torrent is already being downloaded",
+		"13":                  "A file with the same name exists at the destination",
+		"14":                  "Cannot rename file",
+		"15":                  "Cannot open existing file",
+		"16":                  "Cannot create file",
+		"17":                  "File read/write failed",
+		"18":                  "Cannot create folder",
+		"19":                  "Cannot resolve the URL's host name",
+		"21":                  "FTP command failed",
+		"22":                  "Invalid server response",
+		"23":                  "Too many redirects",
+		"24":                  "Sign-in required, or wrong user name or password. Check this site's account under Settings › Site accounts",
+		"25":                  "Invalid torrent file format",
+		"26":                  "Torrent file is corrupted",
+		"27":                  "Invalid magnet link format",
+		"28":                  "Invalid parameter",
+		"29":                  "The server is busy (503). Try again later",
+		"32":                  "File checksum failed",
+		engine.ErrNoTransport: "This NAS cannot download this kind of URL (the download component dc-dl is unavailable)",
+		engine.ErrHostKey:     "The SFTP server's host key differs from the last connection; the download was stopped for safety",
 	}
 	t, ok := texts[code]
 	if !ok {
-		t = "下載失敗"
+		t = "Download failed"
 	}
 	if msg != "" && !strings.Contains(t, msg) && code != engine.ErrNoTransport && code != engine.ErrHostKey {
-		t += "（" + truncate(msg, 160) + "）"
+		t += " (" + truncate(msg, 160) + ")"
 	}
 	if code == "" {
 		code = "engine"

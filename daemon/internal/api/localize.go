@@ -7,10 +7,11 @@ import (
 
 // localize translates the backend-made texts inside known response shapes
 // (a task's error, task log lines, an account's verification error) into the request's UI language. Names and
-// other user content are never touched: only these fields carry messages.
+// other user content are never touched: only these fields carry messages. English requests go through it too:
+// messages stored by 1.0.x are Traditional Chinese.
 func localize(w interface{}, v any) {
 	lw, ok := w.(interface{ Lang() string })
-	if !ok || i18n.Norm(lw.Lang()) == "" {
+	if !ok {
 		return
 	}
 	lang := lw.Lang()

@@ -99,9 +99,9 @@ func (s *service) apply(enable bool) error {
 	switch decide(enable, inst, en, st) {
 	case refuse:
 		if inst && en {
-			return errors.New("官方 Download Station 啟用中，請先停用或移除它")
+			return errors.New("The official Download Station is enabled. Disable or remove it first")
 		}
-		return errors.New("Qdownload 是一般資料夾，不會覆蓋它")
+		return errors.New("Qdownload is a regular folder and will not be overwritten")
 	case link:
 		if err := s.prepareWebDir(); err != nil {
 			return err

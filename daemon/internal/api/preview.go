@@ -189,7 +189,7 @@ func (s *Server) previewTarget(w http.ResponseWriter, r *http.Request, p *auth.P
 		// Only files inside the task's own folder
 		real, err := filepath.EvalSymlinks(f.real)
 		if err != nil {
-			Error(w, 404, "not_found", "檔案還不存在")
+			Error(w, 404, "not_found", "The file does not exist yet")
 			return nil, nil
 		}
 		allowed := []string{t.TempDir, t.WorkDir, t.DataPath}
@@ -214,13 +214,13 @@ func (s *Server) previewTarget(w http.ResponseWriter, r *http.Request, p *auth.P
 			okInside = real == dr || strings.HasPrefix(real, dr+"/")
 		}
 		if !okInside {
-			Error(w, 403, "forbidden", "只能預覽這個任務資料夾裡的檔案")
+			Error(w, 403, "forbidden", "Only files in this task's folder can be previewed")
 			return nil, nil
 		}
 		f.real = real
 		return t, &f
 	}
-	Error(w, 404, "not_found", "找不到這個檔案")
+	Error(w, 404, "not_found", "File not found")
 	return nil, nil
 }
 
@@ -230,12 +230,12 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request, p *auth.Princip
 		return
 	}
 	if f.Contiguous <= 0 {
-		Error(w, 409, "not_ready", "這個檔案的開頭還沒下載")
+		Error(w, 409, "not_ready", "The beginning of this file has not been downloaded yet")
 		return
 	}
 	fp, err := os.Open(f.real)
 	if err != nil {
-		Error(w, 404, "not_found", "檔案還不存在")
+		Error(w, 404, "not_found", "The file does not exist yet")
 		return
 	}
 	defer fp.Close()
@@ -282,7 +282,7 @@ func (s *Server) archiveList(w http.ResponseWriter, r *http.Request, p *auth.Pri
 	}
 	fp, err := os.Open(f.real)
 	if err != nil {
-		Error(w, 404, "not_found", "檔案還不存在")
+		Error(w, 404, "not_found", "The file does not exist yet")
 		return
 	}
 	defer fp.Close()
@@ -333,7 +333,7 @@ func (s *Server) archiveList(w http.ResponseWriter, r *http.Request, p *auth.Pri
 			out = append(out, entry{Name: h.Name, Size: h.Size, Dir: h.Typeflag == tar.TypeDir})
 		}
 	default:
-		Error(w, 400, "unsupported", "這種壓縮檔無法在下載中預覽")
+		Error(w, 400, "unsupported", "This type of archive cannot be previewed while downloading")
 		return
 	}
 	if out == nil {

@@ -28,7 +28,7 @@ func (s *Service) call(req *http.Request, out any) (int, error) {
 	}
 	resp, err := s.client().Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("無法連線到免空網站：%v", err)
+		return 0, fmt.Errorf("Cannot connect to the file-hosting site: %v", err)
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
@@ -37,7 +37,7 @@ func (s *Service) call(req *http.Request, out any) (int, error) {
 	}
 	if out != nil && len(bytes.TrimSpace(b)) > 0 {
 		if err := json.Unmarshal(b, out); err != nil {
-			return resp.StatusCode, fmt.Errorf("免空網站回應格式不正確（HTTP %d）", resp.StatusCode)
+			return resp.StatusCode, fmt.Errorf("Invalid response from the file-hosting site (HTTP %d)", resp.StatusCode)
 		}
 	}
 	return resp.StatusCode, nil
@@ -141,7 +141,7 @@ func fichierErr(status int, msg string) error {
 	if msg == "" {
 		msg = fmt.Sprintf("HTTP %d", status)
 	}
-	return fmt.Errorf("1fichier：%s", msg)
+	return fmt.Errorf("1fichier: %s", msg)
 }
 
 func (s *Service) fichierResolve(key, raw string) (*core.Resolved, error) {
@@ -259,9 +259,9 @@ func rgErr(status int, details string) error {
 		return &accountError{ErrExpired, "expired"}
 	}
 	if details == "" {
-		details = fmt.Sprintf("錯誤 %d", status)
+		details = fmt.Sprintf("Error %d", status)
 	}
-	return fmt.Errorf("Rapidgator：%s", details)
+	return fmt.Errorf("Rapidgator: %s", details)
 }
 
 // rgLogin returns a session token (cached 1 h per account and password).
@@ -350,7 +350,7 @@ func (s *Service) rgVerify(a *core.Account, pass string) (map[string]any, error)
 	}
 	info := rgInfo(user)
 	if !info["premium"].(bool) {
-		info["error"] = "這個 Rapidgator 帳號不是 Premium，無法下載"
+		info["error"] = "This Rapidgator account is not Premium and cannot download"
 	}
 	return info, nil
 }
@@ -380,7 +380,7 @@ func rdErr(status int, r map[string]any) error {
 	if msg == "" {
 		msg = fmt.Sprintf("HTTP %d", status)
 	}
-	return fmt.Errorf("Real-Debrid：%s", msg)
+	return fmt.Errorf("Real-Debrid: %s", msg)
 }
 
 func (s *Service) rdResolve(token, raw string) (*core.Resolved, error) {
@@ -415,7 +415,7 @@ func (s *Service) rdVerify(token string) (map[string]any, error) {
 	info := map[string]any{"plan": map[bool]string{true: "Premium", false: "Free"}[premium], "premium": premium,
 		"expires_at": exp, "traffic_left": int64(-1)}
 	if !premium {
-		info["error"] = "這個 Real-Debrid 帳號沒有 Premium，無法下載"
+		info["error"] = "This Real-Debrid account has no Premium and cannot download"
 	}
 	return info, nil
 }
@@ -478,9 +478,9 @@ func adErr(code, msg string) error {
 		msg = code
 	}
 	if msg == "" {
-		msg = "未知的錯誤"
+		msg = "Unknown error"
 	}
-	return fmt.Errorf("AllDebrid：%s", msg)
+	return fmt.Errorf("AllDebrid: %s", msg)
 }
 
 func (s *Service) adResolve(key, raw string) (*core.Resolved, error) {
@@ -493,7 +493,7 @@ func (s *Service) adResolve(key, raw string) (*core.Resolved, error) {
 		if d["delayed"] != nil {
 			return nil, ErrTryLater
 		}
-		return nil, errors.New("AllDebrid 沒有回傳下載位址")
+		return nil, errors.New("AllDebrid returned no download address")
 	}
 	return &core.Resolved{URL: link, Name: str(d["filename"]), Size: num(d["filesize"]),
 		ExpiresAt: time.Now().Add(6 * time.Hour).Unix()}, nil
@@ -513,7 +513,7 @@ func (s *Service) adVerify(key string) (map[string]any, error) {
 	info := map[string]any{"plan": map[bool]string{true: "Premium", false: "Free"}[premium], "premium": premium,
 		"expires_at": exp, "traffic_left": int64(-1)}
 	if !premium {
-		info["error"] = "這個 AllDebrid 帳號沒有 Premium，無法下載"
+		info["error"] = "This AllDebrid account has no Premium and cannot download"
 	}
 	return info, nil
 }

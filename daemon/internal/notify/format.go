@@ -9,8 +9,14 @@ import (
 	"strings"
 
 	"downloadcenter/internal/core"
+	"downloadcenter/internal/i18n"
 	"downloadcenter/internal/qts"
 )
+
+// zh puts a backend message (written in English, or in Traditional Chinese by
+// 1.0.x) into the language of the chat replies and notifications, which are
+// Traditional Chinese.
+func zh(msg string) string { return i18n.T("TCH", msg) }
 
 // EventTypes lists every event type of INTEGRATION.md §3.
 var EventTypes = []string{
@@ -118,7 +124,7 @@ func Body(e core.Event) string {
 	if e.Type == "task.failed" && e.Data != nil {
 		if er, ok := e.Data["error"].(map[string]any); ok {
 			if msg, ok := er["message"].(string); ok && msg != "" {
-				lines = append(lines, msg)
+				lines = append(lines, zh(msg))
 			}
 		}
 	}
@@ -132,7 +138,7 @@ func Body(e core.Event) string {
 	}
 	if e.Type == "notify.disabled" && e.Data != nil {
 		if m, ok := e.Data["error"].(string); ok && m != "" {
-			lines = append(lines, "連續 20 次傳送失敗，最後的錯誤："+m)
+			lines = append(lines, "連續 20 次傳送失敗，最後的錯誤："+zh(m))
 		}
 	}
 	if e.Type == "test" {

@@ -3,7 +3,7 @@
 	'use strict';
 	var DC = window.DC = window.DC || {};
 	/* index.html has a static boot line; show it in the UI language (dom.js runs right after that markup) */
-	(function(){ var b = document.querySelector('#app .boot'); if(b && DC.t) b.textContent = DC.t('載入中…'); })();
+	(function(){ var b = document.querySelector('#app .boot'); if(b && DC.t) b.textContent = DC.t('Starting…'); })();
 
 	/* ---------- icon set (constant markup, never built from data) ---------- */
 	var ICONS = {
@@ -125,25 +125,25 @@
 	function feta(s){
 		if(!isFinite(s) || s <= 0) return '';
 		s = Math.round(s);
-		if(s < 60) return DC.t('剩 {s} 秒', {s:s});
-		if(s < 3600) return DC.t('剩 {m} 分', {m:Math.floor(s / 60)});
-		if(s < 86400 * 2) return DC.t('剩 {h} 小時 {m} 分', {h:Math.floor(s / 3600), m:Math.floor((s % 3600) / 60)});
+		if(s < 60) return DC.t('{s} s left', {s:s});
+		if(s < 3600) return DC.t('{m} min left', {m:Math.floor(s / 60)});
+		if(s < 86400 * 2) return DC.t('{h} h {m} min left', {h:Math.floor(s / 3600), m:Math.floor((s % 3600) / 60)});
 		/* At a few bytes a second the estimate runs into years; past a month it says nothing useful */
-		if(s > 86400 * 30) return DC.t('剩超過 30 天');
-		return DC.t('剩 {d} 天', {d:Math.floor(s / 86400)});
+		if(s > 86400 * 30) return DC.t('More than 30 days left');
+		return DC.t('{d} days left', {d:Math.floor(s / 86400)});
 	}
 	function fdur(s){
 		s = +s || 0;
-		if(s < 60) return DC.t('不到 1 分');
-		if(s < 3600) return DC.t('{m} 分', {m:Math.floor(s / 60)});
-		return DC.t('{h} 小時 {m} 分', {h:Math.floor(s / 3600), m:Math.floor((s % 3600) / 60)});
+		if(s < 60) return DC.t('Under 1 min');
+		if(s < 3600) return DC.t('{m} min', {m:Math.floor(s / 60)});
+		return DC.t('{h} h {m} min', {h:Math.floor(s / 3600), m:Math.floor((s % 3600) / 60)});
 	}
 	function pad(n){ return (n < 10 ? '0' : '') + n; }
 	function ftime(unix){
 		if(!unix) return '';
 		var d = new Date(unix * 1000), now = new Date(), y = new Date(now.getTime() - 86400000), hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
-		if(d.toDateString() === now.toDateString()) return DC.t('今天 {time}', {time:hm});
-		if(d.toDateString() === y.toDateString()) return DC.t('昨天 {time}', {time:hm});
+		if(d.toDateString() === now.toDateString()) return DC.t('Today {time}', {time:hm});
+		if(d.toDateString() === y.toDateString()) return DC.t('Yesterday {time}', {time:hm});
 		return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + hm;
 	}
 	function fdate(unix){
@@ -191,8 +191,8 @@
 	/* ---------- dialogs ---------- */
 	DC.R = {};
 	/* opts: wide, nofocus, onclose, guard() (true while the dialog holds input that a stray click or Escape must not throw
-	   away: it then only nudges, and 取消 still closes), persist (closes only through its own buttons), anchor (an element: on wide screens the dialog opens as a popover
-	   under it, without dimming). A dialog whose main button is destructive starts with 取消 focused, so Enter cannot delete. */
+	   away: it then only nudges, and Cancel still closes), persist (closes only through its own buttons), anchor (an element: on wide screens the dialog opens as a popover
+	   under it, without dimming). A dialog whose main button is destructive starts with Cancel focused, so Enter cannot delete. */
 	DC.modal = function(title, iconName, kids, acts, opts){
 		opts = opts || {};
 		var scrim = h('div', {'class':'scrim'}), box, b, onclose = opts.onclose, nudgeT;
@@ -206,7 +206,7 @@
 			if(opts.persist || (opts.guard && opts.guard())){
 				box.classList.remove('nudge'); void box.offsetWidth; box.classList.add('nudge');
 				clearTimeout(nudgeT); nudgeT = setTimeout(function(){ box.classList.remove('nudge'); }, 500);
-				if(!opts.persist) DC.toast(DC.t('輸入的內容還沒加入。要放棄請按「取消」。'));
+				if(!opts.persist) DC.toast(DC.t('What you entered has not been added yet. To discard it, click “Cancel”.'));
 				return false;
 			}
 			close();
@@ -292,7 +292,7 @@
 	/* A simple confirm dialog; fn runs on the confirm button. */
 	DC.confirm = function(title, iconName, text, okLabel, fn, danger){
 		return DC.modal(title, iconName, [h('p', {'class':'lead', text:text})], function(close){
-			return [btn(null, DC.t('取消'), close), btn(null, okLabel, function(){ close(); fn(); }, danger ? 'dan pri' : 'pri')];
+			return [btn(null, DC.t('Cancel'), close), btn(null, okLabel, function(){ close(); fn(); }, danger ? 'dan pri' : 'pri')];
 		});
 	};
 
@@ -300,8 +300,8 @@
 	DC.SUPPORT = {boba:'https://tasict.bobaboba.me', paypal:'https://paypal.me/tasict'};
 	DC.supportLinks = function(){
 		return [
-			h('a', {'class':'boba', href:DC.SUPPORT.boba, target:'_blank', rel:'noopener noreferrer', title:DC.t('珍奶贊助直接刷卡，不需要 PayPal 帳號。')}, [h('img', {src:'img/boba.png', alt:''}), h('span', {text:DC.t('請我喝珍奶')})]),
-			h('a', {'class':'paypal', href:DC.SUPPORT.paypal, target:'_blank', rel:'noopener noreferrer'}, DC.t('用 PayPal 贊助'))
+			h('a', {'class':'boba', href:DC.SUPPORT.boba, target:'_blank', rel:'noopener noreferrer', title:DC.t('Boba is paid by card. No PayPal account needed.')}, [h('img', {src:'img/boba.png', alt:''}), h('span', {text:DC.t('Buy me a boba')})]),
+			h('a', {'class':'paypal', href:DC.SUPPORT.paypal, target:'_blank', rel:'noopener noreferrer'}, DC.t('Tip with PayPal'))
 		];
 	};
 
@@ -319,7 +319,7 @@
 		body = JSON.stringify({counts:TRACK}); TRACK = {}; trackN = 0;
 		try{
 			fetch('api/v1/analytics/ui', {method:'POST', credentials:'same-origin', keepalive:true, body:body,
-				headers:{'Content-Type':'application/json', 'X-Requested-With':'XMLHttpRequest', 'X-DC-Lang':DC.lang || 'TCH'}})['catch'](function(){});
+				headers:{'Content-Type':'application/json', 'X-Requested-With':'XMLHttpRequest', 'X-DC-Lang':DC.lang || 'ENG'}})['catch'](function(){});
 		}catch(e){}
 	};
 	document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'hidden') DC.trackFlush(); });
@@ -332,11 +332,11 @@
 	   regular users see the same facts and who decides. */
 	DC.showNotice = function(first){
 		var items = [
-			DC.t('Download Center 只依照你提供的網址、種子檔或磁力連結下載檔案，不提供、搜尋或推薦任何內容。'),
-			DC.t('請只下載你有權取得的內容。未經授權下載或散布受著作權保護的軟體、影音或其他作品，可能觸犯你所在地的法律。'),
-			DC.t('使用 BitTorrent 時，你在下載的同時也會把檔案分享給其他使用者，他們看得到你的 IP 位址。'),
-			DC.t('你要為下載的內容和使用方式負責；在法律允許的範圍內，開發者不對使用本軟體造成的損失或法律責任負責。'),
-			DC.t('Download Center 是獨立開發的軟體，與 QNAP 無關，也未經 QNAP 認可。')
+			DC.t('Download Center only downloads the links, torrent files and magnet links you give it. It does not provide, search for or recommend any content.'),
+			DC.t('Only download content you have the right to obtain. Downloading or sharing copyrighted software, video, music or other works without permission may break the law where you live.'),
+			DC.t('With BitTorrent, you share the file with other people while you download it, and they can see your IP address.'),
+			DC.t('You are responsible for what you download and how you use this software. To the extent permitted by law, the developer is not liable for any damage or legal consequence arising from its use.'),
+			DC.t('Download Center is independent software. It is not affiliated with or endorsed by QNAP.')
 		], list = h('ul', {'class':'notice'}), i, me = DC.S && DC.S.me, stats = me && me.admin && me.analytics, sw = null, head;
 		for(i = 0; i < items.length; i++) list.appendChild(h('li', {text:items[i]}));
 		function column(cls, iconName, title, lines){
@@ -345,26 +345,26 @@
 			return h('div', {'class':'ntcol ' + cls}, [h('b', null, [icon(iconName), title]), ul]);
 		}
 		if(stats){
-			sw = DC.toggle('ntStats', DC.t('協助改善 Download Center'), DC.t('每天一次傳給 Google Analytics，隨時可以在「設定 › 關於與更新」關閉。'), stats.enabled || !stats.asked, first ? null : function(){
+			sw = DC.toggle('ntStats', DC.t('Help improve Download Center'), DC.t('Sent to Google Analytics once a day. You can turn this off at any time in Settings › About and updates.'), stats.enabled || !stats.asked, first ? null : function(){
 				var el = this;
 				DC.api.put('analytics', {enabled:el.checked}).then(function(r){ DC.S.me.analytics = r; }, function(e){ el.checked = !el.checked; DC.toast(DC.errText(e)); });
 			});
 			head = sw;
-		}else head = h('p', {'class':'ntwho', text:DC.t('Download Center 可以每天一次把匿名的使用統計傳給 Google Analytics，是否傳送由系統管理者決定。')});
-		return DC.modal(DC.t('使用聲明'), 'files', [
-			h('p', {'class':'lead', text:DC.t('使用 Download Center 前，請先看過這兩件事。')}),
-			h('h3', {'class':'nthead', text:DC.t('下載的內容')}), list,
-			h('h3', {'class':'nthead', text:DC.t('使用統計')}),
+		}else head = h('p', {'class':'ntwho', text:DC.t('Download Center can send anonymous usage statistics to Google Analytics once a day. Your administrator decides whether it does.')});
+		return DC.modal(DC.t('Terms of use'), 'files', [
+			h('p', {'class':'lead', text:DC.t('Before using Download Center, please read these two things.')}),
+			h('h3', {'class':'nthead', text:DC.t('What you download')}), list,
+			h('h3', {'class':'nthead', text:DC.t('Usage statistics')}),
 			h('div', {'class':'ntstats'}, [head, h('div', {'class':'ntsplit'}, [
-				column('yes', 'done', DC.t('會傳送'), [DC.t('版本、架構與 NAS 機型'), DC.t('用到哪些功能、各用了幾次'), DC.t('任務數量、完成與失敗次數')]),
-				column('no', 'close', DC.t('不會傳送'), [DC.t('檔名、網址與下載的內容'), DC.t('帳號、密碼與權杖'), DC.t('NAS 名稱與資料夾路徑')])
+				column('yes', 'done', DC.t('Sent'), [DC.t('Version, architecture and NAS model'), DC.t('Which features are used, and how often'), DC.t('Number of tasks, completed and failed')]),
+				column('no', 'close', DC.t('Not sent'), [DC.t('File names, links and downloaded content'), DC.t('Accounts, passwords and tokens'), DC.t('NAS name and folder paths')])
 			])])
 		], function(close){
-			return first ? [btn(null, DC.t('我了解並同意'), function(){
+			return first ? [btn(null, DC.t('I understand and agree'), function(){
 				DC.savePref('notice', NOTICE_VERSION);
 				if(sw) DC.api.put('analytics', {enabled:DC.chk('ntStats')}).then(function(r){ if(DC.S.me) DC.S.me.analytics = r; }, function(){});
 				close();
-			}, 'pri')] : [btn(null, DC.t('關閉'), close, 'pri')];
+			}, 'pri')] : [btn(null, DC.t('Close'), close, 'pri')];
 		}, {persist:!!first});
 	};
 
@@ -397,10 +397,10 @@
 	DC.copyText = function(text, el){
 		function fallback(){
 			if(el){ var r = document.createRange(), s = window.getSelection(); r.selectNodeContents(el); s.removeAllRanges(); s.addRange(r); }
-			DC.toast(DC.t('已選取，請手動複製'));
+			DC.toast(DC.t('Selected; copy it manually'));
 		}
 		try{
-			if(navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function(){ DC.toast(DC.t('已複製')); }, fallback);
+			if(navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function(){ DC.toast(DC.t('Copied')); }, fallback);
 			else fallback();
 		}catch(e){ fallback(); }
 	};

@@ -174,14 +174,14 @@ func (s *Service) Match(rawURL string) (string, bool) {
 
 // Errors shown to users.
 var (
-	ErrMega        = errors.New("MEGA 目前不支援（使用自有的端對端加密）")
-	ErrNoAccount   = errors.New("需要驗證碼或等待倒數的免費下載不支援，請到 設定 › 網站帳號 新增這個網站的免空帳號")
-	ErrExpired     = errors.New("免空帳號已過期，請到 設定 › 網站帳號 更新")
-	ErrTraffic     = errors.New("免空帳號今天的流量已用完")
-	ErrFileMissing = errors.New("檔案不存在或已被刪除")
-	ErrBadLogin    = errors.New("免空帳號驗證失敗，請確認帳號密碼或 API 金鑰")
-	ErrHostNotSup  = errors.New("這個免空帳號不支援這個網站")
-	ErrTryLater    = errors.New("免空網站暫時無法取得下載位址，請稍後再試")
+	ErrMega        = errors.New("MEGA is not supported yet (it uses its own end-to-end encryption)")
+	ErrNoAccount   = errors.New("Free downloads that require a captcha or a countdown are not supported. Add a file-hosting account for this site under Settings › Site accounts")
+	ErrExpired     = errors.New("File-hosting account expired. Update it under Settings › Site accounts")
+	ErrTraffic     = errors.New("The file-hosting account has used up today's traffic")
+	ErrFileMissing = errors.New("The file does not exist or has been deleted")
+	ErrBadLogin    = errors.New("File-hosting account verification failed. Check the user name and password or API key")
+	ErrHostNotSup  = errors.New("This file-hosting account does not support this site")
+	ErrTryLater    = errors.New("The file-hosting site cannot provide a download address right now. Try again later")
 )
 
 // accountError marks failures caused by the account (expired, traffic),
@@ -374,16 +374,16 @@ func (s *Service) warnOnce(a *core.Account, reason string) {
 // Services lists the supported services for the UI.
 func (s *Service) Services() []map[string]any {
 	return []map[string]any{
-		{"id": OneFichier, "title": "1fichier", "secret_label": "API 金鑰", "needs_username": false,
-			"hosts": hosterDomains[OneFichier][:3], "help": "在 1fichier 的帳號設定 › API 產生金鑰（需要 Premium 或 Access 方案）。"},
-		{"id": Rapidgator, "title": "Rapidgator", "secret_label": "密碼", "needs_username": true,
-			"hosts": hosterDomains[Rapidgator], "help": "用 Rapidgator 的帳號（電子郵件）與密碼登入官方 API；需要 Premium 帳號。"},
-		{"id": RealDebrid, "title": "Real-Debrid", "secret_label": "API 權杖", "needs_username": false,
-			"hosts": []string{"real-debrid.com"}, "help": "到 real-debrid.com/apitoken 複製 API 權杖。一個帳號可以下載多個免空網站。"},
-		{"id": AllDebrid, "title": "AllDebrid", "secret_label": "API 金鑰", "needs_username": false,
-			"hosts": []string{"alldebrid.com"}, "help": "到 alldebrid.com/apikeys 建立 API 金鑰。一個帳號可以下載多個免空網站。"},
-		{"id": Cookies, "title": "其他網站（Cookie）", "secret_label": "cookies.txt 內容", "needs_username": false,
-			"hosts": []string{}, "help": "用瀏覽器擴充功能匯出登入後的 cookies.txt（Netscape 格式）並貼上；適用其他需要登入的網站。"},
+		{"id": OneFichier, "title": "1fichier", "secret_label": "API key", "needs_username": false,
+			"hosts": hosterDomains[OneFichier][:3], "help": "Generate a key under Account settings › API in 1fichier (requires a Premium or Access plan)."},
+		{"id": Rapidgator, "title": "Rapidgator", "secret_label": "Password", "needs_username": true,
+			"hosts": hosterDomains[Rapidgator], "help": "Signs in to the official API with your Rapidgator account (email) and password; requires a Premium account."},
+		{"id": RealDebrid, "title": "Real-Debrid", "secret_label": "API token", "needs_username": false,
+			"hosts": []string{"real-debrid.com"}, "help": "Copy the API token from real-debrid.com/apitoken. One account can download from many file-hosting sites."},
+		{"id": AllDebrid, "title": "AllDebrid", "secret_label": "API key", "needs_username": false,
+			"hosts": []string{"alldebrid.com"}, "help": "Create an API key at alldebrid.com/apikeys. One account can download from many file-hosting sites."},
+		{"id": Cookies, "title": "Other sites (cookies)", "secret_label": "cookies.txt content", "needs_username": false,
+			"hosts": []string{}, "help": "Export cookies.txt (Netscape format) after signing in, using a browser extension, and paste it here; works for other sites that require sign-in."},
 	}
 }
 

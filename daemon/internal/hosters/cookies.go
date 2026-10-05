@@ -153,7 +153,7 @@ func (s *Service) jarCovers(a *core.Account, host string) bool {
 func (s *Service) cookieResolve(a *core.Account, raw string) (*core.Resolved, error) {
 	h := cookieHeader(s.jar(a), raw)
 	if h == "" {
-		return nil, errors.New("cookies.txt 裡沒有這個網站有效的 Cookie，請重新匯出")
+		return nil, errors.New("cookies.txt has no valid cookies for this site. Export it again")
 	}
 	return &core.Resolved{URL: raw, Name: nameFromURL(raw), Headers: []string{"Cookie: " + h}}, nil
 }
@@ -161,7 +161,7 @@ func (s *Service) cookieResolve(a *core.Account, raw string) (*core.Resolved, er
 func (s *Service) cookieVerify(a *core.Account, secret string) (map[string]any, error) {
 	cs := parseCookies(secret)
 	if len(cs) == 0 {
-		return nil, errors.New("看不懂這份 cookies.txt，請用 Netscape 格式匯出")
+		return nil, errors.New("Cannot understand this cookies.txt. Export it in Netscape format")
 	}
 	now := time.Now().Unix()
 	domains := map[string]bool{}
@@ -186,7 +186,7 @@ func (s *Service) cookieVerify(a *core.Account, secret string) (map[string]any, 
 	info := map[string]any{"plan": "Cookie", "premium": live > 0, "expires_at": exp, "traffic_left": int64(-1),
 		"cookies": live, "domains": dl}
 	if live == 0 {
-		info["error"] = "所有 Cookie 都已過期，請重新匯出"
+		info["error"] = "All cookies have expired. Export them again"
 	}
 	return info, nil
 }

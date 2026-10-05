@@ -24,7 +24,7 @@ func Register(srv *api.Server, m *core.Manager, root, data string) func() {
 	})
 	srv.Route("POST /update/check", "", opts, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		if err := s.Check(); err != nil {
-			api.Error(w, 502, "update_check_failed", "無法取得更新資訊")
+			api.Error(w, 502, "update_check_failed", "Could not get update information")
 			return
 		}
 		api.OK(w, s.Status())
@@ -54,19 +54,19 @@ func Register(srv *api.Server, m *core.Manager, root, data string) func() {
 		if err := s.Install(b.Version, b.Restore); err != nil {
 			switch {
 			case errors.Is(err, ErrBusy):
-				api.Error(w, 409, "update_busy", "已經在更新中")
+				api.Error(w, 409, "update_busy", "An update is already running")
 			case errors.Is(err, ErrNoFeed), errors.Is(err, ErrNotFound):
-				api.Error(w, 404, "update_not_found", "找不到這個版本")
+				api.Error(w, 404, "update_not_found", "Version not found")
 			case errors.Is(err, ErrSame):
-				api.Error(w, 400, "update_same", "已經是這個版本")
+				api.Error(w, 400, "update_same", "This version is already installed")
 			case errors.Is(err, ErrNoPackage):
-				api.Error(w, 400, "update_no_package", "這個版本沒有適合這台 NAS 的套件")
+				api.Error(w, 400, "update_no_package", "This version has no package for this NAS")
 			case errors.Is(err, ErrNoBackup):
-				api.Error(w, 409, "update_no_backup", "降回這一版需要當時的資料庫備份，但找不到備份")
+				api.Error(w, 409, "update_no_backup", "Going back to this version needs a database backup from that time, and there is none")
 			case errors.Is(err, ErrRestoreRequired):
-				api.Error(w, 409, "update_restore_required", "降回這一版需要還原當時的資料庫備份")
+				api.Error(w, 409, "update_restore_required", "Going back to this version needs the database backup from that time restored")
 			default:
-				api.Error(w, 500, "update_failed", "無法開始更新")
+				api.Error(w, 500, "update_failed", "Could not start the update")
 			}
 			return
 		}

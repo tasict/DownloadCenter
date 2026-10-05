@@ -44,7 +44,7 @@ With a body:
 - Never print, echo or `cat` the token or the config file, never write the token into a command yourself (use `$DC_TOKEN`), and never put it in a URL: the server rejects tokens in the query string.
 - Links can contain quotes and `&`. When `jq` is available, build bodies with it: `jq -n --arg s "$LINK" '{source:$s}' | curl … --data-binary @-`.
 - Pipe large answers through `jq` to keep only what you need.
-- Messages in errors and task logs are Traditional Chinese by default. Add `-H 'X-DC-Lang: ENG'` for English (also `SCH`, `JPN`, `KOR`, `GER`, `FRE`, `SPA`, `ITA`, `POR`, `RUS`, `DUT`, `THA`). Error `code`s never change.
+- Messages in errors and task logs are English. Add `-H 'X-DC-Lang: TCH'` to get them in Traditional Chinese (also `SCH`, `JPN`, `KOR`, `GER`, `FRE`, `SPA`, `ITA`, `POR`, `RUS`, `DUT`, `THA`), for example to quote one to the user. Error `code`s never change.
 - A token allows 120 requests per minute by default. When waiting for something, poll every 10 to 60 seconds, never in a tight loop.
 - If the NAS uses a self-signed certificate, curl fails with a certificate error. Tell the user rather than switching to `-k` on your own.
 

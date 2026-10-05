@@ -357,7 +357,7 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 		return nil, err
 	}
 	m.live[hash] = t
-	m.Log(hash, "已加入")
+	m.Log(hash, "Added")
 	m.TaskEvent("task.added", t, map[string]any{"source": "url"})
 	m.Kick()
 	return &AddResult{ID: hash, Name: t.Name}, nil
@@ -421,7 +421,7 @@ func (m *Manager) AddMagnet(link string, o AddOptions) (*AddResult, error) {
 		return nil, err
 	}
 	m.live[t.Hash] = t
-	m.Log(t.Hash, "已加入（磁力連結）")
+	m.Log(t.Hash, "Added (magnet link)")
 	m.TaskEvent("task.added", t, map[string]any{"source": "magnet"})
 	m.Kick()
 	return &AddResult{ID: t.Hash, Name: t.Name}, nil
@@ -495,7 +495,7 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	}
 	m.db.Tx(func(tx *sqlTx) error { return m.storeFiles(tx, t.Hash, files) })
 	m.live[t.Hash] = t
-	m.Log(t.Hash, "已加入（種子）")
+	m.Log(t.Hash, "Added (torrent)")
 	kind := "torrent"
 	if magnet != "" {
 		kind = "magnet"
@@ -595,7 +595,7 @@ func (m *Manager) mergeTrackers(ex *Task, trackers []string, link string) (*AddR
 		}
 		m.markDirty(ex)
 	}
-	m.Log(ex.Hash, fmt.Sprintf("併入同一個種子的另一個來源（新增 %d 個 tracker）", added))
+	m.Log(ex.Hash, fmt.Sprintf("Merged another source of the same torrent (%d trackers added)", added))
 	m.TaskEvent("task.merged", ex, map[string]any{"source": link, "trackers_added": added})
 	return &AddResult{ID: ex.Hash, Name: ex.Name, Merged: true}, nil
 }
@@ -806,13 +806,13 @@ func (m *Manager) ProbeMagnet(link string) (*torrent.Meta, string, error) {
 	if st, err := p.eng.Status(p.ref); err == nil && st.State == engine.Error {
 		p.eng.Remove(p.ref)
 		delete(probes, mg.InfoHash)
-		return nil, mg.InfoHash, errors.New("無法取得這個磁力連結的檔案清單")
+		return nil, mg.InfoHash, errors.New("Cannot get the file list of this magnet link")
 	}
 	if time.Since(p.started) > 10*time.Minute {
 		p.eng.Remove(p.ref)
 		delete(probes, mg.InfoHash)
 		os.RemoveAll(m.probeDir(mg.InfoHash))
-		return nil, mg.InfoHash, errors.New("取得檔案清單逾時")
+		return nil, mg.InfoHash, errors.New("Timed out getting the file list")
 	}
 	return nil, mg.InfoHash, nil
 }

@@ -112,7 +112,7 @@ func (m *Manager) Retry(hash string) error {
 	}
 	m.markDirty(t)
 	m.saveTask(t)
-	m.Log(hash, "重試")
+	m.Log(hash, "Retry")
 	go m.Kick()
 	return nil
 }
@@ -362,7 +362,7 @@ func (m *Manager) SetFiles(hash string, prio map[int]int) error {
 		}
 	}
 	if len(sel) == 0 {
-		return errors.New("至少要選一個檔案")
+		return errors.New("Select at least one file")
 	}
 	if len(sel) == len(files) {
 		t.Options.Select = nil

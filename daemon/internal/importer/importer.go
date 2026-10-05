@@ -229,7 +229,7 @@ func (im *Importer) readAll() ([]*Volume, []string) {
 	for i, p := range volumes() {
 		v, err := im.readVolume(p, i)
 		if err != nil {
-			warns = append(warns, fmt.Sprintf("無法讀取第 %d 個磁碟區的官方資料庫：%v", i+1, err))
+			warns = append(warns, fmt.Sprintf("Cannot read the official database on volume %d: %v", i+1, err))
 			continue
 		}
 		out = append(out, v)
@@ -321,7 +321,7 @@ type Summary struct {
 }
 
 // ErrRunning is returned while the official daemon runs.
-var ErrRunning = errors.New("請先停止官方 Download Station")
+var ErrRunning = errors.New("Stop the official Download Station first")
 
 // Import runs the import. It refuses while the official daemon runs, so the
 // two never write the same temporary files.
@@ -337,14 +337,14 @@ func (im *Importer) Import(req Request) (*Summary, error) {
 			continue
 		}
 		if err := im.au.Grant(u); err != nil {
-			sum.Warnings = append(sum.Warnings, fmt.Sprintf("無法加入使用者 %s：%v", u, err))
+			sum.Warnings = append(sum.Warnings, fmt.Sprintf("Cannot add user %s: %v", u, err))
 		} else {
 			sum.UsersAdded++
 		}
 	}
 	if req.Settings {
 		if err := im.importSettings(sum); err != nil {
-			sum.Warnings = append(sum.Warnings, "設定未匯入："+err.Error())
+			sum.Warnings = append(sum.Warnings, "Settings not imported: "+err.Error())
 		}
 	}
 	if req.Unfinished || req.Completed || req.Accounts {
@@ -386,7 +386,7 @@ func (im *Importer) importSettings(sum *Summary) error {
 		if p, err := im.m.ResolvePath("", r.TempShare); err == nil {
 			st.TempDir = p
 		} else {
-			sum.Warnings = append(sum.Warnings, "找不到官方的下載資料夾，沿用目前的設定")
+			sum.Warnings = append(sum.Warnings, "Official download folder not found; keeping the current settings")
 		}
 	}
 	if r.MoveShare != "" {
@@ -461,11 +461,11 @@ func (im *Importer) importTask(t Task, sum *Summary) {
 		// QQDL / Thunder / FlashGet: the real URL is inside the link
 		t.Source = core.UnwrapLink(t.Source)
 		if kind = core.KindOfURL(t.Source); kind == "" {
-			skip("略過一個不支援的任務類型（QQDL / Thunder / FlashGet）")
+			skip("Skipped an unsupported task type (QQDL / Thunder / FlashGet)")
 			return
 		}
 	default:
-		skip("略過一個不支援的任務類型（QQDL / Thunder / FlashGet）")
+		skip("Skipped an unsupported task type (QQDL / Thunder / FlashGet)")
 		return
 	}
 	hash := t.Hash
@@ -492,7 +492,7 @@ func (im *Importer) importTask(t Task, sum *Summary) {
 		if err == nil {
 			spec.Torrent = b
 		} else if !strings.HasPrefix(strings.ToLower(t.Source), "magnet:") && !done {
-			skip("一個種子任務找不到官方的 .torrent 檔，已略過")
+			skip("Skipped a torrent task whose official .torrent file was not found")
 			return
 		}
 		if fr := filepath.Join(t.Volume, ".torrent", t.Hash+".fastresume"); fileExists(fr) {
@@ -546,7 +546,7 @@ func (im *Importer) importTask(t Task, sum *Summary) {
 		if errors.As(err, &dup) {
 			skip("")
 		} else {
-			skip("一個任務匯入失敗：" + err.Error())
+			skip("A task failed to import: " + err.Error())
 		}
 		return
 	}
@@ -576,7 +576,7 @@ func (im *Importer) importAccounts(list []Account, sum *Summary) {
 		sum.AccountsAdded++
 		if a.HasPass && !warned {
 			warned = true
-			sum.Warnings = append(sum.Warnings, "官方版的網站帳號密碼經過加密無法讀取，已匯入網站與帳號名稱，請到 設定 › 網站帳號 重新輸入密碼")
+			sum.Warnings = append(sum.Warnings, "The official version's site account passwords are encrypted and cannot be read. Sites and user names were imported; re-enter the passwords under Settings › Site accounts")
 		}
 	}
 }
@@ -598,11 +598,11 @@ func StopOfficial() error {
 		// /etc/init.d/dsd.sh)
 		script := officialScript()
 		if script == "" {
-			return errors.New("找不到官方 Download Station 的服務腳本，請到 App Center 停用它")
+			return errors.New("The official Download Station service script was not found. Disable it in App Center")
 		}
 		if out, err := runFor(90*time.Second, "/bin/sh", script, "stop"); err != nil {
 			// One variable part, so the message has a stable template
-			return fmt.Errorf("停止官方 Download Station 失敗：%s", strings.TrimSpace(fmt.Sprintf("%v %s", err, strings.TrimSpace(out))))
+			return fmt.Errorf("Failed to stop the official Download Station: %s", strings.TrimSpace(fmt.Sprintf("%v %s", err, strings.TrimSpace(out))))
 		}
 		exec.Command("/sbin/setcfg", "DownloadStation", "Enable", "FALSE", "-f", "/etc/config/qpkg.conf").Run()
 	}
@@ -610,7 +610,7 @@ func StopOfficial() error {
 		time.Sleep(time.Second)
 	}
 	if Running() {
-		return errors.New("官方 Download Station 仍在執行，請到 App Center 停用它")
+		return errors.New("The official Download Station is still running. Disable it in App Center")
 	}
 	return nil
 }

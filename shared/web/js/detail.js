@@ -34,11 +34,11 @@
 		D.title = h('b', {text:t.name || t.source});
 		D.sub = h('small');
 		D.act = h('span', {'class':'dr-act'});
-		head = h('div', {'class':'dr-head'}, [h('div', {'class':'grab', 'aria-hidden':'true'}), D.icon, h('div', null, [D.title, D.sub]), ibtn('close', DC.t('關閉'), close)]);
+		head = h('div', {'class':'dr-head'}, [h('div', {'class':'grab', 'aria-hidden':'true'}), D.icon, h('div', null, [D.title, D.sub]), ibtn('close', DC.t('Close'), close)]);
 		D.el = h('aside', {'class':'drawer', role:'dialog', 'aria-modal':'true', 'aria-label':t.name || t.source}, [
 			head, D.tabs, D.body,
-			h('div', {'class':'dr-foot'}, [D.act, D.folderBtn = btn('folder', DC.t('開啟資料夾'), function(){ var x = task(); if(x) DC.openFolder(x); }),
-				DC.can('tasks:remove') ? btn('trash', DC.t('刪除'), function(){ DC.askDelete([D.id]); }, 'dan') : null])
+			h('div', {'class':'dr-foot'}, [D.act, D.folderBtn = btn('folder', DC.t('Open folder'), function(){ var x = task(); if(x) DC.openFolder(x); }),
+				DC.can('tasks:remove') ? btn('trash', DC.t('Delete'), function(){ DC.askDelete([D.id]); }, 'dan') : null])
 		]);
 		DC.pullToClose(D.el, head, close);
 		/* Switching rows in the docked inspector replaces it in place instead of sliding in again */
@@ -61,7 +61,7 @@
 	}
 	function header(t){
 		var s = DC.uiState(t), key = s + '|' + (t.user_paused ? 1 : 0) + '|' + t.state;
-		D.sub.textContent = DC.t('{kind}，{owner} 加入', {kind:DC.KIND_LABEL[t.kind] || '', owner:t.owner});
+		D.sub.textContent = DC.t('{kind}, added by {owner}', {kind:DC.KIND_LABEL[t.kind] || '', owner:t.owner});
 		if(D.title.textContent !== (t.name || t.source)) D.title.textContent = t.name || t.source;
 		if(D.state === key) return;
 		D.state = key;
@@ -70,14 +70,14 @@
 		/* The one thing most often done from the details: pause, resume or retry, as the first footer button. */
 		clear(D.act);
 		if(DC.can('tasks:control')){
-			if(s === 'down' || s === 'wait' || s === 'check') D.act.appendChild(btn('hold', DC.t('暫停'), function(){ DC.act(t.id, 'pause'); }, 'pri'));
-			else if(s === 'seed') D.act.appendChild(btn('hold', DC.t('停止做種'), function(){ DC.act(t.id, 'pause'); }, 'pri'));
-			else if(s === 'pause') D.act.appendChild(btn('play', DC.t('繼續'), function(){ DC.act(t.id, 'resume'); }, 'pri'));
-			else if(s === 'error') D.act.appendChild(btn('retry', DC.t('重試'), function(){ DC.act(t.id, 'retry'); }, 'pri'));
+			if(s === 'down' || s === 'wait' || s === 'check') D.act.appendChild(btn('hold', DC.t('Pause'), function(){ DC.act(t.id, 'pause'); }, 'pri'));
+			else if(s === 'seed') D.act.appendChild(btn('hold', DC.t('Stop seeding'), function(){ DC.act(t.id, 'pause'); }, 'pri'));
+			else if(s === 'pause') D.act.appendChild(btn('play', DC.t('Resume'), function(){ DC.act(t.id, 'resume'); }, 'pri'));
+			else if(s === 'error') D.act.appendChild(btn('retry', DC.t('Retry'), function(){ DC.act(t.id, 'retry'); }, 'pri'));
 		}
 	}
 	function renderTabs(){
-		var tabs = [['info', DC.t('概要')], ['files', DC.t('檔案')], ['preview', DC.t('預覽')], ['peers', DC.t('連線')], ['log', DC.t('紀錄')]], i;
+		var tabs = [['info', DC.t('Overview')], ['files', DC.t('Files')], ['preview', DC.t('Preview')], ['peers', DC.t('Connections')], ['log', DC.t('Log')]], i;
 		clear(D.tabs);
 		for(i = 0; i < tabs.length; i++){
 			D.tabs.appendChild(h('button', {'class':'tab' + (D.tab === tabs[i][0] ? ' on' : ''), role:'tab', type:'button', 'aria-selected':D.tab === tabs[i][0] ? 'true' : 'false',
@@ -105,21 +105,21 @@
 	/* Another proxy for a URL task: a running download reconnects through it and continues where it was. */
 	function changeProxy(t){
 		DC.api.get('proxies').then(function(r){
-			var opts = [['auto', r.by_site ? (r['default'] ? DC.t('自動（依網站，否則用 {name}）', {name:r['default']}) : DC.t('自動（依網站，否則不使用）')) : (r['default'] ? DC.t('預設（{name}）', {name:r['default']}) : DC.t('預設（不使用）'))]], k;
-			if(r.can_direct) opts.push(['none', DC.t('不使用代理')]);
+			var opts = [['auto', r.by_site ? (r['default'] ? DC.t('Automatic (by site, otherwise {name})', {name:r['default']}) : DC.t('Automatic (by site, otherwise no proxy)')) : (r['default'] ? DC.t('Default ({name})', {name:r['default']}) : DC.t('Default (no proxy)'))]], k;
+			if(r.can_direct) opts.push(['none', DC.t('No proxy')]);
 			for(k = 0; k < (r.profiles || []).length; k++) opts.push([r.profiles[k].id, r.profiles[k].name]);
 			var sel = DC.select('dpProxy', opts, t.proxy || 'auto');
-			DC.modal(DC.t('更改代理'), 'link', [h('p', {'class':'lead', text:DC.t('下載中的任務會重新連線，從已下載的進度接續。')}), DC.field(DC.t('代理'), null, sel, 'dpProxy')], function(close){
-				var ok = btn(null, DC.t('更改'), function(){
+			DC.modal(DC.t('Change proxy'), 'link', [h('p', {'class':'lead', text:DC.t('A running task reconnects and continues from what it has already downloaded.')}), DC.field(DC.t('Proxy'), null, sel, 'dpProxy')], function(close){
+				var ok = btn(null, DC.t('Change'), function(){
 					DC.busy(ok, true);
 					DC.api.patch('tasks/' + t.id, {proxy:sel.value}).then(function(res){
 						close();
 						if(res.task) DC.upsertTask(res.task);
-						DC.toast(DC.t('已更改代理'));
+						DC.toast(DC.t('Proxy changed'));
 						loadExtra();
 					}, function(e){ DC.busy(ok, false); DC.toast(DC.errText(e)); });
 				}, 'pri');
-				return [btn(null, DC.t('取消'), close), ok];
+				return [btn(null, DC.t('Cancel'), close), ok];
 			});
 		}, function(e){ DC.toast(DC.errText(e)); });
 	}
@@ -128,7 +128,7 @@
 		var s = DC.uiState(t), ex = D.extra || {}, srcs = ex.sources || [], srcText, i, admin = DC.isAdmin(), kv;
 		if(srcs.length){
 			srcText = [];
-			for(i = 0; i < srcs.length; i++) srcText.push((srcs[i].active ? '● ' : '○ ') + (srcs[i].name || srcs[i].source) + (srcs[i].active ? DC.t('（使用中）') : ''));
+			for(i = 0; i < srcs.length; i++) srcText.push((srcs[i].active ? '● ' : '○ ') + (srcs[i].name || srcs[i].source) + (srcs[i].active ? DC.t(' (in use)') : ''));
 			srcText = srcText.join('\n');
 		}else srcText = t.source;
 		var stateText = DC.ST[s].label;
@@ -136,50 +136,50 @@
 		var xt = ex.task || {}, pxText = null;
 		if(t.proxy){
 			if(!ex.task) pxText = '…';
-			else if(xt.proxy_error) pxText = DC.t('無法使用：{error}', {error:xt.proxy_error});
-			else if(xt.proxy_name) pxText = t.proxy === 'auto' ? DC.t('{name}（自動）', {name:xt.proxy_name}) : xt.proxy_name;
-			else pxText = DC.t('不使用代理');
+			else if(xt.proxy_error) pxText = DC.t('Unavailable: {error}', {error:xt.proxy_error});
+			else if(xt.proxy_name) pxText = t.proxy === 'auto' ? DC.t('{name} (automatic)', {name:xt.proxy_name}) : xt.proxy_name;
+			else pxText = DC.t('No proxy');
 		}
-		if(t.state === 'metadata') stateText = DC.t('取得檔案清單中');
-		if(t.sched_paused) stateText += DC.t('（排程暫停）');
-		if(t.wake_time && s === 'pause') stateText += DC.t('，{time} 自動繼續', {time:DC.fclock(t.wake_time)});
-		if(t.error) stateText += DC.t('：{error}', {error:t.error.message});
+		if(t.state === 'metadata') stateText = DC.t('Getting file list');
+		if(t.sched_paused) stateText += DC.t(' (paused by schedule)');
+		if(t.wake_time && s === 'pause') stateText += DC.t(', resumes at {time}', {time:DC.fclock(t.wake_time)});
+		if(t.error) stateText += DC.t(': {error}', {error:t.error.message});
 		var inTemp = t.in_temp && s !== 'done' && s !== 'move';
 		/* Paths break after a slash rather than mid-name, and can be copied */
 		function path(text){
 			var el = h('span', {'class':'mono pre path'}), parts = String(text || '').split('/'), k;
 			for(k = 0; k < parts.length; k++){ if(k){ el.appendChild(document.createTextNode('/')); el.appendChild(h('wbr')); } el.appendChild(document.createTextNode(parts[k])); }
-			return h('dd', {'class':'pathdd'}, [el, ibtn('copy', DC.t('複製路徑'), function(){ DC.copyText(text, el); })]);
+			return h('dd', {'class':'pathdd'}, [el, ibtn('copy', DC.t('Copy path'), function(){ DC.copyText(text, el); })]);
 		}
 		kv = h('dl', {'class':'kv num'}, [
-			h('dt', {text:DC.t('狀態')}), h('dd', {text:stateText}),
-			h('dt', {text:DC.t('進度')}), h('dd', {text:DC.t('{pct}%，{done} / {size}', {pct:Math.floor(t.progress || 0), done:DC.fsize(t.done), size:DC.fsize(t.size)})}),
-			h('dt', {text:DC.t('速度')}), h('dd', {text:DC.t('下載 {down}，上傳 {up}', {down:DC.fspeed(t.down_rate), up:DC.fspeed(t.up_rate)})}),
-			h('dt', {text:DC.t('已下載時間')}), h('dd', {text:DC.fdur(t.active_secs) + (s === 'down' && t.eta > 0 ? DC.t('，') + DC.feta(t.eta) : '')}),
-			t.proto === 'bt' ? h('dt', {text:DC.t('分享率')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{ratio}，已上傳 {size}', {ratio:(t.ratio || 0).toFixed(2), size:DC.fsize(t.up_total)})}) : null,
-			t.proto === 'bt' ? h('dt', {text:DC.t('連線')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{peers} 位使用者，{seeds} 個完整來源', {peers:t.peers || 0, seeds:t.seeds || 0})}) : null,
-			h('dt', {text:admin ? DC.t('暫存位置') : DC.t('存放位置')}), path(t.folder),
-			inTemp && t.location ? h('dt', {text:DC.t('下載中的檔案')}) : null, inTemp && t.location ? path(t.location) : null,
-			t.move_to ? h('dt', {text:DC.t('完成後移至')}) : null, t.move_to ? path(t.move_to) : null,
-			s === 'done' || s === 'seed' && !t.in_temp ? h('dt', {text:DC.t('檔案位置')}) : null, s === 'done' || s === 'seed' && !t.in_temp ? path(t.location) : null,
-			h('dt', {text:srcs.length > 1 ? DC.t('來源（已合併）') : DC.t('來源')}), h('dd', {'class':'mono pre', text:srcText}),
-			t.auto_remove ? h('dt', {text:DC.t('完成後')}) : null, t.auto_remove ? h('dd', {text:t.auto_remove === 'completed' ? DC.t('下載完成後從清單移除') : DC.t('做種完成後從清單移除')}) : null,
-			t.comment ? h('dt', {text:DC.t('說明')}) : null, t.comment ? h('dd', {text:t.comment}) : null,
-			h('dt', {text:DC.t('加入時間')}), h('dd', {text:DC.ftime(t.created_at)}),
-			t.finished_at ? h('dt', {text:DC.t('完成時間')}) : null, t.finished_at ? h('dd', {text:DC.ftime(t.finished_at)}) : null,
-			admin ? h('dt', {text:DC.t('擁有者')}) : null, admin ? h('dd', {text:t.owner + (t.caller && t.caller !== 'Download Center' ? DC.t('（{caller}）', {caller:t.caller}) : '')}) : null,
-			pxText ? h('dt', {text:DC.t('代理')}) : null,
-			pxText ? h('dd', {'class':'inline'}, [h('span', {text:pxText}), DC.can('tasks:control') && s !== 'done' ? ibtn('edit', DC.t('更改代理'), function(){ changeProxy(t); }) : null]) : null,
-			admin && t.engine ? h('dt', {text:DC.t('引擎')}) : null, admin && t.engine ? h('dd', {text:t.engine}) : null
+			h('dt', {text:DC.t('Status')}), h('dd', {text:stateText}),
+			h('dt', {text:DC.t('Progress')}), h('dd', {text:DC.t('{pct}%, {done} / {size}', {pct:Math.floor(t.progress || 0), done:DC.fsize(t.done), size:DC.fsize(t.size)})}),
+			h('dt', {text:DC.t('Speed')}), h('dd', {text:DC.t('Download {down}, upload {up}', {down:DC.fspeed(t.down_rate), up:DC.fspeed(t.up_rate)})}),
+			h('dt', {text:DC.t('Download time')}), h('dd', {text:DC.fdur(t.active_secs) + (s === 'down' && t.eta > 0 ? DC.t('; ') + DC.feta(t.eta) : '')}),
+			t.proto === 'bt' ? h('dt', {text:DC.t('Share ratio')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{ratio}, {size} uploaded', {ratio:(t.ratio || 0).toFixed(2), size:DC.fsize(t.up_total)})}) : null,
+			t.proto === 'bt' ? h('dt', {text:DC.t('Connections')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{peers} peers, {seeds} seeds', {peers:t.peers || 0, seeds:t.seeds || 0})}) : null,
+			h('dt', {text:admin ? DC.t('Temporary location') : DC.t('Save to')}), path(t.folder),
+			inTemp && t.location ? h('dt', {text:DC.t('Files being downloaded')}) : null, inTemp && t.location ? path(t.location) : null,
+			t.move_to ? h('dt', {text:DC.t('Move to when finished')}) : null, t.move_to ? path(t.move_to) : null,
+			s === 'done' || s === 'seed' && !t.in_temp ? h('dt', {text:DC.t('File location')}) : null, s === 'done' || s === 'seed' && !t.in_temp ? path(t.location) : null,
+			h('dt', {text:srcs.length > 1 ? DC.t('Sources (merged)') : DC.t('Source')}), h('dd', {'class':'mono pre', text:srcText}),
+			t.auto_remove ? h('dt', {text:DC.t('When finished')}) : null, t.auto_remove ? h('dd', {text:t.auto_remove === 'completed' ? DC.t('Remove from the list when the download finishes') : DC.t('Remove from the list when seeding finishes')}) : null,
+			t.comment ? h('dt', {text:DC.t('Help')}) : null, t.comment ? h('dd', {text:t.comment}) : null,
+			h('dt', {text:DC.t('Added on')}), h('dd', {text:DC.ftime(t.created_at)}),
+			t.finished_at ? h('dt', {text:DC.t('Finished at')}) : null, t.finished_at ? h('dd', {text:DC.ftime(t.finished_at)}) : null,
+			admin ? h('dt', {text:DC.t('Owner')}) : null, admin ? h('dd', {text:t.owner + (t.caller && t.caller !== 'Download Center' ? DC.t(' ({caller})', {caller:t.caller}) : '')}) : null,
+			pxText ? h('dt', {text:DC.t('Proxy')}) : null,
+			pxText ? h('dd', {'class':'inline'}, [h('span', {text:pxText}), DC.can('tasks:control') && s !== 'done' ? ibtn('edit', DC.t('Change proxy'), function(){ changeProxy(t); }) : null]) : null,
+			admin && t.engine ? h('dt', {text:DC.t('Engine')}) : null, admin && t.engine ? h('dd', {text:t.engine}) : null
 		]);
 		clear(D.body);
 		D.body.appendChild(kv);
 		if(t.proto === 'bt' && t.files_total > 0){
-			D.body.appendChild(h('div', {'class':'srcs'}, [h('a', {'class':'ib btn', href:DC.api.url('tasks/' + t.id + '/torrent'), download:(t.name || 'task') + '.torrent'}, [icon('torrent'), h('span', {text:DC.t('下載 .torrent 檔')})])]));
+			D.body.appendChild(h('div', {'class':'srcs'}, [h('a', {'class':'ib btn', href:DC.api.url('tasks/' + t.id + '/torrent'), download:(t.name || 'task') + '.torrent'}, [icon('torrent'), h('span', {text:DC.t('Download .torrent file')})])]));
 		}
 	}
 
-	var PRIO = [[7, DC.t('高')], [4, DC.t('中')], [1, DC.t('低')], [0, DC.t('不下載')]];
+	var PRIO = [[7, DC.t('High')], [4, DC.t('Medium')], [1, DC.t('Low')], [0, DC.t('Don\'t download')]];
 	/* Imported tasks keep the official package's unfinished-file suffix on disk; it is not part of the name */
 	function shown(p){ return String(p || '').replace(/\.dsdownload$/i, ''); }
 	/* A multi-file torrent puts everything under one folder: list the files relative to it */
@@ -191,37 +191,37 @@
 	}
 	function filesTab(t){
 		clear(D.body);
-		D.body.appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('讀取中…')]));
+		D.body.appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('Loading…')]));
 		DC.api.get('tasks/' + t.id + '/files').then(function(r){
 			if(D.tab !== 'files' || D.id !== t.id) return;
 			var files = r.files || [], list = h('div', {'class':'items'}), dirty = false, save, levels = !!(DC.S.me.caps && DC.S.me.caps.file_priority_levels) && t.engine === DC.S.me.bt_engine, i;
 			var editable = t.proto === 'bt' && DC.can('tasks:control') && t.state !== 'metadata', root = rootOf(files);
 			clear(D.body);
-			if(!files.length){ D.body.appendChild(h('p', {'class':'note', text:t.state === 'metadata' ? DC.t('還在取得檔案清單。') : DC.t('還沒有檔案資訊。')})); return; }
+			if(!files.length){ D.body.appendChild(h('p', {'class':'note', text:t.state === 'metadata' ? DC.t('Still getting the file list.') : DC.t('No file information yet.')})); return; }
 			function mark(){ dirty = true; if(save) save.disabled = false; }
 			for(i = 0; i < files.length; i++){
 				(function(f, idx){
 					var pct = f.size ? Math.floor(f.done * 100 / f.size) : 0, ctl;
 					if(levels && editable){
 						ctl = DC.select('fp' + idx, PRIO, String(f.priority >= 6 ? 7 : f.priority >= 3 ? 4 : f.priority > 0 ? 1 : 0), function(){ f.priority = +this.value; mark(); });
-						list.appendChild(h('div', {'class':'item'}, [icon('files'), h('span', null, [shown(f.path.slice(root.length)), h('em', {'class':'num', text:' ' + DC.fsize(f.size) + DC.t('，{pct}%', {pct:pct})})]), ctl]));
+						list.appendChild(h('div', {'class':'item'}, [icon('files'), h('span', null, [shown(f.path.slice(root.length)), h('em', {'class':'num', text:' ' + DC.fsize(f.size) + DC.t(', {pct}%', {pct:pct})})]), ctl]));
 					}else{
 						list.appendChild(h('label', {'class':'item', 'for':'df' + idx}, [h('input', {type:'checkbox', id:'df' + idx, checked:f.priority > 0, disabled:!editable, onchange:function(){ f.priority = this.checked ? 1 : 0; mark(); }}),
-							h('span', {text:shown(f.path.slice(root.length))}), h('em', {'class':'num', text:DC.fsize(f.size) + (f.done && f.priority > 0 ? DC.t('，{pct}%', {pct:pct}) : '')})]));
+							h('span', {text:shown(f.path.slice(root.length))}), h('em', {'class':'num', text:DC.fsize(f.size) + (f.done && f.priority > 0 ? DC.t(', {pct}%', {pct:pct}) : '')})]));
 					}
 				})(files[i], i);
 			}
 			add(D.body, [
-				root ? h('p', {'class':'note mono', text:DC.t('資料夾：{folder}', {folder:root.slice(0, -1)})}) : null,
-				editable ? h('p', {'class':'note', text:levels ? DC.t('設為「不下載」的檔案不會再下載，已下載的部分留在磁碟上。') : DC.t('取消勾選的檔案不會再下載，已下載的部分留在磁碟上。')}) : null, list]);
+				root ? h('p', {'class':'note mono', text:DC.t('Folder: {folder}', {folder:root.slice(0, -1)})}) : null,
+				editable ? h('p', {'class':'note', text:levels ? DC.t('Files set to “Don\'t download” will no longer be downloaded. Parts already downloaded stay on the disk.') : DC.t('Unchecked files will no longer be downloaded. Parts already downloaded stay on the disk.')}) : null, list]);
 			if(editable){
-				save = btn(null, DC.t('套用'), function(){
+				save = btn(null, DC.t('Apply'), function(){
 					var body, sel = [], k, n = 0;
 					if(levels){ body = {}; for(k = 0; k < files.length; k++){ body[String(files[k].index)] = files[k].priority; if(files[k].priority > 0) n++; } }
 					else{ for(k = 0; k < files.length; k++) if(files[k].priority > 0) sel.push(files[k].index); body = sel; n = sel.length; }
-					if(!n){ DC.toast(DC.t('至少要選一個檔案')); return; }
+					if(!n){ DC.toast(DC.t('Select at least one file')); return; }
 					DC.busy(save, true);
-					DC.api.patch('tasks/' + t.id, {files:body}).then(function(res){ DC.busy(save, false); save.disabled = true; dirty = false; if(res.task) DC.upsertTask(res.task); DC.toast(DC.t('已更新要下載的檔案')); }, function(e){ DC.busy(save, false); DC.toast(DC.errText(e)); });
+					DC.api.patch('tasks/' + t.id, {files:body}).then(function(res){ DC.busy(save, false); save.disabled = true; dirty = false; if(res.task) DC.upsertTask(res.task); DC.toast(DC.t('Files to download updated')); }, function(e){ DC.busy(save, false); DC.toast(DC.errText(e)); });
 				}, 'pri');
 				save.disabled = true;
 				D.body.appendChild(h('div', {'class':'savebar'}, [save]));
@@ -231,17 +231,17 @@
 
 	function previewTab(t){
 		clear(D.body);
-		D.body.appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('讀取中…')]));
+		D.body.appendChild(h('div', {'class':'loading'}, [icon('check'), DC.t('Loading…')]));
 		DC.api.get('tasks/' + t.id + '/preview-info').then(function(r){
 			if(D.tab !== 'preview' || D.id !== t.id) return;
 			var files = r.files || [], chooser = null, area = h('div'), i, best = 0;
 			clear(D.body);
-			if(!files.length){ D.body.appendChild(h('p', {'class':'note', text:DC.t('還沒有可以預覽的檔案。')})); return; }
+			if(!files.length){ D.body.appendChild(h('p', {'class':'note', text:DC.t('No files to preview yet.')})); return; }
 			/* Default to the largest media file */
 			for(i = 0; i < files.length; i++) if((files[i].type === 'video' || files[i].type === 'audio') && files[i].size > files[best].size) best = i;
 			if(files[best].type !== 'video' && files[best].type !== 'audio') for(i = 0; i < files.length; i++) if(files[i].size > files[best].size) best = i;
 			if(files.length > 1){
-				chooser = h('select', {id:'pvFile', 'aria-label':DC.t('要預覽的檔案'), onchange:function(){ show(files[+this.value]); }});
+				chooser = h('select', {id:'pvFile', 'aria-label':DC.t('File to preview'), onchange:function(){ show(files[+this.value]); }});
 				for(i = 0; i < files.length; i++) chooser.appendChild(h('option', {value:String(i), text:shown(files[i].path)}));
 				chooser.value = String(best);
 				D.body.appendChild(h('div', {'class':'inline pvsel'}, chooser));
@@ -251,46 +251,46 @@
 				D.body.appendChild(h('label', {'class':'toggle', 'for':'pvStream'}, [h('input', {type:'checkbox', id:'pvStream', checked:!!r.sequential, onchange:function(){
 					var on = this.checked;
 					if(on) DC.track('stream_on');
-					DC.api.patch('tasks/' + t.id, {sequential:on}).then(function(){ DC.toast(on ? DC.t('改為依序下載（邊下邊看）') : DC.t('改回一般下載')); }, function(e){ DC.toast(DC.errText(e)); });
-				}}), h('span', null, [DC.t('邊下邊看'), h('small', {text:DC.t('改為依序下載並優先抓頭尾，總下載時間可能變長')})])]));
+					DC.api.patch('tasks/' + t.id, {sequential:on}).then(function(){ DC.toast(on ? DC.t('Download in order (watch while downloading)') : DC.t('Back to normal download')); }, function(e){ DC.toast(DC.errText(e)); });
+				}}), h('span', null, [DC.t('Watch while downloading'), h('small', {text:DC.t('Download in order with the beginning and end first; the total download time may be longer')})])]));
 			}
 			/* The bar has two layers: the readable start of the file and everything downloaded so far. Files that cannot be
 			   previewed at all only show how much is downloaded. */
 			function bars(f, viewable){
 				var c = f.size ? f.contiguous / f.size : 0, d = f.size ? Math.max(f.downloaded, f.contiguous) / f.size : 0, txt;
 				if(viewable === false) return [h('div', {'class':'pvbar', 'aria-hidden':'true'}, [h('b', {style:'width:' + (d * 100).toFixed(1) + '%'})]),
-					h('p', {'class':'sum num', text:DC.t('已下載 {pct}%。', {pct:Math.floor(d * 100)})})];
-				txt = c >= 1 ? DC.t('已下載完成，可以完整預覽。') : DC.sentences(DC.t('可以預覽開頭連續的 {pct}%（{size}）。', {pct:Math.floor(c * 100), size:DC.fsize(f.contiguous)}), d > c + 0.001 ? DC.t('其他已下載的片段不連續，要等中間補齊。') : '');
+					h('p', {'class':'sum num', text:DC.t('{pct}% downloaded.', {pct:Math.floor(d * 100)})})];
+				txt = c >= 1 ? DC.t('Download finished; the whole file can be previewed.') : DC.sentences(DC.t('The first {pct}% ({size}) can be previewed.', {pct:Math.floor(c * 100), size:DC.fsize(f.contiguous)}), d > c + 0.001 ? DC.t('The other downloaded parts are not contiguous; wait for the gaps to fill.') : '');
 				return [h('div', {'class':'pvbar', 'aria-hidden':'true'}, [h('i', {style:'width:' + (c * 100).toFixed(1) + '%'}), h('b', {style:'width:' + (d * 100).toFixed(1) + '%'})]),
-					c < 1 ? h('div', {'class':'pvkey'}, [h('span', null, [h('i', {'class':'k1'}), DC.t('可預覽')]), h('span', null, [h('i', {'class':'k2'}), DC.t('已下載')])]) : null,
+					c < 1 ? h('div', {'class':'pvkey'}, [h('span', null, [h('i', {'class':'k1'}), DC.t('Previewable')]), h('span', null, [h('i', {'class':'k2'}), DC.t('Downloaded')])]) : null,
 					h('p', {'class':'sum num', text:txt})];
 			}
 			function show(f){
 				var src = DC.api.url('tasks/' + t.id + '/preview', {file:f.index}), pre;
 				clear(area);
-				if(f.contiguous <= 0){ add(area, [h('p', {'class':'note', text:DC.t('這個檔案的開頭還沒下載，暫時無法預覽。')}), bars(f)]); return; }
+				if(f.contiguous <= 0){ add(area, [h('p', {'class':'note', text:DC.t('The beginning of this file has not been downloaded yet, so it cannot be previewed for now.')}), bars(f)]); return; }
 				if((f.type === 'video' || f.type === 'audio') && f.playable){
 					add(area, [h(f.type === 'video' ? 'video' : 'audio', {'class':f.type === 'video' ? 'pvmedia' : 'pvaudio', controls:true, preload:'metadata', src:src, onplay:function(){ if(!this._played){ this._played = true; DC.track('preview_play'); } }}), bars(f)]);
 				}else if(f.type === 'video' || f.type === 'audio'){
-					add(area, [h('p', {'class':'note', text:DC.t('瀏覽器無法直接播放這種格式，可以下載已下載的片段在電腦上播放。')}), bars(f),
-						h('a', {'class':'ib btn', href:DC.api.url('tasks/' + t.id + '/preview', {file:f.index, download:1}), download:shown(DC.baseName(f.path))}, [icon('down'), h('span', {text:DC.t('下載預覽片段')})])]);
+					add(area, [h('p', {'class':'note', text:DC.t('The browser cannot play this format directly. Download the downloaded part and play it on your computer.')}), bars(f),
+						h('a', {'class':'ib btn', href:DC.api.url('tasks/' + t.id + '/preview', {file:f.index, download:1}), download:shown(DC.baseName(f.path))}, [icon('down'), h('span', {text:DC.t('Download previewable part')})])]);
 				}else if(f.type === 'image'){
 					add(area, [h('img', {'class':'pvimg', src:src, alt:shown(DC.baseName(f.path))}), bars(f)]);
 				}else if(f.type === 'text'){
-					pre = h('pre', {'class':'pvtext mono', text:DC.t('讀取中…')});
+					pre = h('pre', {'class':'pvtext mono', text:DC.t('Loading…')});
 					add(area, [pre, bars(f)]);
 					DC.api.text('tasks/' + t.id + '/preview?file=' + f.index, 65536).then(function(txt){ pre.textContent = txt.length >= 65536 ? txt + '\n…' : txt; }, function(e){ pre.textContent = DC.errText(e); });
 				}else if(f.type === 'archive' && f.playable){
 					var list = h('div', {'class':'items'});
-					add(area, [h('p', {'class':'note', text:DC.t('以下是目前讀得到的內容。')}), list, bars(f)]);
+					add(area, [h('p', {'class':'note', text:DC.t('Here is what can be read so far.')}), list, bars(f)]);
 					DC.api.get('tasks/' + t.id + '/archive', {file:f.index}).then(function(a){
 						var k, es = a.entries || [];
-						if(!es.length) list.appendChild(h('div', {'class':'item'}, [icon('files'), h('span', {text:DC.t('還讀不到目錄。')}), h('em')]));
+						if(!es.length) list.appendChild(h('div', {'class':'item'}, [icon('files'), h('span', {text:DC.t('Cannot read the folder list yet.')}), h('em')]));
 						for(k = 0; k < es.length && k < 500; k++) list.appendChild(h('div', {'class':'item'}, [icon(es[k].dir ? 'folder' : 'files'), h('span', {'class':'mono', text:es[k].name}), h('em', {'class':'num', text:es[k].dir ? '' : DC.fsize(es[k].size)})]));
 					}, function(e){ list.appendChild(h('p', {'class':'note warn', text:DC.errText(e)})); });
 				}else if(f.type === 'archive'){
-					add(area, [h('p', {'class':'note', text:/\.(iso|img|dmg)(\.dsdownload)?$/i.test(f.path) ? DC.t('光碟映像檔無法預覽。下載完成後可以在 File Station 掛載。') : DC.t('這種壓縮檔無法在下載中預覽。')}), bars(f, false)]);
-				}else add(area, [h('p', {'class':'note', text:DC.t('這種檔案無法預覽。')}), bars(f, false)]);
+					add(area, [h('p', {'class':'note', text:/\.(iso|img|dmg)(\.dsdownload)?$/i.test(f.path) ? DC.t('Disc images cannot be previewed. After the download finishes, you can mount them in File Station.') : DC.t('This type of archive cannot be previewed while downloading.')}), bars(f, false)]);
+				}else add(area, [h('p', {'class':'note', text:DC.t('This type of file cannot be previewed.')}), bars(f, false)]);
 			}
 			show(files[best]);
 		}, function(e){ clear(D.body); D.body.appendChild(h('p', {'class':'note warn', text:DC.errText(e)})); });
@@ -369,10 +369,10 @@
 		c.s = series(bt, true);
 		c.grid = svg('g', {'class':'grid'});
 		c.mark = svg('line', {'class':'mark', y1:0, y2:c.H});
-		c.markText = svg('text', {'class':'mark', y:12, 'text-anchor':'end'}, DC.t('開始記錄'));
+		c.markText = svg('text', {'class':'mark', y:12, 'text-anchor':'end'}, DC.t('Recording started'));
 		c.dP = svg('circle', {'class':'head d', r:3.5});
 		c.uP = bt ? svg('circle', {'class':'head u', r:3.5}) : null;
-		c.svg = svg('svg', {'class':'flowsvg', height:c.H, role:'img', 'aria-label':bt ? DC.t('最近兩分鐘的下載與上傳速度') : DC.t('最近兩分鐘的下載速度')}, [
+		c.svg = svg('svg', {'class':'flowsvg', height:c.H, role:'img', 'aria-label':bt ? DC.t('Download and upload speed over the last two minutes') : DC.t('Download speed over the last two minutes')}, [
 			svg('defs', null, [
 				svg('linearGradient', {id:'dcFlowD', x1:0, y1:0, x2:0, y2:1}, [svg('stop', {offset:0, 'class':'g0'}), svg('stop', {offset:1, 'class':'g1'})]),
 				bt ? svg('linearGradient', {id:'dcFlowU', x1:0, y1:1, x2:0, y2:0}, [svg('stop', {offset:0, 'class':'g0'}), svg('stop', {offset:1, 'class':'g1'})]) : null
@@ -381,12 +381,12 @@
 		]);
 		c.top = h('span', {'class':'flowlbl top num', 'aria-hidden':'true'});
 		c.bot = bt ? h('span', {'class':'flowlbl bot num', 'aria-hidden':'true'}) : null;
-		c.dn = readout('d', DC.t('下載速度'));
-		c.up = bt ? readout('u', DC.t('上傳速度')) : null;
+		c.dn = readout('d', DC.t('Download speed'));
+		c.up = bt ? readout('u', DC.t('Upload speed')) : null;
 		c.el = h('div', {'class':'traffic'}, [
 			h('div', {'class':'flowread'}, [c.dn.el, c.up ? c.up.el : null]),
 			h('div', {'class':'flowplot'}, [c.svg, c.top, c.bot]),
-			h('div', {'class':'flowaxis', 'aria-hidden':'true'}, [h('span', {text:DC.t('2 分鐘前')}), h('span', {text:DC.t('現在')})])
+			h('div', {'class':'flowaxis', 'aria-hidden':'true'}, [h('span', {text:DC.t('2 min ago')}), h('span', {text:DC.t('Now')})])
 		]);
 		return c;
 	}
@@ -423,9 +423,9 @@
 		clear(D.body);
 		add(D.body, [chart.el, kvBox]);
 		if(bt){
-			list = h('div', {'class':'items peers'}, h('div', {'class':'item phead', 'aria-hidden':'true'}, [h('span'), h('span', {text:DC.t('使用者與用戶端')}),
-				h('em', null, [h('span', {text:'↓'}), h('span', {text:'↑'}), h('span', {text:DC.t('進度')})])]));
-			note = h('p', {'class':'note', text:DC.t('每位使用者的線圖共用同一個刻度，下載往上、上傳往下。')});
+			list = h('div', {'class':'items peers'}, h('div', {'class':'item phead', 'aria-hidden':'true'}, [h('span'), h('span', {text:DC.t('Peer and client')}),
+				h('em', null, [h('span', {text:'↓'}), h('span', {text:'↑'}), h('span', {text:DC.t('Progress')})])]));
+			note = h('p', {'class':'note', text:DC.t('All peer graphs share one scale: download goes up, upload goes down.')});
 			list.hidden = note.hidden = true;
 			add(D.body, [list, note]);
 		}
@@ -489,9 +489,9 @@
 			clear(kvBox);
 			if(!bt) return;
 			kvBox.appendChild(h('dl', {'class':'kv num'}, [
-				h('dt', {text:DC.t('已連線')}), h('dd', {text:DC.t('{n} 位使用者', {n:n})}),
-				h('dt', {text:DC.t('完整來源')}), h('dd', {text:DC.t('{n} 個', {n:(x && x.seeds) || 0})}),
-				tk.length ? h('dt', {text:DC.t('額外 tracker')}) : null, tk.length ? h('dd', {'class':'mono pre', text:tk.join('\n')}) : null
+				h('dt', {text:DC.t('Connected')}), h('dd', {text:DC.t('{n} users', {n:n})}),
+				h('dt', {text:DC.t('Seeds')}), h('dd', {text:DC.t('{n}', {n:(x && x.seeds) || 0})}),
+				tk.length ? h('dt', {text:DC.t('Extra trackers')}) : null, tk.length ? h('dd', {'class':'mono pre', text:tk.join('\n')}) : null
 			]));
 		}
 		function load(){
@@ -516,7 +516,7 @@
 	function logTab(t){
 		var lines = (D.extra && D.extra.log) || [], ul = h('ul', {'class':'log num'}), i;
 		clear(D.body);
-		if(!lines.length){ D.body.appendChild(h('p', {'class':'note', text:DC.t('還沒有紀錄。')})); return; }
+		if(!lines.length){ D.body.appendChild(h('p', {'class':'note', text:DC.t('No records yet.')})); return; }
 		for(i = 0; i < lines.length; i++) ul.appendChild(h('li', null, [h('time', {text:DC.ftime(lines[i].time)}), h('span', {text:lines[i].msg})]));
 		D.body.appendChild(ul);
 	}

@@ -125,7 +125,7 @@ func round2(f float64) float64 { return float64(int64(f*100+0.5)) / 100 }
 func (s *Server) visibleTask(w http.ResponseWriter, p *auth.Principal, id string) *core.Task {
 	t := s.M.Live(id)
 	if t == nil || !p.SeesOwner(t.Owner) {
-		Error(w, 404, "not_found", "找不到這個任務")
+		Error(w, 404, "not_found", "Task not found")
 		return nil
 	}
 	return t
@@ -395,11 +395,11 @@ func (s *Server) addTasks(w http.ResponseWriter, r *http.Request, p *auth.Princi
 		srcs = append([]string{b.Source}, srcs...)
 	}
 	if len(srcs) == 0 {
-		Error(w, 400, "bad_request", "沒有要加入的連結")
+		Error(w, 400, "bad_request", "No links to add")
 		return
 	}
 	if len(srcs) > 500 {
-		Error(w, 400, "bad_request", "一次最多 500 個連結")
+		Error(w, 400, "bad_request", "Up to 500 links at a time")
 		return
 	}
 	o := b.options(p)
@@ -434,7 +434,7 @@ func (s *Server) addTorrentUpload(w http.ResponseWriter, r *http.Request, p *aut
 		return
 	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		Error(w, 400, "bad_request", "上傳的格式不正確")
+		Error(w, 400, "bad_request", "Invalid upload format")
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
@@ -473,7 +473,7 @@ func (s *Server) addTorrentUpload(w http.ResponseWriter, r *http.Request, p *aut
 	files := r.MultipartForm.File["file"]
 	files = append(files, r.MultipartForm.File["file[]"]...)
 	if len(files) == 0 {
-		Error(w, 400, "bad_request", "沒有收到 .torrent 檔")
+		Error(w, 400, "bad_request", "No .torrent file received")
 		return
 	}
 	var results []addOut
@@ -513,7 +513,7 @@ func (s *Server) checkTasks(w http.ResponseWriter, r *http.Request, p *auth.Prin
 	folder := ""
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			Error(w, 400, "bad_request", "上傳的格式不正確")
+			Error(w, 400, "bad_request", "Invalid upload format")
 			return
 		}
 		defer r.MultipartForm.RemoveAll()
@@ -560,13 +560,13 @@ func (s *Server) checkTasks(w http.ResponseWriter, r *http.Request, p *auth.Prin
 func (s *Server) probe(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			Error(w, 400, "bad_request", "上傳的格式不正確")
+			Error(w, 400, "bad_request", "Invalid upload format")
 			return
 		}
 		defer r.MultipartForm.RemoveAll()
 		fhs := append(r.MultipartForm.File["file"], r.MultipartForm.File["file[]"]...)
 		if len(fhs) == 0 {
-			Error(w, 400, "bad_request", "沒有收到 .torrent 檔")
+			Error(w, 400, "bad_request", "No .torrent file received")
 			return
 		}
 		fp, err := fhs[0].Open()
@@ -578,7 +578,7 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request, p *auth.Principal
 		fp.Close()
 		meta, err := torrent.Parse(data)
 		if err != nil {
-			Error(w, 400, "torrent_invalid", "種子檔格式不正確")
+			Error(w, 400, "torrent_invalid", "Invalid torrent file format")
 			return
 		}
 		OK(w, map[string]any{"state": "ready", "infohash": meta.InfoHash, "torrent": metaJSON(meta), "free": s.freeFor(p, r.MultipartForm.Value["folder"])})
@@ -695,7 +695,7 @@ func (s *Server) taskRoutes() {
 		}
 		data, err := os.ReadFile(s.M.TorrentDir() + "/" + t.Hash + ".torrent")
 		if err != nil {
-			Error(w, 404, "not_found", "這個任務沒有 .torrent 檔")
+			Error(w, 404, "not_found", "This task has no .torrent file")
 			return
 		}
 		w.Header().Set("Content-Type", "application/x-bittorrent")
@@ -766,7 +766,7 @@ func (s *Server) taskRoutes() {
 				return
 			}
 		}
-		Error(w, 404, "not_found", "已無法復原")
+		Error(w, 404, "not_found", "This cannot be undone")
 	})
 	s.Route("GET /history", "tasks:read", 0, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		owner := p.User

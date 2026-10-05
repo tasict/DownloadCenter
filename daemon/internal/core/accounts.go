@@ -94,7 +94,7 @@ func (m *Manager) SaveAccount(a *Account, secret string) error {
 	}
 	a.Host = strings.ToLower(strings.TrimSpace(a.Host))
 	if a.Kind == "site" && a.Host == "" {
-		return errors.New("請填網站")
+		return errors.New("Enter the site")
 	}
 	if a.ID == "" {
 		b := make([]byte, 20)

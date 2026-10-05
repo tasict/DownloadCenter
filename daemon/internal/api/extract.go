@@ -139,7 +139,7 @@ func (s *Server) extract(w http.ResponseWriter, r *http.Request, p *auth.Princip
 	}
 	pu, err := url.Parse(strings.TrimSpace(b.URL))
 	if err != nil || (pu.Scheme != "http" && pu.Scheme != "https") {
-		Error(w, 400, "url_not_supported", "只能讀取 http/https 網頁")
+		Error(w, 400, "url_not_supported", "Only http/https web pages can be read")
 		return
 	}
 	// The page is read through the proxy a download of it would use
@@ -155,12 +155,12 @@ func (s *Server) extract(w http.ResponseWriter, r *http.Request, p *auth.Princip
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; DownloadCenter/1.0)")
 	resp, err := cl.Do(req)
 	if err != nil {
-		Error(w, 502, "fetch_failed", "無法讀取這個網頁："+err.Error())
+		Error(w, 502, "fetch_failed", "Cannot read this web page: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		Error(w, 502, "fetch_failed", "網頁回應 "+resp.Status)
+		Error(w, 502, "fetch_failed", "The web page responded with "+resp.Status)
 		return
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 5<<20))

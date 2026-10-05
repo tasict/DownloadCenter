@@ -53,7 +53,7 @@ func (m *Manager) addContentSource(taskHash string, b []byte, meta *torrent.Meta
 	}
 	other, err := torrent.Parse(cur)
 	if err != nil || other.Name != meta.Name || !sameFiles(other, meta) {
-		return nil, errors.New("檔案清單不同，不能合併")
+		return nil, errors.New("The file lists differ, so they cannot be merged")
 	}
 	if err := os.WriteFile(m.torrentPath(meta.InfoHash), b, 0600); err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func (m *Manager) addContentSource(taskHash string, b []byte, meta *torrent.Meta
 	}
 	m.db.X(`INSERT OR IGNORE INTO task_sources (task_hash, source_hash, kind, source, name, active, added_at) VALUES (?,?,?,?,?,0,?)`,
 		taskHash, meta.InfoHash, "torrent", meta.Name+".torrent", meta.Name, now)
-	m.Log(taskHash, "加入內容相同的另一個種子作為備用來源")
+	m.Log(taskHash, "Added another torrent with the same content as a backup source")
 	m.TaskEvent("task.merged", t, map[string]any{"source": meta.InfoHash, "content": true})
 	return &AddResult{ID: taskHash, Name: t.Name, Merged: true}, nil
 }
@@ -141,6 +141,6 @@ func (m *Manager) switchSource(taskHash, from, to string) {
 	t.Options.Check = true
 	t.Options.LastActive = time.Now().Unix()
 	m.markDirty(t)
-	m.Log(taskHash, "目前來源停滯，改用另一個內容相同的種子（重新驗證已下載的資料）")
+	m.Log(taskHash, "Current source stalled; switched to another torrent with the same content (rechecking downloaded data)")
 	m.TaskEvent("task.source_switched", t, map[string]any{"from": from, "to": to})
 }

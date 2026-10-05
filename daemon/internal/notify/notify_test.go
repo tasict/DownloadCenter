@@ -616,3 +616,24 @@ func TestCommandFlow(t *testing.T) {
 		t.Fatal("bob paused alice's task")
 	}
 }
+
+// Chat replies and notifications are Traditional Chinese: backend messages
+// inside them (English, or Chinese when 1.0.x stored them) come out in it too.
+func TestEmbeddedMessagesInChinese(t *testing.T) {
+	tk := &core.Task{State: core.StError, ErrorMsg: "Connection timed out (timeout after 30s)"}
+	if got := progressLine(tk); got != "錯誤：連線逾時（timeout after 30s）" {
+		t.Errorf("progress line %q", got)
+	}
+	tk.ErrorMsg = "連線逾時"
+	if got := progressLine(tk); got != "錯誤：連線逾時" {
+		t.Errorf("progress line of a 1.0.x error %q", got)
+	}
+	e := core.Event{Type: "task.failed", Task: &core.EventTask{ID: "x", Name: "a.iso"},
+		Data: map[string]any{"error": map[string]any{"message": "Not enough disk space (No space left on device)"}}}
+	if got := Body(e); !strings.Contains(got, "磁碟空間不足（No space left on device）") {
+		t.Errorf("failure notification %q", got)
+	}
+	if got := addError(core.ErrProxyRequired); got != "系統管理者要求一般使用者必須使用代理，這個任務沒有可用的代理" {
+		t.Errorf("add error %q", got)
+	}
+}

@@ -127,7 +127,7 @@ func (t *task) loadAria2(dir string, ents []os.DirEntry) bool {
 			t.mu.Lock()
 			t.adopted = filepath.Join(dir, n)
 			t.mu.Unlock()
-			t.e.logf(t.ref, "已沿用 aria2 的下載進度")
+			t.e.logf(t.ref, "Continuing from the progress aria2 had saved")
 			return true
 		}
 	}

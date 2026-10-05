@@ -21,7 +21,7 @@ const unlinkedText = "這個聊天帳號還沒有連結 Download Center。請在
 // tgCall calls a Bot API method.
 func tgCall(cl *http.Client, token, method string, body any, out any) error {
 	if token == "" {
-		return errors.New("沒有設定 bot token")
+		return errors.New("No bot token set")
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequest("POST", telegramAPI+"/bot"+token+"/"+method, bytes.NewReader(b))
@@ -44,7 +44,7 @@ func tgCall(cl *http.Client, token, method string, body any, out any) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	if !r.OK {
-		return fmt.Errorf("Telegram：%s", r.Description)
+		return fmt.Errorf("Telegram: %s", r.Description)
 	}
 	if out != nil {
 		return json.Unmarshal(r.Result, out)
@@ -93,7 +93,7 @@ func (s *Service) sendTelegram(cl *http.Client, ch *Channel, cfg map[string]stri
 		}
 	}
 	if len(targets) == 0 {
-		return 0, errors.New("沒有可以傳送的對象：請填 chat id，或先連結聊天帳號")
+		return 0, errors.New("No recipient: enter a chat id, or link a chat account first")
 	}
 	var firstErr error
 	for _, t := range targets {
@@ -263,7 +263,7 @@ func (s *Service) chatCommand(ch *Channel, kind, chatUser, text string) Reply {
 	if cmd, rest, _ := strings.Cut(text, " "); strings.EqualFold(strings.Split(cmd, "@")[0], "/link") {
 		user, err := s.Link(ch.ID, chatUser, rest)
 		if err != nil {
-			return Reply{Reply: err.Error()}
+			return Reply{Reply: zh(err.Error())}
 		}
 		return Reply{OK: true, Reply: "已連結 Download Center 帳號 " + user + "。傳送 /help 看可以用的指令。"}
 	}
@@ -289,7 +289,7 @@ func (s *Service) telegramTorrent(ch *Channel, cl *http.Client, token, user, fil
 		FilePath string `json:"file_path"`
 	}
 	if err := tgCall(cl, token, "getFile", map[string]any{"file_id": fileID}, &f); err != nil {
-		return "無法取得檔案：" + err.Error()
+		return "無法取得檔案：" + zh(err.Error())
 	}
 	resp, err := cl.Get(telegramAPI + "/file/bot" + token + "/" + (&url.URL{Path: f.FilePath}).EscapedPath())
 	if err != nil {

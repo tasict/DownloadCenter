@@ -48,22 +48,22 @@ func ParseManifest(b []byte) (*Adapter, error) {
 		Request AdapterRequest `json:"request"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
-		return nil, errors.New("manifest 不是正確的 JSON")
+		return nil, errors.New("The manifest is not valid JSON")
 	}
 	if !adapterIDRe.MatchString(raw.Adapter) {
-		return nil, errors.New("adapter 名稱只能用小寫英數、- 和 _")
+		return nil, errors.New("Adapter names can only use lowercase letters, digits, - and _")
 	}
 	if serviceDef(raw.Adapter) != nil {
-		return nil, errors.New("adapter 名稱和內建服務重複")
+		return nil, errors.New("The adapter name duplicates a built-in service")
 	}
 	if strings.TrimSpace(raw.Title) == "" {
-		return nil, errors.New("缺少 title")
+		return nil, errors.New("title is missing")
 	}
 	a := &Adapter{ID: raw.Adapter, Title: strings.TrimSpace(raw.Title), Request: raw.Request}
 	seen := map[string]bool{}
 	for _, f := range raw.Fields {
 		if !fieldKeyRe.MatchString(f.Key) || seen[f.Key] {
-			return nil, errors.New("欄位名稱不正確：" + f.Key)
+			return nil, errors.New("Invalid field name: " + f.Key)
 		}
 		seen[f.Key] = true
 		typ := "text"
@@ -90,18 +90,18 @@ func ParseManifest(b []byte) (*Adapter, error) {
 	switch a.Request.Method {
 	case "GET", "POST", "PUT", "PATCH":
 	default:
-		return nil, errors.New("request.method 只能是 GET、POST、PUT 或 PATCH")
+		return nil, errors.New("request.method must be GET, POST, PUT or PATCH")
 	}
 	if a.Request.URL == "" {
-		return nil, errors.New("缺少 request.url")
+		return nil, errors.New("request.url is missing")
 	}
 	if !strings.HasPrefix(a.Request.URL, "{{fields.") && !strings.HasPrefix(a.Request.URL, "https://") && !strings.HasPrefix(a.Request.URL, "http://") {
-		return nil, errors.New("request.url 必須以 http(s):// 或 {{fields.…}} 開頭")
+		return nil, errors.New("request.url must start with http(s):// or {{fields.…}}")
 	}
 	for k := range a.Request.Headers {
 		lk := strings.ToLower(k)
 		if lk == "host" || lk == "content-length" || strings.ContainsAny(k, "\r\n:") {
-			return nil, errors.New("不能設定這個 header：" + k)
+			return nil, errors.New("This header cannot be set: " + k)
 		}
 	}
 	return a, nil
@@ -153,7 +153,7 @@ func (s *Service) sendAdapter(cl *http.Client, ch *Channel, cfg map[string]strin
 	id := strings.TrimPrefix(ch.Service, "adapter:")
 	a := s.adapter(id)
 	if a == nil {
-		return 0, errors.New("這個轉接器已被移除")
+		return 0, errors.New("This adapter has been removed")
 	}
 	v := Vars{}
 	for k, x := range msg.Vars {

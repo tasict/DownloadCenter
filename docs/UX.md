@@ -2,7 +2,7 @@
 
 Clickable prototype: `docs/prototype/index.html` (sample data, no backend, ES5, portable to `shared/web/`). What the prototype covers is listed at the end.
 
-UI copy is written in Traditional Chinese, which is the translation source; this document quotes the English UI strings.
+UI copy is written in English, which is the translation source (Traditional Chinese and the other languages are dictionaries); this document quotes the English UI strings.
 
 ## Audience and main tasks
 

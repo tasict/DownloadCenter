@@ -156,10 +156,10 @@ func (s *Service) apply(c *Channel, in *channelInput, p *auth.Principal, isNew b
 	}
 	fields := s.fields(c.Service)
 	if fields == nil && serviceDef(c.Service) == nil {
-		return nil, errors.New("不支援這個服務")
+		return nil, errors.New("This service is not supported")
 	}
 	if d := serviceDef(c.Service); d != nil && d.AdminOnly && !p.Admin {
-		return nil, errors.New("只有系統管理者可以使用這個服務")
+		return nil, errors.New("Only administrators can use this service")
 	}
 	if in.URL != nil {
 		if in.Config == nil {
@@ -189,7 +189,7 @@ func (s *Service) apply(c *Channel, in *channelInput, p *auth.Principal, isNew b
 			}
 			if f.Required && val == "" && (isNew || s.db.Secret("channel:"+c.ID+":"+f.Key) == "") {
 				if !(c.Service == "webhook" && f.Key == "secret") {
-					return nil, errors.New("請填「" + f.Label + "」")
+					return nil, errors.New("Enter “" + f.Label + "”")
 				}
 			}
 			continue
@@ -198,11 +198,11 @@ func (s *Service) apply(c *Channel, in *channelInput, p *auth.Principal, isNew b
 			c.Config[f.Key] = val
 		}
 		if f.Required && c.Config[f.Key] == "" {
-			return nil, errors.New("請填「" + f.Label + "」")
+			return nil, errors.New("Enter “" + f.Label + "”")
 		}
 		if f.Type == "url" && c.Config[f.Key] != "" {
 			if err := checkURL(c.Config[f.Key]); err != nil {
-				return nil, errors.New("「" + f.Label + "」" + err.Error())
+				return nil, errors.New("“" + f.Label + "” " + err.Error())
 			}
 		}
 	}
@@ -237,7 +237,7 @@ func (s *Service) apply(c *Channel, in *channelInput, p *auth.Principal, isNew b
 		q := strings.TrimSpace(*in.Quiet)
 		if q != "" {
 			if a, b, ok := strings.Cut(q, "-"); !ok || !validHM(a) || !validHM(b) {
-				return nil, errors.New("勿擾時段的格式是 22:00-07:00")
+				return nil, errors.New("Quiet hours must be in the format 22:00-07:00")
 			}
 		}
 		c.Quiet = q
@@ -254,7 +254,7 @@ func (s *Service) apply(c *Channel, in *channelInput, p *auth.Principal, isNew b
 	if in.Template != nil {
 		c.Template = *in.Template
 		if len(c.Template) > 4000 {
-			return nil, errors.New("訊息範本太長")
+			return nil, errors.New("Message template is too long")
 		}
 	}
 	if in.Enabled != nil {
@@ -271,7 +271,7 @@ func (s *Service) apply(c *Channel, in *channelInput, p *auth.Principal, isNew b
 		case "telegram":
 		case "line":
 			if !strings.HasPrefix(s.m.Settings().ExternalURL, "https://") {
-				return nil, errors.New("LINE 要在頻道裡操作下載，必須先在設定裡填寫 NAS 的對外 HTTPS 網址")
+				return nil, errors.New("To control downloads in the channel with LINE, first enter the NAS's public HTTPS URL in the settings")
 			}
 		default:
 			c.Operate = false
@@ -302,7 +302,7 @@ func (s *Service) storeSecrets(id string, secrets map[string]string) {
 func (s *Service) ownChannel(w http.ResponseWriter, p *auth.Principal, id string, service string) *Channel {
 	c := s.channel(id)
 	if c == nil || (c.Owner != p.User && !(p.Admin && p.Via == "session")) || (service != "" && c.Service != service) {
-		api.Error(w, 404, "not_found", "找不到這個頻道")
+		api.Error(w, 404, "not_found", "Channel not found")
 		return nil
 	}
 	return c
@@ -361,7 +361,7 @@ func (s *Service) createChannel(w http.ResponseWriter, r *http.Request, p *auth.
 	}
 	if service == "" {
 		if in.Service == nil {
-			api.Error(w, 400, "bad_request", "請選擇服務")
+			api.Error(w, 400, "bad_request", "Select a service")
 			return
 		}
 		service = *in.Service
@@ -470,7 +470,7 @@ var chatScopes = []string{"tasks:read", "tasks:add", "tasks:control", "tasks:rem
 
 func (s *Service) newPair(c *Channel, p *auth.Principal, scopes []string) (*Pair, error) {
 	if !c.Operate {
-		return nil, errors.New("這個頻道沒有開啟「在頻道裡操作下載」")
+		return nil, errors.New("“Control downloads in the channel” is not turned on for this channel")
 	}
 	if len(scopes) == 0 {
 		scopes = chatScopes
@@ -486,7 +486,7 @@ func (s *Service) newPair(c *Channel, p *auth.Principal, scopes []string) (*Pair
 		}
 	}
 	if len(granted) == 0 {
-		return nil, errors.New("沒有可以授權的權限")
+		return nil, errors.New("No permissions to grant")
 	}
 	b, _ := json.Marshal(granted)
 	exp := s.now().Add(10 * time.Minute).Unix()
@@ -496,7 +496,7 @@ func (s *Service) newPair(c *Channel, p *auth.Principal, scopes []string) (*Pair
 			return &Pair{Code: code, ExpiresAt: exp, Command: "/link " + code}, nil
 		}
 	}
-	return nil, errors.New("無法產生配對碼")
+	return nil, errors.New("Cannot generate pairing code")
 }
 
 // Link binds a chat user with a pairing code. It returns the QTS user.
@@ -652,7 +652,7 @@ func (s *Service) channelRoutes(srv *api.Server) {
 			return
 		}
 		if c.Owner != p.User {
-			api.Error(w, 403, "not_owner", "只有頻道的擁有者可以產生配對碼")
+			api.Error(w, 403, "not_owner", "Only the channel owner can generate a pairing code")
 			return
 		}
 		var b struct {

@@ -1,7 +1,7 @@
 /* UI language: the language chosen in QTS. QTS keeps it in the nas_lang cookie (set by its login page and desktop);
    without one QTS picks by the browser language, and so do we, with the same table. The UI's source strings are
-   Traditional Chinese; other languages load a dictionary keyed by those strings (js/lang/<code>.js), and languages
-   without one fall back to English. Loaded in <head>, before every other script. */
+   English; other languages load a dictionary keyed by those strings (js/lang/<code>.js), and languages without one
+   stay in English. Loaded in <head>, before every other script. */
 (function(){
 	'use strict';
 	var DC = window.DC = window.DC || {};
@@ -30,12 +30,12 @@
 	document.documentElement.setAttribute('lang', DC.locale);
 	window.DC_DICT = null;
 	/* The dictionary has to be in place before the UI scripts run: a parser-inserted, same-origin script (allowed by the CSP) */
-	if(code !== 'TCH'){
+	if(code !== 'ENG'){
 		if(document.readyState === 'loading') document.write('<script src="js/lang/' + code + '.js"><\/script>');
 		else{ var sc = document.createElement('script'); sc.src = 'js/lang/' + code + '.js'; document.head.appendChild(sc); }
 	}
 
-	/* DC.t('已加入 {n} 個下載', {n:3}): translate a source string, then fill {name} placeholders */
+	/* DC.t('{n} downloads added', {n:3}): translate a source string, then fill {name} placeholders */
 	DC.t = function(s, params){
 		var d = window.DC_DICT, r = (d && d[s]) || s;
 		if(params) r = r.replace(/\{(\w+)\}/g, function(m, k){ return params.hasOwnProperty(k) ? String(params[k]) : m; });

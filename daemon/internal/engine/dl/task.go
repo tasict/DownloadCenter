@@ -164,7 +164,7 @@ func (t *task) download(ctx context.Context) error {
 				t.noRanges = true
 			}
 			t.mu.Unlock()
-			t.e.logf(t.ref, "伺服器上的檔案已變更或不支援續傳，重新下載")
+			t.e.logf(t.ref, "The file on the server changed or cannot be resumed; downloading again from the start")
 			continue
 		}
 		return err

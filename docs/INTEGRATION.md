@@ -8,7 +8,7 @@ All paths below are relative to `/<Name>/api/v1/` on the QTS admin port (8080/44
 
 ### 1.1 Model
 
-A token belongs to exactly one account that may use Download Center (the owner) and is created by that account in 設定 › 存取權杖. Who may use Download Center is QTS's application privilege (Control Panel › Privilege › Users › Edit Application Privilege); QTS administrators always may and are Download Center's administrators. It never grants more than its owner currently has:
+A token belongs to exactly one account that may use Download Center (the owner) and is created by that account in Settings › Access tokens. Who may use Download Center is QTS's application privilege (Control Panel › Privilege › Users › Edit Application Privilege); QTS administrators always may and are Download Center's administrators. It never grants more than its owner currently has:
 
 ```
 effective rights = token scopes ∩ owner's current rights ∩ token restrictions
@@ -44,7 +44,7 @@ If the owner is deleted or disabled in QTS, or loses the Download Center applica
 | `settings:read` | Read package settings (admin owner) |
 | `settings:write` | Change package settings and schedule (admin owner) |
 
-The UI offers presets: 唯讀（`tasks:read`, `stats:read`, `events:read`）, 加入下載（read + `tasks:add`）, 完整控制（all task scopes except `files:delete`）.
+The UI offers presets: Read only (`tasks:read`, `stats:read`, `events:read`), Add download (read + `tasks:add`), Full control (no file deletion) (all task scopes except `files:delete`).
 
 ### 1.3 Format and storage
 
@@ -66,7 +66,7 @@ Every token request is written to the audit log (time, token id, owner, IP, meth
 
 ## 2. REST API
 
-Errors: HTTP status + `{"error": {"code": "folder_not_allowed", "message": "…"}}`. Messages are English for developers; the UI maps codes to zh-TW.
+Errors: HTTP status + `{"error": {"code": "folder_not_allowed", "message": "…"}}`. Messages are English unless the request sends `X-DC-Lang` with a QTS language code (`TCH`, `SCH`, `JPN`, `KOR`, `GER`, `FRE`, `SPA`, `ITA`, `POR`, `RUS`, `DUT`, `THA`); the codes never change.
 
 | Method & path | Scope | Notes |
 |---|---|---|
@@ -137,13 +137,13 @@ X-DC-Delivery: 7f3c…                 (unique per attempt group; use it to de-d
 X-DC-Signature: t=1790866032,v1=<hex HMAC-SHA256(secret, t + "." + body)>
 ```
 
-Verify by recomputing the HMAC and rejecting timestamps older than 5 minutes. Delivery: 10 s timeout, success = any 2xx, retries after 1, 5, 30 min and 2, 6 h, then the delivery is marked failed; 20 consecutive failures disable the webhook and notify its owner. The UI shows the last 50 deliveries with status and response time, and has "傳送測試事件".
+Verify by recomputing the HMAC and rejecting timestamps older than 5 minutes. Delivery: 10 s timeout, success = any 2xx, retries after 1, 5, 30 min and 2, 6 h, then the delivery is marked failed; 20 consecutive failures disable the webhook and notify its owner. The UI shows the last 50 deliveries with status and response time, and has "Send test notification".
 
 Target restrictions: non-admin owners cannot target loopback, link-local, or the NAS's own addresses (prevents using webhooks to reach dcd, QTS or other local services). Admins can, with a warning.
 
 ## 5. Chat commands
 
-`POST /commands` takes the text a person typed in a chat and returns a reply, so a bot for any chat service is a thin forwarder:
+`POST /commands` takes the text a person typed in a chat and returns a reply, so a bot for any chat service is a thin forwarder. Replies, like the notification texts of the built-in channels, are in Traditional Chinese for now; `locale` is accepted but not used yet.
 
 ```json
 → {"text": "/add magnet:?xt=urn:btih:…", "locale": "zh-TW"}
@@ -168,7 +168,7 @@ Notification and chat control are the same channel. Each channel has an `operate
 
 ### 5.2 Linking a chat account
 
-Channels with `operate` on map a chat user to a QTS account by pairing, per channel: the user clicks 「連結聊天帳號」 in the UI, gets a 6-digit code valid for 10 minutes, and sends `/link 482913` to the bot. The chat user id is then bound to that QTS account with the scopes chosen at pairing time. Messages from unlinked chat users get only the `/link` instruction.
+Channels with `operate` on map a chat user to a QTS account by pairing, per channel: the user clicks "Link my account" in the UI, gets a 6-digit code valid for 10 minutes, and sends `/link 482913` to the bot. The chat user id is then bound to that QTS account with the scopes chosen at pairing time. Messages from unlinked chat users get only the `/link` instruction.
 
 ## 6. Built-in channels
 
@@ -179,14 +179,14 @@ Channels with `operate` on map a chat user to a QTS account by pairing, per chan
 | LINE | ✓ (Messaging API push) | ✓ only with a public HTTPS webhook | Messaging API channel access token + user/group id. LINE Notify was discontinued in 2025, so it is not supported |
 | Slack | ✓ (incoming webhook) | — | Webhook URL |
 | ntfy / Gotify / Bark | ✓ | — | Server URL + topic/key |
-| QTS 通知中心 | ✓ (email, SMS, push via QTS) | — | Nothing |
+| QTS Notification Center | ✓ (email, SMS, push via QTS) | — | Nothing |
 | Generic webhook | ✓ | via `/commands` | See 4 |
 
 Per channel: event selection, the `operate` switch, own tasks vs all (admins), quiet hours, digest mode (one summary every N minutes instead of one message per event), and a message template.
 
 ## 7. Declarative adapters
 
-New services can be added without code: an adapter is a JSON manifest describing one HTTP request per event, imported in 設定 › 通知與整合. Manifests cannot run code, read files, or reach addresses that webhooks cannot reach.
+New services can be added without code: an adapter is a JSON manifest describing one HTTP request per event, imported in Settings › Notifications & integrations. Manifests cannot run code, read files, or reach addresses that webhooks cannot reach.
 
 ```json
 {
@@ -206,7 +206,7 @@ Template variables: `event.*`, `task.*` (with `_h` human-readable variants such 
 
 ## 8. AI agents
 
-AI agents (Claude Code, Codex, Gemini CLI …) use this API through the skill file `docs/skill/SKILL.md`, which every installation serves at `/<Name>/docs/skill/SKILL.md`. The 存取權杖 page has an AI Agent section that creates a token with the 完整控制（不含刪檔） preset and shows a setup command that installs the skill and stores the address and token in `~/.config/download-center/config`. See [AI-AGENT.md](AI-AGENT.md). The skill tells agents to treat everything the API returns as data, never as instructions, and to confirm removals with the user.
+AI agents (Claude Code, Codex, Gemini CLI …) use this API through the skill file `docs/skill/SKILL.md`, which every installation serves at `/<Name>/docs/skill/SKILL.md`. The Access tokens page has an AI Agent section that creates a token with the Full control (no file deletion) preset and shows a setup command that installs the skill and stores the address and token in `~/.config/download-center/config`. See [AI-AGENT.md](AI-AGENT.md). The skill tells agents to treat everything the API returns as data, never as instructions, and to confirm removals with the user.
 
 ## 9. Implementation notes
 

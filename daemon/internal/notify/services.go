@@ -42,39 +42,39 @@ type ServiceDef struct {
 // Services are the built-in services.
 var Services = []ServiceDef{
 	{ID: "telegram", Title: "Telegram", Ops: "yes", Fields: []Field{
-		{Key: "bot_token", Label: "Bot token", Type: "secret", Required: true, Help: "向 @BotFather 建立機器人後取得"},
-		{Key: "chat_id", Label: "通知送到（chat id）", Type: "text", Help: "留空時送給已連結的聊天帳號"},
-	}, Help: "可以在頻道裡操作下載；傳送 .torrent 檔也能加入。不需要對外開放 NAS。"},
+		{Key: "bot_token", Label: "Bot token", Type: "secret", Required: true, Help: "Get it after creating a bot with @BotFather"},
+		{Key: "chat_id", Label: "Send notifications to (chat id)", Type: "text", Help: "If empty, sent to linked chat accounts"},
+	}, Help: "Control downloads in the channel; you can also send .torrent files to add them. The NAS does not need to be exposed to the internet."},
 	{ID: "discord", Title: "Discord", Ops: "no", Fields: []Field{
-		{Key: "webhook_url", Label: "Webhook 網址", Type: "secret", Required: true, Help: "頻道設定 › 整合 › Webhook"},
+		{Key: "webhook_url", Label: "Webhook URL", Type: "secret", Required: true, Help: "Channel settings › Integrations › Webhooks"},
 	}},
 	{ID: "line", Title: "LINE", Ops: "https", Fields: []Field{
 		{Key: "access_token", Label: "Channel access token", Type: "secret", Required: true},
-		{Key: "to", Label: "送給（user / group id）", Type: "text", Required: true},
-		{Key: "channel_secret", Label: "Channel secret", Type: "secret", Help: "在頻道裡操作下載時需要，用來驗證 LINE 送來的訊息"},
-	}, Help: "LINE Notify 已停止服務，這裡使用 Messaging API。要在頻道裡操作下載，NAS 必須能從外部用 HTTPS 連到。"},
+		{Key: "to", Label: "Send to (user / group id)", Type: "text", Required: true},
+		{Key: "channel_secret", Label: "Channel secret", Type: "secret", Help: "Required to control downloads in the channel; used to verify messages sent by LINE"},
+	}, Help: "LINE Notify has been discontinued; the Messaging API is used here. To control downloads in the channel, the NAS must be reachable from outside over HTTPS."},
 	{ID: "slack", Title: "Slack", Ops: "no", Fields: []Field{
-		{Key: "webhook_url", Label: "Incoming webhook 網址", Type: "secret", Required: true},
+		{Key: "webhook_url", Label: "Incoming webhook URL", Type: "secret", Required: true},
 	}},
 	{ID: "ntfy", Title: "ntfy", Ops: "no", Fields: []Field{
-		{Key: "server", Label: "伺服器", Type: "url", Default: "https://ntfy.sh"},
-		{Key: "topic", Label: "主題", Type: "text", Required: true},
-		{Key: "token", Label: "存取權杖", Type: "secret"},
+		{Key: "server", Label: "Server", Type: "url", Default: "https://ntfy.sh"},
+		{Key: "topic", Label: "Topic", Type: "text", Required: true},
+		{Key: "token", Label: "Access tokens", Type: "secret"},
 	}},
 	{ID: "gotify", Title: "Gotify", Ops: "no", Fields: []Field{
-		{Key: "server", Label: "伺服器", Type: "url", Required: true},
+		{Key: "server", Label: "Server", Type: "url", Required: true},
 		{Key: "token", Label: "App token", Type: "secret", Required: true},
 	}},
 	{ID: "bark", Title: "Bark", Ops: "no", Fields: []Field{
-		{Key: "server", Label: "伺服器", Type: "url", Default: "https://api.day.app"},
+		{Key: "server", Label: "Server", Type: "url", Default: "https://api.day.app"},
 		{Key: "device_key", Label: "Device key", Type: "secret", Required: true},
 	}},
-	{ID: "qts", Title: "QTS 通知中心", Ops: "no", AdminOnly: true, Fields: []Field{},
-		Help: "寫進 QTS 的系統事件紀錄，由通知中心依它的規則寄送電子郵件、簡訊或推播。"},
+	{ID: "qts", Title: "QTS Notification Center", Ops: "no", AdminOnly: true, Fields: []Field{},
+		Help: "Written to the QTS system event log; Notification Center sends email, SMS or push notifications according to its rules."},
 	{ID: "webhook", Title: "Webhook", Ops: "commands", Fields: []Field{
-		{Key: "url", Label: "網址", Type: "url", Required: true},
-		{Key: "secret", Label: "簽章密鑰", Type: "secret", Help: "留空會自動產生，只顯示一次"},
-	}, Help: "以 HMAC-SHA256 簽章傳送事件；要從你的服務操作下載，請呼叫 /api/v1/commands。"},
+		{Key: "url", Label: "URL", Type: "url", Required: true},
+		{Key: "secret", Label: "Signing secret", Type: "secret", Help: "Generated automatically if left empty; shown only once"},
+	}, Help: "Events are sent signed with HMAC-SHA256; to control downloads from your service, call /api/v1/commands."},
 }
 
 func serviceDef(id string) *ServiceDef {
@@ -178,7 +178,7 @@ func firstNonEmpty(v ...string) string {
 
 func postJSON(cl *http.Client, u string, body any, headers map[string]string) (int, error) {
 	if u == "" {
-		return 0, errors.New("沒有設定網址")
+		return 0, errors.New("No URL set")
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequest("POST", u, bytes.NewReader(b))
@@ -316,7 +316,7 @@ func (s *Service) fields(service string) []Field {
 func checkURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return errors.New("網址格式不正確")
+		return errors.New("Invalid URL format")
 	}
 	return nil
 }

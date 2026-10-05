@@ -142,7 +142,7 @@ func progressLine(t *core.Task) string {
 	case core.StSeeding:
 		return fmt.Sprintf("做種中 ↑%s，分享率 %.2f", SpeedH(t.UpRate), t.Ratio())
 	case core.StError:
-		return "錯誤：" + t.ErrorMsg
+		return "錯誤：" + zh(t.ErrorMsg)
 	}
 	if t.State != core.StDone && t.Size > 0 {
 		return fmt.Sprintf("%s %.0f%%", st, t.Progress())
@@ -313,7 +313,7 @@ func addError(err error) string {
 	case errors.Is(err, core.ErrNoBT):
 		return "這台 NAS 無法下載種子（缺少 BT 引擎）"
 	}
-	return err.Error()
+	return zh(err.Error())
 }
 
 // queuePos describes where a new task waits ("等待中，第 2 位").
@@ -368,10 +368,10 @@ func (s *Service) cmdControl(p *auth.Principal, caller, cmd, arg string) Reply {
 	}
 	t, err := s.resolve(p, caller, arg)
 	if err != nil {
-		return Reply{Reply: err.Error()}
+		return Reply{Reply: zh(err.Error())}
 	}
 	if err := do(t); err != nil {
-		return Reply{Reply: "失敗：" + err.Error()}
+		return Reply{Reply: "失敗：" + zh(err.Error())}
 	}
 	r := Reply{OK: true, Reply: verb + "：" + t.Name, Task: taskRef(t)}
 	if cmd == "/pause" {
@@ -390,7 +390,7 @@ func (s *Service) cmdDel(p *auth.Principal, caller, arg string) Reply {
 	confirm := len(fields) > 1 && strings.EqualFold(fields[1], "confirm")
 	t, err := s.resolve(p, caller, fields[0])
 	if err != nil {
-		return Reply{Reply: err.Error()}
+		return Reply{Reply: zh(err.Error())}
 	}
 	key := caller + ":" + t.Hash
 	if !confirm {
@@ -402,7 +402,7 @@ func (s *Service) cmdDel(p *auth.Principal, caller, arg string) Reply {
 			Buttons: []Button{{"確認移除", "/del " + short(t.Hash) + " confirm"}}}
 	}
 	if err := s.m.Remove(t.Hash, false, false); err != nil {
-		return Reply{Reply: "失敗：" + err.Error()}
+		return Reply{Reply: "失敗：" + zh(err.Error())}
 	}
 	s.mu.Lock()
 	delete(s.confirm, key)
@@ -479,12 +479,12 @@ func ParseRate(s string) (int, error) {
 func (s *Service) cmdLimit(arg string) Reply {
 	kb, err := ParseRate(arg)
 	if err != nil {
-		return Reply{Reply: err.Error()}
+		return Reply{Reply: zh(err.Error())}
 	}
 	st := s.m.Settings()
 	st.HTTP.MaxDown, st.FTP.MaxDown, st.BT.MaxDown = kb, kb, kb
 	if err := s.m.SaveSettings(st); err != nil {
-		return Reply{Reply: "失敗：" + err.Error()}
+		return Reply{Reply: "失敗：" + zh(err.Error())}
 	}
 	if kb == 0 {
 		return Reply{OK: true, Reply: "已取消下載速度上限"}
@@ -507,7 +507,7 @@ func (s *Service) cmdSched(arg string) Reply {
 		return Reply{OK: true, Reply: "排程目前" + state + "。用法：/sched on|off"}
 	}
 	if err := s.m.SaveSettings(st); err != nil {
-		return Reply{Reply: "失敗：" + err.Error()}
+		return Reply{Reply: "失敗：" + zh(err.Error())}
 	}
 	if st.Schedule.Enabled {
 		return Reply{OK: true, Reply: "已開啟排程"}

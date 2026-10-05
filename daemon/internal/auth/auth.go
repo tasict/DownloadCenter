@@ -322,7 +322,7 @@ func (s *Service) Members() Access {
 // Grant lets an account use Download Center (QTS application privilege).
 func (s *Service) Grant(user string) error {
 	if _, _, ok := qts.Lookup(user); !ok {
-		return errors.New("找不到這個 QTS 帳號")
+		return errors.New("QTS account not found")
 	}
 	err := qts.AppGrant(qts.PrivEntry{Name: user, Type: qts.PrivLocalUser})
 	s.forget()
@@ -561,7 +561,7 @@ func randString(n int, alphabet string) string {
 func checkToken(t *Token, ownerAdmin bool) error {
 	t.Name = strings.TrimSpace(t.Name)
 	if t.Name == "" {
-		return errors.New("請填名稱")
+		return errors.New("Enter a name")
 	}
 	valid := map[string]bool{}
 	for _, sc := range AllScopes {
@@ -573,12 +573,12 @@ func checkToken(t *Token, ownerAdmin bool) error {
 			return errors.New("unknown scope " + sc)
 		}
 		if AdminScopes[sc] && !ownerAdmin {
-			return errors.New("只有系統管理者可以建立有設定權限的權杖")
+			return errors.New("Only administrators can create tokens with settings permissions")
 		}
 		scopes = append(scopes, sc)
 	}
 	if len(scopes) == 0 {
-		return errors.New("至少要選一個權限")
+		return errors.New("Choose at least one permission")
 	}
 	t.Scopes = scopes
 	if t.Tasks != "all" || !ownerAdmin {
@@ -589,7 +589,7 @@ func checkToken(t *Token, ownerAdmin bool) error {
 	}
 	for _, ip := range t.IPAllow {
 		if _, _, err := net.ParseCIDR(ip); err != nil && net.ParseIP(ip) == nil {
-			return errors.New("IP 格式不正確：" + ip)
+			return errors.New("Invalid IP format: " + ip)
 		}
 	}
 	if t.RateLimit <= 0 {
@@ -639,7 +639,7 @@ func (s *Service) UpdateToken(t *Token, ownerAdmin bool) error {
 }
 
 // ErrNoToken: no token with this id belongs to the user.
-var ErrNoToken = errors.New("找不到這個權杖")
+var ErrNoToken = errors.New("Token not found")
 
 // TokenOf returns a token of the user (nil if there is none).
 func (s *Service) TokenOf(id, owner string) *Token {

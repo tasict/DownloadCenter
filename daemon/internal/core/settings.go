@@ -432,7 +432,7 @@ func (m *Manager) SetTaskProxy(hash, choice string) error {
 	delete(m.running, hash)
 	delete(m.applied, hash)
 	m.markDirty(t)
-	m.Log(hash, "已更換代理，重新連線")
+	m.Log(hash, "Switched to the new proxy, reconnecting")
 	go m.Kick()
 	return nil
 }

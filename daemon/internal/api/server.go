@@ -65,7 +65,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			log.Printf("api: panic on %s %s: %v", r.Method, r.URL.Path, rec)
-			Error(w, 500, "internal", "內部錯誤")
+			Error(w, 500, "internal", "Internal error")
 		}
 	}()
 	s.mux.ServeHTTP(w, r)
@@ -119,7 +119,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, scope string, 
 		return
 	}
 	if opts&AdminOnly != 0 && !p.Admin {
-		Error(rec, 403, "admin_only", "只有系統管理者可以使用")
+		Error(rec, 403, "admin_only", "Administrators only")
 		return
 	}
 	h(rec, r, p)
@@ -189,7 +189,7 @@ func (s *Server) Authenticate(r *http.Request) (*auth.Principal, error) {
 func (s *Server) authError(w http.ResponseWriter, err error) {
 	switch err {
 	case auth.ErrNotOnList:
-		Error(w, 403, "not_on_list", "這個帳號還沒有 Download Center 的使用權限，請聯絡系統管理者。")
+		Error(w, 403, "not_on_list", "This account does not have access to Download Center yet. Contact your administrator.")
 	case auth.ErrTokenExpired:
 		Error(w, 401, "token_expired", "The token has expired")
 	case auth.ErrIPNotAllowed:
@@ -197,11 +197,11 @@ func (s *Server) authError(w http.ResponseWriter, err error) {
 	case auth.ErrRateLimited:
 		Error(w, 429, "rate_limited", "Too many requests")
 	case auth.ErrAuthBackend:
-		Error(w, 503, "auth_unavailable", "無法向 QTS 確認登入狀態，請稍後再試。")
+		Error(w, 503, "auth_unavailable", "Cannot confirm the sign-in status with QTS. Try again later.")
 	case auth.ErrTokenInvalid:
 		Error(w, 401, "token_invalid", "Invalid token")
 	default:
-		Error(w, 401, "not_signed_in", "請先登入。")
+		Error(w, 401, "not_signed_in", "Sign in first.")
 	}
 }
 
@@ -244,7 +244,7 @@ func Error(w http.ResponseWriter, status int, code, msg string) {
 func Fail(w http.ResponseWriter, err error) {
 	var dup *core.DupError
 	if errors.As(err, &dup) {
-		JSON(w, 409, map[string]any{"error": map[string]string{"code": "duplicate", "message": Tr(w, "這個任務已在清單中")}, "id": dup.ID})
+		JSON(w, 409, map[string]any{"error": map[string]string{"code": "duplicate", "message": Tr(w, "This task is already in the list")}, "id": dup.ID})
 		return
 	}
 	status, code, msg := coreError(err)
@@ -256,23 +256,23 @@ func Fail(w http.ResponseWriter, err error) {
 func coreError(err error) (status int, code, msg string) {
 	switch {
 	case errors.Is(err, core.ErrDuplicate):
-		return 409, "duplicate", "這個任務已在清單中"
+		return 409, "duplicate", "This task is already in the list"
 	case errors.Is(err, core.ErrFolder):
-		return 403, "folder_not_allowed", "不能使用這個資料夾"
+		return 403, "folder_not_allowed", "This folder cannot be used"
 	case errors.Is(err, core.ErrReadOnly):
-		return 403, "folder_read_only", "這個資料夾無法寫入"
+		return 403, "folder_read_only", "This folder cannot be written to"
 	case errors.Is(err, core.ErrNotFound):
-		return 404, "not_found", "找不到這個任務"
+		return 404, "not_found", "Task not found"
 	case errors.Is(err, core.ErrNotOwner):
-		return 403, "not_owner", "這不是你的任務"
+		return 403, "not_owner", "This is not your task"
 	case errors.Is(err, core.ErrBadURL):
-		return 400, "url_not_supported", "不支援這種網址"
+		return 400, "url_not_supported", "This type of URL is not supported"
 	case errors.Is(err, core.ErrBadTorrent):
-		return 400, "torrent_invalid", "種子檔格式不正確"
+		return 400, "torrent_invalid", "Invalid torrent file format"
 	case errors.Is(err, core.ErrBadMagnet):
-		return 400, "magnet_invalid", "磁力連結格式不正確"
+		return 400, "magnet_invalid", "Invalid magnet link format"
 	case errors.Is(err, core.ErrOtherOwner):
-		return 409, "duplicate_other_owner", "其他使用者已經在下載這個種子"
+		return 409, "duplicate_other_owner", "Another user is already downloading this torrent"
 	case errors.Is(err, core.ErrProxyGone):
 		return 400, "proxy_gone", err.Error()
 	case errors.Is(err, core.ErrProxyNotAllowed):
@@ -280,11 +280,11 @@ func coreError(err error) (status int, code, msg string) {
 	case errors.Is(err, core.ErrProxyRequired):
 		return 403, "proxy_required", err.Error()
 	case errors.Is(err, core.ErrNoURL):
-		return 400, "url_unavailable", "這台 NAS 無法下載這種網址（下載元件 dc-dl 無法使用）"
+		return 400, "url_unavailable", "This NAS cannot download this kind of URL (the download component dc-dl is unavailable)"
 	case errors.Is(err, core.ErrNoBT):
-		return 400, "bt_unavailable", "這台 NAS 無法下載種子（缺少 BT 引擎）"
+		return 400, "bt_unavailable", "This NAS cannot download torrents (the BT engine is missing)"
 	case errors.Is(err, core.ErrUnsupported):
-		return 400, "unsupported", "目前的引擎不支援這個操作"
+		return 400, "unsupported", "The current engine does not support this operation"
 	}
 	return 400, "failed", err.Error()
 }
@@ -299,7 +299,7 @@ func Decode(r *http.Request, v any) error {
 		return nil
 	}
 	if err := json.Unmarshal(b, v); err != nil {
-		return fmt.Errorf("JSON 格式不正確：%v", err)
+		return fmt.Errorf("Invalid JSON format: %v", err)
 	}
 	return nil
 }

@@ -74,7 +74,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, p *auth.Pri
 	json.Unmarshal(vb, &st)
 	var patch map[string]json.RawMessage
 	if err := json.Unmarshal(body, &patch); err != nil {
-		Error(w, 400, "bad_request", "JSON 格式不正確")
+		Error(w, 400, "bad_request", "Invalid JSON format")
 		return
 	}
 	if raw, ok := patch["settings"]; ok {
@@ -88,12 +88,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, p *auth.Pri
 	}
 	pb, _ := json.Marshal(patch)
 	if err := json.Unmarshal(pb, &st); err != nil {
-		Error(w, 400, "bad_request", "設定格式不正確："+err.Error())
+		Error(w, 400, "bad_request", "Invalid settings format: "+err.Error())
 		return
 	}
 	// Display paths back to real paths
 	if st.TempDir, err = s.M.ResolvePath(p.User, st.TempDir); err != nil {
-		Error(w, 400, "folder_not_found", "找不到暫存位置的資料夾")
+		Error(w, 400, "folder_not_found", "Temporary location folder not found")
 		return
 	}
 	if unusableFolder(w, st.TempDir) {
@@ -101,7 +101,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, p *auth.Pri
 	}
 	if st.MoveDir != "" {
 		if st.MoveDir, err = s.M.ResolvePath(p.User, st.MoveDir); err != nil {
-			Error(w, 400, "folder_not_found", "找不到「完成後移至」的資料夾")
+			Error(w, 400, "folder_not_found", "“Move to when finished” folder not found")
 			return
 		}
 		if unusableFolder(w, st.MoveDir) {
@@ -110,7 +110,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, p *auth.Pri
 	}
 	if st.Torrent.PortFrom >= 6881 && st.Torrent.PortFrom <= 6889 {
 		if inst, en := officialRunning(); inst && en {
-			Error(w, 400, "port_in_use", "官方 Download Station 正在使用 6881–6889，請改用其他埠")
+			Error(w, 400, "port_in_use", "The official Download Station is using 6881–6889. Use other ports")
 			return
 		}
 	}
@@ -167,7 +167,7 @@ func (s *Server) proxyTest(w http.ResponseWriter, r *http.Request, p *auth.Princ
 		pass = *b.Password
 	}
 	if b.Host == "" || b.Port <= 0 || b.Port > 65535 {
-		Error(w, 400, "bad_request", "請填代理伺服器與埠")
+		Error(w, 400, "bad_request", "Enter the proxy server and port")
 		return
 	}
 	res, err := netutil.TestProxy(b.Type, b.Host, b.Port, b.User, pass)
@@ -189,7 +189,7 @@ func (s *Server) portTest(w http.ResponseWriter, r *http.Request, p *auth.Princi
 	}
 	Decode(r, &b)
 	if !b.Consent {
-		Error(w, 403, "consent_required", "測試連入埠需要你同意讓外部服務檢查 NAS 的對外 IP 與埠")
+		Error(w, 403, "consent_required", "Testing the incoming port requires your consent to let an external service check the NAS's public IP and ports")
 		return
 	}
 	// libtorrent listens on the first port of the range (the others are only
@@ -285,9 +285,9 @@ func (s *Server) settingsRoutes() {
 func unusableFolder(w http.ResponseWriter, real string) bool {
 	switch {
 	case !core.Writable(real):
-		Error(w, 400, "folder_read_only", "這個資料夾無法寫入")
+		Error(w, 400, "folder_read_only", "This folder cannot be written to")
 	case !core.Choosable(real):
-		Error(w, 400, "folder_not_allowed", "不能使用這個資料夾")
+		Error(w, 400, "folder_not_allowed", "This folder cannot be used")
 	default:
 		return false
 	}

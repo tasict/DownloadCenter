@@ -142,7 +142,7 @@ func applySettings(c ini, s *core.Settings, socksOK, importPorts bool) settingsR
 			t.PortFrom, t.PortTo = pf, pt
 		}
 	} else {
-		r.Warnings = append(r.Warnings, "連入埠沿用 Download Center 的設定（官方版仍啟用，避免埠衝突）")
+		r.Warnings = append(r.Warnings, "Incoming ports keep the Download Center settings (the official version is still enabled; avoiding port conflicts)")
 	}
 	if c.num("bt", "proxy_type", 0) == 2 {
 		if socksOK {
@@ -162,7 +162,7 @@ func applySettings(c ini, s *core.Settings, socksOK, importPorts bool) settingsR
 			s.Proxy.BT = pr.ID
 			r.ProxySocks, r.ProxyID = true, pr.ID
 		} else {
-			r.Warnings = append(r.Warnings, "SOCKS5 設定未匯入（目前的種子引擎不支援 SOCKS5）")
+			r.Warnings = append(r.Warnings, "SOCKS5 settings not imported (the current torrent engine does not support SOCKS5)")
 		}
 	}
 	return r

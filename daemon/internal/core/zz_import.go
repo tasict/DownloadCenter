@@ -136,7 +136,7 @@ func (m *Manager) ImportTask(s ImportSpec) error {
 	}
 	m.live[t.Hash] = t
 	m.mu.Unlock()
-	m.Log(t.Hash, "已從官方 Download Station 匯入")
+	m.Log(t.Hash, "Imported from the official Download Station")
 	m.TaskEvent("task.added", t, map[string]any{"source": "import"})
 	m.Kick()
 	return nil
