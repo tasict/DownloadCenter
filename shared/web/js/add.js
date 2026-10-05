@@ -721,7 +721,11 @@
 				if(res[j].error){ if(res[j].error.code === 'duplicate') dup++; else errs.push(res[j].error.message); continue; }
 				if(res[j].merged) merged++; else { ok++; DC.markFresh(res[j].id); }
 			}
-			if(admin && folder.value) DC.savePref('last_folder', folder.value);
+			/* Remember a folder other than the default only: without a choice of its own the window follows the default */
+			if(admin && folder.value){
+				var keep = folder.value === defs.folder ? '' : folder.value;
+				if((DC.pref('last_folder') || '') !== keep) DC.savePref('last_folder', keep);
+			}
 			closeBox();
 			if(DC.S.view !== 'tasks') DC.go('tasks');
 			var parts = [];

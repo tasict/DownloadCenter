@@ -41,6 +41,16 @@
 		DC.api.put('me/prefs', o, {quiet:true}).then(null, function(){});
 	};
 	DC.pref = function(k){ return S.me && S.me.prefs ? S.me.prefs[k] : undefined; };
+	/* New tasks start from the defaults in /me, read once at sign-in: read them again after the settings change. A new default
+	   folder also replaces the folder remembered from the last add, so the new default is what the add window offers. */
+	DC.refreshDefaults = function(){
+		var old = (S.me && S.me.defaults) || {};
+		DC.api.get('me', null, {quiet:true}).then(function(me){
+			if(!S.me || !me) return;
+			S.me.defaults = me.defaults || {};
+			if(S.me.defaults.folder !== old.folder && DC.pref('last_folder')) DC.savePref('last_folder', '');
+		}, function(){});
+	};
 
 	/* ---------- appearance ---------- */
 	var THEMES = [['light', DC.t('Light'), 'sun'], ['dark', DC.t('Dark'), 'moon'], ['auto', DC.t('Auto'), 'auto']];

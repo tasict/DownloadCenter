@@ -214,7 +214,7 @@
 			DC.busy(saveB, true, DC.t('Saving…'));
 			DC.api.put('settings', o).then(function(res){
 				DC.busy(saveB, false); DC.toast(DC.t('Settings saved'));
-				bar.clean(); r = res; DC.pollStats();
+				bar.clean(); r = res; DC.pollStats(); DC.refreshDefaults();
 			}, function(e){ DC.busy(saveB, false); DC.toast(DC.errText(e)); });
 		}
 		/* Proxy profiles: URL tasks pick one when they are added (or one is chosen by site), torrents share the profile chosen here.
