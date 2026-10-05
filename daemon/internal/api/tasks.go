@@ -59,6 +59,7 @@ type TaskJSON struct {
 	ProxyName   string         `json:"proxy_name,omitempty"` // detail: the profile in use ("" = direct)
 	ProxyError  string         `json:"proxy_error,omitempty"`
 	RemovedAt   int64          `json:"removed_at,omitempty"`
+	QueueRank   int            `json:"queue_rank,omitempty"` // place among the tasks of its kind waiting for a slot
 	Bitfield    string         `json:"bitfield,omitempty"`
 	Pieces      int            `json:"pieces,omitempty"`
 }
@@ -197,8 +198,11 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request, p *auth.Princ
 		next = out[len(out)-1].Hash
 	}
 	res := make([]TaskJSON, 0, len(out))
+	ranks := s.M.QueueRanks()
 	for _, t := range out {
-		res = append(res, s.taskJSON(p, t, false))
+		j := s.taskJSON(p, t, false)
+		j.QueueRank = ranks[t.Hash]
+		res = append(res, j)
 	}
 	OK(w, map[string]any{"tasks": res, "next": next, "counts": counts, "down_rate": downRate, "up_rate": upRate})
 }
@@ -647,6 +651,7 @@ func (s *Server) taskRoutes() {
 			return
 		}
 		j := s.taskJSON(p, t, true)
+		j.QueueRank = s.M.QueueRanks()[t.Hash]
 		OK(w, map[string]any{"task": j, "sources": s.M.Sources(t.Hash), "log": s.M.TaskLog(t.Hash, 50),
 			"trackers": t.Options.Trackers})
 	})
@@ -800,6 +805,8 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request, p *auth.Princ
 		Error(w, 400, "bad_request", err.Error())
 		return
 	}
+	seen := func(o *core.Task) bool { return p.SeesOwner(o.Owner) }
+	var moved map[string]any
 	if b.Position != nil {
 		where := ""
 		switch v := b.Position.(type) {
@@ -807,10 +814,25 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request, p *auth.Princ
 			where = v
 		case float64:
 			where = strconv.Itoa(int(v))
+		case map[string]any:
+			// Next to a task the caller sees: {"before": id} or {"after": id}
+			anchor, after, ok := anchorOf(v)
+			if !ok {
+				Fail(w, core.ErrBadPosition)
+				return
+			}
+			started, stopped, err := s.M.MoveNear([]string{t.Hash}, anchor, after, seen)
+			if err != nil {
+				Fail(w, err)
+				return
+			}
+			moved = map[string]any{"started": taskRefs(started), "stopped": taskRefs(stopped)}
 		}
-		if err := s.M.Move(t.Hash, where, func(o *core.Task) bool { return p.SeesOwner(o.Owner) }); err != nil {
-			Fail(w, err)
-			return
+		if moved == nil {
+			if err := s.M.Move(t.Hash, where, seen); err != nil {
+				Fail(w, err)
+				return
+			}
 		}
 	}
 	if b.Files != nil {
@@ -867,12 +889,36 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request, p *auth.Princ
 			return
 		}
 	}
-	nt := s.M.Live(t.Hash)
-	if nt == nil {
-		OK(w, map[string]any{"ok": true})
-		return
+	resp := map[string]any{"ok": true}
+	if nt := s.M.Live(t.Hash); nt != nil {
+		resp["task"] = s.taskJSON(p, nt, false)
 	}
-	OK(w, map[string]any{"ok": true, "task": s.taskJSON(p, nt, false)})
+	for k, v := range moved {
+		resp[k] = v
+	}
+	OK(w, resp)
+}
+
+// anchorOf reads {"before": id} or {"after": id}.
+func anchorOf(v map[string]any) (anchor string, after bool, ok bool) {
+	b, hasB := v["before"].(string)
+	a, hasA := v["after"].(string)
+	switch {
+	case hasB && !hasA && b != "":
+		return b, false, true
+	case hasA && !hasB && a != "":
+		return a, true, true
+	}
+	return "", false, false
+}
+
+// taskRefs names tasks in a response (id and name).
+func taskRefs(ts []*core.Task) []map[string]any {
+	out := []map[string]any{}
+	for _, t := range ts {
+		out = append(out, map[string]any{"id": t.Hash, "name": t.Name})
+	}
+	return out
 }
 
 // bulk applies an action to several tasks: {"ids": [...] | "all", "action":
@@ -884,13 +930,15 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request, p *auth.Principal)
 		DeleteFiles bool   `json:"delete_files"`
 		Minutes     int    `json:"minutes"`
 		Completed   bool   `json:"completed"`
+		Before      string `json:"before"`
+		After       string `json:"after"`
 	}
 	if err := Decode(r, &b); err != nil {
 		Error(w, 400, "bad_request", err.Error())
 		return
 	}
 	switch b.Action {
-	case "pause", "resume", "start", "retry", "remove", "top", "up", "down", "bottom":
+	case "pause", "resume", "start", "retry", "remove", "top", "up", "down", "bottom", "move":
 	default:
 		Error(w, 400, "bad_request", "unknown action")
 		return
@@ -921,6 +969,24 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request, p *auth.Principal)
 	}
 	if b.Action == "remove" && b.DeleteFiles && !p.Can("files:delete") {
 		Error(w, 403, "insufficient_scope", "The token lacks the scope files:delete")
+		return
+	}
+	// One block next to an anchor task, in queue order
+	if b.Action == "move" {
+		anchor, after := b.Before, false
+		if anchor == "" {
+			anchor, after = b.After, true
+		}
+		if anchor == "" || (b.Before != "" && b.After != "") {
+			Fail(w, core.ErrBadPosition)
+			return
+		}
+		started, stopped, err := s.M.MoveNear(ids, anchor, after, func(o *core.Task) bool { return p.SeesOwner(o.Owner) })
+		if err != nil {
+			Fail(w, err)
+			return
+		}
+		OK(w, map[string]any{"ok": true, "count": len(ids), "started": taskRefs(started), "stopped": taskRefs(stopped)})
 		return
 	}
 	n := 0

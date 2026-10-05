@@ -58,3 +58,36 @@ func TestMovingTaskError(t *testing.T) {
 		t.Errorf("%d %s %q", status, code, msg)
 	}
 }
+
+func TestAnchorOf(t *testing.T) {
+	cases := []struct {
+		in     map[string]any
+		anchor string
+		after  bool
+		ok     bool
+	}{
+		{map[string]any{"before": "x"}, "x", false, true},
+		{map[string]any{"after": "y"}, "y", true, true},
+		{map[string]any{"before": "x", "after": "y"}, "", false, false},
+		{map[string]any{"before": ""}, "", false, false},
+		{map[string]any{"before": 3.0}, "", false, false},
+		{map[string]any{}, "", false, false},
+	}
+	for _, c := range cases {
+		a, after, ok := anchorOf(c.in)
+		if a != c.anchor || after != c.after || ok != c.ok {
+			t.Errorf("%v -> %q %v %v", c.in, a, after, ok)
+		}
+	}
+}
+
+// A bulk move needs exactly one anchor.
+func TestBulkMoveNeedsAnchor(t *testing.T) {
+	s := fixServer(t)
+	rec := httptest.NewRecorder()
+	b, _ := json.Marshal(map[string]any{"ids": []string{}, "action": "move"})
+	s.bulk(rec, httptest.NewRequest("POST", "/x", bytes.NewReader(b)), &auth.Principal{User: "admin", Admin: true, Via: "session", AllTasks: true})
+	if rec.Code != 400 {
+		t.Errorf("status %d %s", rec.Code, rec.Body.String())
+	}
+}

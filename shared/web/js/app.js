@@ -156,7 +156,10 @@
 	function poll(){
 		clearTimeout(S.polling);
 		if(!S.live) return;
+		var gen = DC.reorder.gen();
 		DC.api.get('tasks').then(function(r){
+			/* Asked for before a move was answered: the order in it is the old one */
+			if(gen !== DC.reorder.gen() || DC.reorder.pending()) return;
 			setTasks(r.tasks || []);
 			S.rates = {down:r.down_rate || 0, up:r.up_rate || 0};
 			refresh();
@@ -453,6 +456,7 @@
 		});
 		return out;
 	}
+	DC.visibleTasks = function(){ return visible(); };
 	function setSort(key, dir){
 		if(key !== S.sort) DC.track('sort_' + key);
 		S.sort = key; S.dir = dir || null; S.sortAt = 0;
@@ -470,6 +474,7 @@
 		clear(R.lhead);
 		var ids = selIds(), f = filterById(S.filter), v = visible(), picking = ids.length > 0 || !!S.picking, none = !ids.length, all, i, sel, dir;
 		R.list.classList.toggle('selecting', picking);
+		R.list.classList.toggle('qsort', S.sort === 'queue');
 		app.classList.toggle('picking', picking);
 		function bb(name, label, fn, cls){ return h('button', {'class':'ib sq bb' + (cls ? ' ' + cls : ''), type:'button', 'aria-label':label, title:label, disabled:none, onclick:fn}, [icon(name), h('span', {text:label})]); }
 		if(picking){
@@ -488,6 +493,10 @@
 				DC.can('tasks:remove') ? bb('trash', DC.t('Delete'), function(){ askDelete(ids); }, 'dan') : null,
 				h('span', {'class':'bx'}, ibtn('close', DC.t('Deselect'), endPick))
 			]));
+			if(DC.can('tasks:control')){
+				if(S.sort !== 'queue') R.lhead.appendChild(h('p', {'class':'dq-off', text:DC.t('To change the download order, sort by “Queue order”.')}));
+				else if(DC.phone()) R.lhead.appendChild(h('p', {'class':'dq-hint'}, [icon('grip'), h('span', {text:DC.t('Press and hold the handle at the right of a task, then drag to change the order.')})]));
+			}
 			return;
 		}
 		sel = h('select', {id:'sortKey', 'aria-label':DC.t('Sort by'), onchange:function(){ setSort(this.value, null); }});
@@ -503,6 +512,7 @@
 	/* Keeps existing row nodes so state icons only replay when the state really changes. */
 	function renderList(){
 		if(!R.list) return;
+		DC.reorder.cancel();
 		var v = visible(), old = R.rows || {}, keep = {}, i, k, f, r, el, ref;
 		renderHead();
 		R.visKey = keyOf(v);
@@ -540,9 +550,13 @@
 		r.nameEl = h('b', {text:t.name || t.source});
 		r.meta = h('div', {'class':'meta num'});
 		r.act = h('div', {'class':'ract'});
-		r.el = h('div', {'class':'row', role:'listitem', tabindex:'0',
-			onclick:function(){ if(r.long){ r.long = false; return; } if((S.picking || selIds().length) && DC.phone()){ toggleSel(!r.cb.checked); return; } DC.detail.open(r.id); },
-			onkeydown:function(e){ if(e.target !== r.el) return; if(e.key === 'Enter') DC.detail.open(r.id); if(e.key === ' '){ e.preventDefault(); toggleSel(!r.cb.checked); } },
+		r.el = h('div', {'class':'row', role:'listitem', tabindex:'0', 'data-id':t.id,
+			onpointerdown:function(e){ DC.reorder.rowDown(r.id, e); },
+			onclick:function(){ if(DC.reorder.justDragged()) return; if(r.long){ r.long = false; return; } if((S.picking || selIds().length) && DC.phone()){ toggleSel(!r.cb.checked); return; } DC.detail.open(r.id); },
+			onkeydown:function(e){
+				if(e.target !== r.el) return;
+				if(e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')){ if(DC.reorder.step(r.id, e.key === 'ArrowUp' ? -1 : 1)) e.preventDefault(); return; }
+				if(e.key === 'Enter') DC.detail.open(r.id); if(e.key === ' '){ e.preventDefault(); toggleSel(!r.cb.checked); } },
 			oncontextmenu:function(e){ if(DC.phone()) e.preventDefault(); },
 			ontouchstart:function(){ press = setTimeout(function(){ r.long = true; if(DC.phone()){ S.picking = true; DC.track('pick_mode'); } toggleSel(!r.cb.checked); }, 500); },
 			ontouchend:function(){ clearTimeout(press); }, ontouchmove:function(){ clearTimeout(press); }},
@@ -605,6 +619,7 @@
 			}
 			if(s === 'done') r.act.appendChild(ibtn('folder', DC.t('Open folder'), function(){ DC.openFolder(S.byId[r.id] || t); }));
 			r.act.appendChild(ibtn('more', DC.t('Details'), function(){ DC.detail.open(r.id); })).className += ' more-b';
+			if(DC.reorder.movable(t)) r.act.appendChild(DC.reorder.grip(t));
 			r.state = key;
 		}
 		frac = Math.max(0, Math.min(1, (t.progress || 0) / 100));
@@ -626,7 +641,7 @@
 		if(t.state === 'metadata') meta([DC.t('Getting file list…'), t.peers ? DC.t('{n} users', {n:t.peers}) : null]);
 		else if(s === 'down') meta([h('span', {'class':'em', text:pct}), h('span', {'class':'opt', text:DC.fsize(t.done) + ' / ' + DC.fsize(t.size)}), DC.fspeed(t.down_rate), DC.feta(t.eta)]);
 		else if(S.sort === 'progress' && s !== 'done' && s !== 'error') r.meta.appendChild(h('span', {'class':'em', text:pct}));
-		else if(s === 'wait') meta([t.sched_paused ? DC.t('Paused by schedule') : DC.t('Queued'), t.size ? DC.fsize(t.size) : null]);
+		else if(s === 'wait') meta([t.sched_paused ? DC.t('Paused by schedule') : S.sort === 'queue' && t.queue_rank ? h('span', {'class':'qrank', text:DC.reorder.waitText(t.proto, t.queue_rank)}) : DC.t('Queued'), t.size ? DC.fsize(t.size) : null]);
 		else if(s === 'pause') meta([t.wake_time ? DC.t('Resumes at {time}', {time:DC.fclock(t.wake_time)}) : DC.t('Paused at {pct}', {pct:pct}), t.size ? DC.fsize(t.size) : null]);
 		else if(s === 'seed') meta([h('span', {'class':'em', text:DC.t('Share ratio {ratio}', {ratio:(t.ratio || 0).toFixed(2)})}), DC.t('Upload {speed}', {speed:DC.fspeed(t.up_rate)}), DC.fsize(t.size)]);
 		else if(s === 'done') meta([DC.fsize(t.size), h('span', {'class':'opt', text:t.location || t.folder})]);
@@ -641,7 +656,8 @@
 		renderCounts();
 		if(R.list){
 			var v = visible(), i;
-			if(keyOf(v) !== R.visKey) renderList();
+			/* While a task is in hand the rows keep their order; only their contents change */
+			if(keyOf(v) !== R.visKey && !DC.reorder.active()) renderList();
 			else for(i = 0; i < v.length; i++) updateRow(v[i]);
 		}
 		if(DC.detail.current()) DC.detail.live();
@@ -720,7 +736,7 @@
 	document.addEventListener('pointerup', function(){ if(R.paintEnd) R.paintEnd(); });
 	document.addEventListener('keydown', function(e){
 		var tag = (e.target.tagName || '').toLowerCase();
-		if(e.key === 'Escape'){ if(R.dismissModal) R.dismissModal(); else if(R.closeModal) R.closeModal(); else DC.detail.close(); }
+		if(e.key === 'Escape' && !DC.reorder.active()){ if(R.dismissModal) R.dismissModal(); else if(R.closeModal) R.closeModal(); else DC.detail.close(); }
 		if(S.me && e.key === '/' && tag !== 'input' && tag !== 'textarea' && tag !== 'select' && DC.can('tasks:add')){
 			e.preventDefault();
 			if(S.view !== 'tasks') go('tasks');

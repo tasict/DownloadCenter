@@ -263,5 +263,6 @@
 	"The token may not add torrent files",
 	"The ticket is invalid or expired",
 	"QTS did not answer",
-	"The files of this task are being moved. Try again when the move has finished."
+	"The files of this task are being moved. Try again when the move has finished.",
+	"Invalid position"
 ]

@@ -158,6 +158,9 @@ Settings           ↓  LibreOffice_25.8.1_Linux_x86-64_deb.tar.gz              
   - The values change every second, so a sorted list reorders at most every 10 seconds to keep rows from jumping under the pointer.
   - Sorting by progress or time downloading shows that value on the rows; time downloading counts only time actually spent downloading.
   - Move up and Move down work only in queue order; with other sorts the bulk bar hides those two buttons.
+  - In queue order, downloading, waiting and paused rows can be dragged to a new place: by the handle at the end of the row (shown on hover) or, with a mouse, by the row itself once it has moved 6 px, so a click still opens the details. The rows part around a slot whose note says what dropping there does, using only tasks of the same type that the user can see: "Drop to start downloading now; “Charlie” will wait" (another user’s task is never named), "Drop to wait; “Delta” starts downloading", "Drop to wait as #2 in the torrent queue", or for a paused task that it stays paused and queues from there when resumed. Dropping applies the order at once; the toast says what the server reports started or went back to waiting, with Undo. The list does not re-sort under the pointer while a task is in hand.
+  - Several checked rows move together, in their queue order, with a count on the lifted row. Keyboard: Space or Enter on the handle picks the task up, arrows move it (Home/End to the ends), Space or Enter drops, Escape cancels; Alt+↑/↓ on a row moves it one place. The notes are read out by screen readers.
+  - Waiting rows show their place: "Queued: #1 in the torrent queue".
   - The sort choice is a per-user preference, kept for the next visit.
 - Row checkboxes appear on hover; once something is checked, the list title turns into the bulk-action bar (start, pause, move up, move down, delete, cancel).
 - The main action at the end of a row (pause, resume, retry, open folder) is always shown; the "Details" button appears on hover. Row details (percentage, size, speed, time left) are laid out separately; more than 30 days left shows "More than 30 days left".
@@ -191,6 +194,7 @@ All  10 tasks                          [Queue order▾] [Select]
   - Round checkmarks appear at the start of rows; tapping a row checks or unchecks it instead of opening details.
   - The title bar becomes "Select all / 3 selected / Done".
   - The bottom tab bar turns into the bulk-action bar: start, pause, move up, move down, delete, each with a label under its icon; disabled while nothing is checked.
+  - In queue order each movable row shows a handle at its end (44 × 44px); pressing it starts the drag at once, so a long press on the row still only selects. A line under the title says so; with another sort it says to switch back to queue order.
   - "Done" or a delete leaves selection mode.
 - **Dialogs** rise from the bottom, 6px from the sides and bottom. Title and buttons stay put and only the middle scrolls, so however long the file list, "Start download" stays under the thumb; buttons are full width and 50px tall. Pulling the grabber or the title down closes it. The dialog moves up with the keyboard instead of being covered. In the add dialog, "Temporary location / Move to when finished / Site account / When finished" put the label above the menu.
 - The **details panel** is also a nearly full-screen sheet rising from the bottom, closed by pulling down; the first footer button is the main action (pause, resume, retry, stop seeding), followed by open folder and delete.

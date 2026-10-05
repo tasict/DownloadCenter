@@ -6,7 +6,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -278,16 +277,7 @@ func (m *Manager) Move(hash, where string, visible func(*Task) bool) error {
 	if !ok {
 		return ErrNotFound
 	}
-	var list []*Task
-	for _, o := range m.live {
-		list = append(list, o)
-	}
-	sort.Slice(list, func(i, j int) bool {
-		if list[i].Position != list[j].Position {
-			return list[i].Position < list[j].Position
-		}
-		return list[i].CreatedAt < list[j].CreatedAt
-	})
+	list := m.queueOrder()
 	idx := -1
 	for i, o := range list {
 		if o == t {
@@ -315,7 +305,7 @@ func (m *Manager) Move(hash, where string, visible func(*Task) bool) error {
 	default:
 		var n int
 		if _, err := fmt.Sscanf(where, "%d", &n); err != nil || n < 1 {
-			return errors.New("invalid position")
+			return ErrBadPosition
 		}
 		if n > len(list) {
 			n = len(list)
@@ -331,6 +321,71 @@ func (m *Manager) Move(hash, where string, visible func(*Task) bool) error {
 	}
 	go m.Kick()
 	return nil
+}
+
+// MoveNear puts the tasks ids (as one block, in their queue order) right
+// before or after the anchor task. Tasks the caller cannot see are left out;
+// an anchor it cannot see is not found. It reports the tasks that get a
+// download slot by the move and those that lose theirs, as the next tick
+// will do it.
+func (m *Manager) MoveNear(ids []string, anchor string, after bool, visible func(*Task) bool) (started, stopped []*Task, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if a, ok := m.live[anchor]; !ok || (visible != nil && !visible(a)) {
+		return nil, nil, ErrNotFound
+	}
+	moving := map[string]bool{}
+	for _, id := range ids {
+		if t, ok := m.live[id]; ok && (visible == nil || visible(t)) {
+			moving[id] = true
+		}
+	}
+	if len(moving) == 0 {
+		return nil, nil, ErrNotFound
+	}
+	if moving[anchor] {
+		return nil, nil, ErrBadPosition
+	}
+	mode := m.scheduleMode()
+	list := m.queueOrder()
+	before := m.slotHolders(list, mode)
+	var block, rest []*Task
+	for _, t := range list {
+		if moving[t.Hash] {
+			block = append(block, t)
+		} else {
+			rest = append(rest, t)
+		}
+	}
+	at := 0
+	for i, t := range rest {
+		if t.Hash == anchor {
+			at = i
+			if after {
+				at++
+			}
+		}
+	}
+	list = append(append(append([]*Task{}, rest[:at]...), block...), rest[at:]...)
+	for i, o := range list {
+		if o.Position != i+1 {
+			o.Position = i + 1
+			m.markDirty(o)
+		}
+	}
+	now := m.slotHolders(list, mode)
+	for _, t := range list {
+		if visible != nil && !visible(t) {
+			continue
+		}
+		if now[t.Hash] && !before[t.Hash] {
+			started = append(started, t)
+		} else if before[t.Hash] && !now[t.Hash] {
+			stopped = append(stopped, t)
+		}
+	}
+	go m.Kick()
+	return started, stopped, nil
 }
 
 // SetFiles selects the files of a torrent task. prio maps file index to

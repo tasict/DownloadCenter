@@ -170,3 +170,86 @@ func TestExternalURLNormalised(t *testing.T) {
 		}
 	}
 }
+
+// queueManager has three torrent slots, three torrents downloading (a, b and
+// bob's c), two waiting (d, e) and one URL slot held by u behind a paused p.
+func queueManager(t *testing.T) *Manager {
+	t.Helper()
+	m := testManager(t)
+	m.Engines["libtorrent"] = &fakeBT{}
+	m.URL = &fakeBT{}
+	s := m.Settings()
+	s.BT.MaxNum, s.HTTP.MaxNum = 3, 1
+	if err := m.SaveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	add := func(id, owner, kind, state string, pos int, paused bool) {
+		m.live[id] = &Task{Hash: id, Name: "task " + id, Owner: owner, Kind: kind, State: state, Position: pos, EngineRef: id, UserPaused: paused, CreatedAt: int64(pos)}
+	}
+	add("a", "alice", KindBT, StDownloading, 1, false)
+	add("b", "alice", KindBT, StDownloading, 2, false)
+	add("c", "bob", KindBT, StDownloading, 3, false)
+	add("d", "alice", KindBT, StQueued, 4, false)
+	add("p", "alice", KindHTTP, StPaused, 5, true)
+	add("e", "alice", KindBT, StQueued, 6, false)
+	add("u", "alice", KindHTTP, StDownloading, 7, false)
+	return m
+}
+
+func order(m *Manager) string {
+	var ids []string
+	for _, t := range m.queueOrder() {
+		ids = append(ids, t.Hash)
+	}
+	return strings.Join(ids, "")
+}
+
+func hashes(ts []*Task) string {
+	var ids []string
+	for _, t := range ts {
+		ids = append(ids, t.Hash)
+	}
+	return strings.Join(ids, "")
+}
+
+func TestMoveNear(t *testing.T) {
+	m := queueManager(t)
+	// A waiting torrent before the last one downloading takes its slot
+	started, stopped, err := m.MoveNear([]string{"e"}, "c", false, nil)
+	if err != nil || order(m) != "abecdpu" || hashes(started) != "e" || hashes(stopped) != "c" {
+		t.Fatalf("before c: %v %s started %s stopped %s", err, order(m), hashes(started), hashes(stopped))
+	}
+	// Back behind the slots: c gets its slot back
+	if started, stopped, _ = m.MoveNear([]string{"e"}, "d", true, nil); order(m) != "abcdepu" || hashes(started) != "c" || hashes(stopped) != "e" {
+		t.Fatalf("after d: %s %s %s", order(m), hashes(started), hashes(stopped))
+	}
+	// A block keeps its order; tasks of another kind keep their slots
+	if _, _, err = m.MoveNear([]string{"u", "a"}, "e", true, nil); err != nil || order(m) != "bcdeaup" {
+		t.Fatalf("block: %v %s", err, order(m))
+	}
+	if _, _, err = m.MoveNear([]string{"a"}, "a", true, nil); err != ErrBadPosition {
+		t.Errorf("anchor is the task itself: %v", err)
+	}
+}
+
+// A regular user cannot use, or learn about, other users' tasks
+func TestMoveNearVisibility(t *testing.T) {
+	m := queueManager(t)
+	mine := func(o *Task) bool { return o.Owner == "alice" }
+	if _, _, err := m.MoveNear([]string{"d"}, "c", false, mine); err != ErrNotFound {
+		t.Errorf("anchor of another user: %v", err)
+	}
+	// Bob's torrent loses its slot, but alice is not told which task it was
+	started, stopped, err := m.MoveNear([]string{"e"}, "a", false, mine)
+	if err != nil || hashes(started) != "e" || hashes(stopped) != "" || order(m) != "eabcdpu" {
+		t.Errorf("%v started %s stopped %s order %s", err, hashes(started), hashes(stopped), order(m))
+	}
+}
+
+func TestQueueRanks(t *testing.T) {
+	m := queueManager(t)
+	r := m.QueueRanks()
+	if r["d"] != 1 || r["e"] != 2 || r["a"] != 0 || r["p"] != 0 || len(r) != 2 {
+		t.Errorf("ranks %v", r)
+	}
+}

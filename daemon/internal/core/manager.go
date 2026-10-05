@@ -1246,15 +1246,39 @@ func (m *Manager) kindLimits(kind string) TypeLimits {
 	return s.BT
 }
 
-// schedule decides which tasks run and applies speed limits. Caller holds m.mu.
-func (m *Manager) schedule(now time.Time) {
-	mode := m.scheduleMode()
-	if m.schedMode != "" && mode != m.schedMode {
-		m.Emit(Event{Type: "schedule.changed", Data: map[string]any{"mode": mode, "by": "schedule"}})
+// slotHolders lists the tasks that get a download slot with the tasks in this
+// order: per kind, the first max_num that are in the engine and not paused,
+// finished, failed, moving or seeding. The scheduler and the queue moves use
+// the same rule, so what a move reports is what the next tick does.
+func (m *Manager) slotHolders(list []*Task, mode string) map[string]bool {
+	out := map[string]bool{}
+	if mode == "off" {
+		return out
 	}
-	m.schedMode = mode
-	nowU := now.Unix()
-	var list []*Task
+	count := map[string]int{}
+	for _, t := range list {
+		switch t.State {
+		case StDone, StError, StMoving, StSeeding:
+			continue
+		}
+		if t.EngineRef == "" || t.UserPaused {
+			continue
+		}
+		// A paused torrent with all its data seeds when it resumes
+		if t.State == StPaused && t.Kind == KindBT && t.FinishedAt > 0 && t.Size > 0 && t.DoneBytes >= t.Size {
+			continue
+		}
+		if count[t.Kind] < m.kindLimits(t.Kind).MaxNum {
+			count[t.Kind]++
+			out[t.Hash] = true
+		}
+	}
+	return out
+}
+
+// queueOrder is every live task in queue order. Caller holds m.mu.
+func (m *Manager) queueOrder() []*Task {
+	list := make([]*Task, 0, len(m.live))
 	for _, t := range m.live {
 		list = append(list, t)
 	}
@@ -1264,6 +1288,33 @@ func (m *Manager) schedule(now time.Time) {
 		}
 		return list[i].CreatedAt < list[j].CreatedAt
 	})
+	return list
+}
+
+// QueueRanks gives each task waiting for a slot its place among the waiting
+// tasks of its kind (from 1), counting every user's tasks.
+func (m *Manager) QueueRanks() map[string]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ranks, count := map[string]int{}, map[string]int{}
+	for _, t := range m.queueOrder() {
+		if t.State == StQueued && !t.UserPaused {
+			count[t.Kind]++
+			ranks[t.Hash] = count[t.Kind]
+		}
+	}
+	return ranks
+}
+
+// schedule decides which tasks run and applies speed limits. Caller holds m.mu.
+func (m *Manager) schedule(now time.Time) {
+	mode := m.scheduleMode()
+	if m.schedMode != "" && mode != m.schedMode {
+		m.Emit(Event{Type: "schedule.changed", Data: map[string]any{"mode": mode, "by": "schedule"}})
+	}
+	m.schedMode = mode
+	nowU := now.Unix()
+	list := m.queueOrder()
 	count := map[string]int{}
 	want := map[string]bool{}
 	anyDown := false
@@ -1274,6 +1325,9 @@ func (m *Manager) schedule(now time.Time) {
 			m.markDirty(t)
 			m.TaskEvent("task.resumed", t, map[string]any{"by": "timer"})
 		}
+	}
+	holders := m.slotHolders(list, mode)
+	for _, t := range list {
 		switch t.State {
 		case StDone, StError, StMoving:
 			continue
@@ -1310,8 +1364,7 @@ func (m *Manager) schedule(now time.Time) {
 			want[t.Hash] = true
 			continue
 		}
-		lim := m.kindLimits(t.Kind)
-		if count[t.Kind] < lim.MaxNum {
+		if holders[t.Hash] {
 			count[t.Kind]++
 			want[t.Hash] = true
 			anyDown = true

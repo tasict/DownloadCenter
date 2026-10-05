@@ -289,6 +289,8 @@ func coreError(err error) (status int, code, msg string) {
 		return 400, "url_unavailable", "This NAS cannot download this kind of URL (the download component dc-dl is unavailable)"
 	case errors.Is(err, core.ErrNoBT):
 		return 400, "bt_unavailable", "This NAS cannot download torrents (the BT engine is missing)"
+	case errors.Is(err, core.ErrBadPosition):
+		return 400, "bad_request", "Invalid position"
 	case errors.Is(err, core.ErrMoving):
 		return 409, "task_moving", "The files of this task are being moved. Try again when the move has finished."
 	case errors.Is(err, core.ErrUnsupported):

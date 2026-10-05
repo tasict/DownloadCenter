@@ -63,6 +63,7 @@ var (
 	ErrNoURL        = errors.New("url_unavailable")
 	ErrNoBT         = errors.New("bt_unavailable")
 	ErrMoving       = errors.New("task_moving")
+	ErrBadPosition  = errors.New("invalid position")
 )
 
 // DupError carries the id of the existing task.

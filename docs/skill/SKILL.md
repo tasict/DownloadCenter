@@ -125,8 +125,8 @@ Choose files before adding a magnet: `POST /tasks/probe` with `{"magnet": "<link
 ### Pause, resume, retry, order
 
 - `POST /tasks/{id}/pause` (body `{"minutes": 30}` pauses for a while), `POST /tasks/{id}/resume`, `POST /tasks/{id}/retry` (failed tasks).
-- `POST /tasks/bulk` with `{"ids": ["<id>", ...] | "all", "action": "pause" | "resume" | "retry" | "top" | "up" | "down" | "bottom"}` acts on several tasks; it answers how many changed (`count`).
-- `PATCH /tasks/{id}` with any of: `"position": "top" | "up" | "down" | "bottom" | <n>`, `"files": [indices]` (the files of a torrent to keep downloading), `"max_download"` / `"max_upload"` in **bytes per second** (`0` = no limit of its own), `"sequential": true` (download a torrent in order, for previewing), `"auto_remove"`.
+- `POST /tasks/bulk` with `{"ids": ["<id>", ...] | "all", "action": "pause" | "resume" | "retry" | "top" | "up" | "down" | "bottom"}` acts on several tasks; it answers how many changed (`count`). `"action": "move"` with `"before": "<id>"` or `"after": "<id>"` moves them together, in their queue order, next to that task.
+- `PATCH /tasks/{id}` with any of: `"position": "top" | "up" | "down" | "bottom" | <n> | {"before": "<id>"} | {"after": "<id>"}` (next to another task is the safe way to reorder: `<n>` also counts tasks of other users that this token does not see), `"files": [indices]` (the files of a torrent to keep downloading), `"max_download"` / `"max_upload"` in **bytes per second** (`0` = no limit of its own), `"sequential": true` (download a torrent in order, for previewing), `"auto_remove"`.
 
 ### Details
 
@@ -134,6 +134,8 @@ Choose files before adding a magnet: `POST /tasks/probe` with `{"magnet": "<link
 - `GET /tasks/{id}/files` → `{"files": [{"index", "path", "size", "done", "priority"}]}` (priority 0 = skipped).
 - `GET /tasks/{id}/folder` → `{"path", "file"}`: where the data is right now.
 - `GET /tasks/{id}/peers`, `GET /history?limit=50` (removed tasks).
+
+Moving a task next to another one answers `started` and `stopped`: the tasks that got or lost a download slot because of the move. Tell the user, for example "Echo started downloading; Charlie is waiting now". Only a limited number of tasks of each type (torrents, URLs, FTP) download at once; the others wait in queue order.
 
 ### Remove
 
@@ -170,6 +172,7 @@ Poll `GET /tasks/{id}` until `state` is `done` or `seeding` (finished) or `error
 | `error` | `{"code", "message"}` when `state` is `error` |
 | `user_paused`, `sched_paused`, `wake_time` | Paused by a person, by the schedule, and when a timed pause ends (Unix time) |
 | `position` | Place in the queue |
+| `queue_rank` | Waiting tasks only: place among the waiting tasks of the same type (1 = next to start) |
 | `folder`, `move_to`, `location`, `in_temp` | Where it downloads, where it goes when finished, where the data is now, whether that is still the temporary folder |
 | `owner`, `created_at`, `finished_at` | Owner and Unix times |
 
