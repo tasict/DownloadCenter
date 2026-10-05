@@ -2,6 +2,26 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.1.0
+
+- Drag tasks to change the download order. In queue order, drag a task by the handle at the end of its row, or by the row itself with a mouse. Before you let go, the gap says what dropping there does, for example that the task starts now and which one waits instead; afterwards the message says what really started or went back to waiting, with Undo. Several selected tasks move together. On phones, choose Select and drag the handles. With the keyboard, press Space on the handle and use the arrow keys, or Alt+↑/↓ on a row.
+- Waiting tasks show their place in the queue, such as “Queued: #1 in the torrent queue”.
+- Open on phone: on a computer, the sign-in page and Personal settings show a QR code of the page, so you can carry on with your phone. The code holds only the address; you sign in on the phone.
+- Torrents now introduce themselves as what they are by default: libtorrent, with the peer ID `-LT20F0-` and the User-Agent `libtorrent/2.0.15.0`, which agree with each other. Settings › Download › Client identity shows what is sent. Changing the client identity restarts the torrent engine, so every torrent announces with the new one.
+- Private torrents are never merged. Adding the same private torrent again, for example with another passkey, leaves the task as it is instead of adding trackers, and a private torrent with the same files as a task in the list is added as a task of its own. The add window and the task details say when a torrent is private.
+- Site accounts that use cookies send them again; the cookies were dropped before the download started.
+- Turning peer exchange on or off now takes effect.
+- A new share ratio or seeding time also applies to torrents that are already seeding.
+- Links to .torrent files sent from Qget, Qfile, browser extensions or chat commands are added as torrents. Chat commands also understand thunder://, flashget:// and qqdl:// links.
+- A notification channel with no events chosen sends nothing, as its settings show.
+- A webhook secret made by Download Center is shown once so you can copy it.
+- Schedule switches are notified, and a low disk space notice comes once until space is back.
+- The public address used in notification links and by LINE can be set in Settings › Notifications & integrations. Enter the address of the NAS; Download Center adds its own path.
+- Chat replies show readable error messages.
+- The preview starts with the largest audio or video file of a torrent.
+- Several settings texts now say exactly what happens: torrent proxies, deleting a default proxy, limited-speed periods, the import and the usage statistics.
+- For the API: `PATCH /tasks/{id}` takes a position next to another task (`{"before": id}` or `{"after": id}`) and `POST /tasks/bulk` the action `move`; both answer which tasks started or went back to waiting (`started`, `stopped`). Waiting tasks have `queue_rank`, `GET /tasks/{id}` has `private` for private torrents, `GET /settings` has `bt_identity`. New error codes: `task_moving`, `private_torrent`; unknown bulk actions are refused.
+
 ## 1.0.3
 
 - AI agents can manage your downloads. Settings › Access tokens has an AI Agent section: create a token for the agent and run the command it shows on the computer where Claude Code, Codex, Gemini CLI or another agent that reads skill files runs. The command installs a skill file served by your NAS; the agent can then add, check, pause and remove downloads for you. Its token never does more than your account and cannot delete files unless you allow it.
