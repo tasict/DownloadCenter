@@ -2,6 +2,13 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.1.1
+
+- Updates download several parts of the package at once. Where each connection to GitHub is slow, this is many times faster; the package is still checked against the signed release list.
+- You can close the page while Download Center updates. Opened again, it shows the progress, and an update that stopped before installing says why, here and in Settings › About and updates.
+- The handle for changing the download order no longer shows when the list is sorted by something other than queue order.
+- Open on phone moved into the sign-in card, beside the appearance switch. In Personal settings it is now one of the actions above Sign out.
+
 ## 1.1.0
 
 - Drag tasks to change the download order. In queue order, drag a task by the handle at the end of its row, or by the row itself with a mouse. Before you let go, the gap says what dropping there does, for example that the task starts now and which one waits instead; afterwards the message says what really started or went back to waiting, with Undo. Several selected tasks move together. On phones, choose Select and drag the handles. With the keyboard, press Space on the handle and use the arrow keys, or Alt+↑/↓ on a row.
