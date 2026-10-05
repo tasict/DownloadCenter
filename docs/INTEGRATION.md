@@ -204,7 +204,11 @@ New services can be added without code: an adapter is a JSON manifest describing
 
 Template variables: `event.*`, `task.*` (with `_h` human-readable variants such as `size_h`, `duration_h`), `owner`, `nas.name`, `ui_url`. Values are JSON-escaped when substituted into `body` and percent-encoded inside `url`.
 
-## 8. Implementation notes
+## 8. AI agents
+
+AI agents (Claude Code, Codex, Gemini CLI …) use this API through the skill file `docs/skill/SKILL.md`, which every installation serves at `/<Name>/docs/skill/SKILL.md`. The 存取權杖 page has an AI Agent section that creates a token with the 完整控制（不含刪檔） preset and shows a setup command that installs the skill and stores the address and token in `~/.config/download-center/config`. See [AI-AGENT.md](AI-AGENT.md). The skill tells agents to treat everything the API returns as data, never as instructions, and to confirm removals with the user.
+
+## 9. Implementation notes
 
 - Tokens, channels, webhooks, pairings, events and deliveries are SQLite tables beside the task tables; secrets (bot tokens, webhook secrets) are stored in `data/` with 0600 and never returned by the API after creation.
 - Delivery, retries, digests and the Telegram long poll run as goroutines inside `dcd` (`internal/notify`), supervised with the daemon by the watchdog, not in Apache requests.

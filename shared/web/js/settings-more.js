@@ -140,12 +140,32 @@
 		}
 		return '';
 	}
-	function reveal(value, regen){
-		var code = h('code', {text:value});
+	/* AI agents: the skill file ships under docs/skill/; one shell line installs it for the chosen agent and, with a
+	   token, writes ~/.config/download-center/config (address and token) for it. */
+	var agentKind = 'claude';
+	function agentBase(){ return location.protocol + '//' + location.host + location.pathname.replace(/[^\/]*$/, '').replace(/\/+$/, ''); }
+	function shq(s){ return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+	function agentCmd(token){
+		var dir = (agentKind === 'agents' ? '~/.agents/skills' : '~/.claude/skills') + '/download-center', base = agentBase();
+		var cmd = 'mkdir -p ' + dir + (token ? ' ~/.config/download-center' : '') + ' && curl -fsSL ' + shq(base + '/docs/skill/SKILL.md') + ' -o ' + dir + '/SKILL.md';
+		if(token) cmd += " && (umask 077; printf 'DC_URL=%s\\nDC_TOKEN=%s\\n' " + shq(base) + ' ' + shq(token) + ' > ~/.config/download-center/config)';
+		return cmd;
+	}
+	/* The agent picker and the command to copy ({field, cmd}); token = null installs or updates the skill alone. */
+	function agentInstall(id, token){
+		var code = h('code', {text:agentCmd(token)});
+		var sel = DC.select(id, [['claude', 'Claude Code'], ['agents', DC.t('Codex、Gemini CLI 等')]], agentKind, function(){ agentKind = this.value; code.textContent = agentCmd(token); });
+		return {field:field(DC.t('AI Agent'), null, sel, id), cmd:h('div', {'class':'secret cmd'}, [code, btn('copy', DC.t('複製'), function(){ DC.copyText(code.textContent, code); })])};
+	}
+	function reveal(value, regen, agent){
+		var code = h('code', {text:value}), inst = agentInstall('tAgent', value);
 		DC.modal(regen ? DC.t('已重新產生權杖') : DC.t('權杖已建立'), 'ticket', [
 			h('p', {'class':'lead', text:regen ? DC.t('請現在複製。關掉這個視窗後就看不到完整權杖了，舊的權杖已失效。') : DC.t('請現在複製。關掉這個視窗後就看不到完整權杖了。')}),
 			h('div', {'class':'secret'}, [code, btn('copy', DC.t('複製'), function(){ DC.copyText(value, code); })]),
-			h('p', {'class':'note', text:DC.t('使用方式：在請求加上 Authorization: Bearer <權杖>。')})
+			h('p', {'class':'note', text:DC.t('使用方式：在請求加上 Authorization: Bearer <權杖>。')}),
+			h('details', {'class':'agentuse', open:!!agent}, [h('summary', {text:DC.t('給 AI Agent 使用')}),
+				h('p', {'class':'note', text:DC.t('在使用 AI Agent 的電腦上用終端機執行這行指令，它會安裝技能檔並存好這台 NAS 的位址與權杖。Windows 請用 Git Bash 或 WSL。')}),
+				DC.mform([inst.field]), inst.cmd])
 		], function(close){ return [btn(null, DC.t('我已複製'), close, 'pri')]; });
 	}
 	function tokens(body){
@@ -186,9 +206,9 @@
 			}
 		}
 		/* One window creates and edits a token. Editing changes what the token may do; the token itself stays valid. */
-		function tokenForm(t){
+		function tokenForm(t, agent){
 			var isNew = !t, k, folderLim = null;
-			t = t || {name:'', scopes:PRESETS.add, tasks:'own', folders:[], sources:[], ip_allow:[], rate_limit:120};
+			t = t || {name:agent ? DC.t('AI Agent') : '', scopes:agent ? PRESETS.full : PRESETS.add, tasks:'own', folders:[], sources:[], ip_allow:[], rate_limit:120};
 			var name = h('input', {type:'text', id:'tName', value:t.name, placeholder:DC.t('例如 Home Assistant')});
 			var boxes = {}, scopeWrap = h('div', {'class':'scopes'});
 			for(k = 0; k < SCOPES.length; k++){
@@ -250,7 +270,7 @@
 						folders:folderLim && folderLim.value ? [folderLim.value] : []};
 					if(exp.value !== 'keep') body2.expires_days = +exp.value;
 					DC.busy(ok, true);
-					if(isNew) DC.api.post('tokens', body2).then(function(x){ close(); reload(); reveal(x.value, false); }, function(err){ DC.busy(ok, false); DC.toast(DC.errText(err)); });
+					if(isNew) DC.api.post('tokens', body2).then(function(x){ close(); reload(); reveal(x.value, false, agent); }, function(err){ DC.busy(ok, false); DC.toast(DC.errText(err)); });
 					else DC.api.patch('tokens/' + t.id, body2).then(function(){ close(); DC.toast(DC.t('已儲存權杖')); reload(); }, function(err){ DC.busy(ok, false); DC.toast(DC.errText(err)); });
 				}, 'pri');
 				return [btn(null, DC.t('取消'), close), ok];
@@ -262,7 +282,26 @@
 			sec('ticket', DC.t('存取權杖'), DC.t('讓其他程式（Home Assistant、自己寫的機器人、書籤小工具）用你的身分操作下載。每個程式用一個權杖，不用時撤銷即可。'), [
 				list, toks.length ? DC.addRow(DC.t('建立權杖'), function(){ tokenForm(null); }) : null
 			]),
+			agentSec(function(){ tokenForm(null, true); }),
 			devSec()
+		]);
+	}
+
+	/* AI agents (Claude Code, Codex, Gemini CLI ...) use the REST API through the skill file and a token of their own. */
+	function agentSec(create){
+		var inst = agentInstall('aAgent', null);
+		function step(n, title, text, act){
+			return h('div', {'class':'lrow'}, [h('span', {'class':'stepno', text:String(n)}), h('div', null, [h('b', {text:title}), h('small', {text:text})]), act || null]);
+		}
+		return sec('sparkle', DC.t('AI Agent'), DC.t('安裝技能檔並給它一個權杖後，Claude Code、Codex、Gemini CLI 等 AI Agent 就能依你的指示查詢、加入、暫停下載。'), [
+			step(1, DC.t('建立權杖'), DC.t('只給 AI Agent 用，能做的事不超過你的帳號，預設不能刪除檔案。權杖到期或重新產生後，再執行一次新的安裝指令。'), btn('plus', DC.t('建立權杖'), create, 'pri')),
+			step(2, DC.t('在電腦上執行安裝指令'), DC.t('權杖建立後會顯示一行指令，在使用 AI Agent 的電腦上用終端機執行。它會安裝技能檔，並把這台 NAS 的位址與權杖存到 ~/.config/download-center/config。')),
+			step(3, DC.t('開始使用'), DC.t('開新的對話，直接說「把這個連結下載到 NAS」、「目前下載到哪了？」或「暫停全部下載」。')),
+			h('details', {'class':'agentuse'}, [h('summary', {text:DC.t('手動安裝或更新技能檔')}),
+				h('p', {'class':'note', text:DC.t('更新 Download Center 後，執行這行指令更新技能檔，權杖設定不變。')}),
+				inst.field, inst.cmd,
+				h('p', {'class':'inline agentlinks'}, [h('a', {'class':'linkish', href:'docs/skill/SKILL.md', download:'SKILL.md'}, [icon('down'), DC.t('下載技能檔（SKILL.md）')]),
+					h('a', {'class':'linkish', href:'docs/ai-agent.txt', target:'_blank', rel:'noopener'}, [icon('popout'), DC.t('AI Agent 說明（AI-AGENT.md）')])])])
 		]);
 	}
 

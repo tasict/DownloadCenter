@@ -39,6 +39,7 @@
 		bell:'<g class="a-bell"><path d="M12 4.5a5.5 5.5 0 0 0-5.5 5.5v4.2L5 16.5h14l-1.5-2.3V10A5.5 5.5 0 0 0 12 4.5z"/><path d="M12 3v1.5"/></g><path class="a-clap" d="M10.2 19a2 2 0 0 0 3.6 0"/>',
 		chat:'<path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 16h-9l-4.5 3.5V16H5a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 5 5z"/><circle class="a-d1 dot" cx="8.5" cy="10.6" r="1.1"/><circle class="a-d2 dot" cx="12" cy="10.6" r="1.1"/><circle class="a-d3 dot" cx="15.5" cy="10.6" r="1.1"/>',
 		plug:'<g class="a-plug"><path d="M9 3v4M15 3v4"/><path d="M7 7h10v3a5 5 0 0 1-10 0z"/></g><path d="M12 15v6"/>',
+		sparkle:'<g class="a-sparkle"><path d="M10.5 4c.7 4.3 2.4 6 6.5 6.5-4.1.5-5.8 2.2-6.5 6.5-.7-4.3-2.4-6-6.5-6.5 4.1-.5 5.8-2.2 6.5-6.5z"/></g><path class="a-tw" d="M18 14.5v5M15.5 17h5"/>',
 		ticket:'<g class="a-ticket"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h13A1.5 1.5 0 0 1 20 7.5V10a2 2 0 0 0 0 4v2.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 16.5V14a2 2 0 0 0 0-4z"/><path d="M14.5 6.5v11" stroke-dasharray="1.5 2"/><path d="M7.5 10.2h3.5M7.5 13.8h4.5"/></g>',
 		copy:'<path d="M8.5 8V5.5A1.5 1.5 0 0 1 10 4h8.5A1.5 1.5 0 0 1 20 5.5V14a1.5 1.5 0 0 1-1.5 1.5H16"/><rect class="a-front" x="4" y="8.5" width="11.5" height="11.5" rx="1.5"/>',
 		sun:'<circle cx="12" cy="12" r="4"/><g class="a-rays"><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></g>',

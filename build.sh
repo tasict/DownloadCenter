@@ -62,15 +62,18 @@ echo ""
 
 # The license and the third-party notices go into the package (the binaries carry
 # statically linked libraries whose licenses require their notices); the UI links
-# them, and the integration guide, from the settings
-for f in LICENSE THIRD-PARTY-NOTICES.txt docs/INTEGRATION.md; do
+# them, the integration guide, the AI agent guide and the agent skill (fetched by the
+# install command on the 存取權杖 page) from the settings
+for f in LICENSE THIRD-PARTY-NOTICES.txt docs/INTEGRATION.md docs/AI-AGENT.md docs/skill/SKILL.md; do
 	[ -f "$f" ] || { echo "Missing $f. Aborting build."; exit 1; }
 done
-mkdir -p shared/web/docs
+mkdir -p shared/web/docs/skill
 cp -f LICENSE THIRD-PARTY-NOTICES.txt shared/
 cp -f LICENSE shared/web/docs/license.txt
 cp -f THIRD-PARTY-NOTICES.txt shared/web/docs/third-party-notices.txt
 cp -f docs/INTEGRATION.md shared/web/docs/integration.txt
+cp -f docs/AI-AGENT.md shared/web/docs/ai-agent.txt
+cp -f docs/skill/SKILL.md shared/web/docs/skill/SKILL.md
 
 if [ -n "$GO" ]; then
 	echo "Generating UI dictionaries..."

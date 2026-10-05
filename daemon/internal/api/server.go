@@ -324,6 +324,9 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	switch ext {
 	case ".webmanifest":
 		w.Header().Set("Content-Type", "application/manifest+json")
+	case ".md":
+		// The agent skill: shown as text in a browser, fetched as is by curl
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	case ".html":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'")

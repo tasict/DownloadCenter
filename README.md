@@ -15,6 +15,7 @@ Download Center is not affiliated with, endorsed by or supported by QNAP Systems
 - **File-hosting accounts.** 1fichier, Rapidgator, Real-Debrid and AllDebrid through their official APIs with your own account, or cookies for other sites.
 - **Preview while downloading.** Watch or listen to the part that is already downloaded, browse archives, and switch a torrent to sequential download.
 - **Notifications and integration.** Telegram, LINE, Discord, Slack, ntfy, Gotify, Bark, QTS notifications and signed webhooks; a REST API with personal access tokens and an event stream ([docs/INTEGRATION.md](docs/INTEGRATION.md)).
+- **AI agents.** Claude Code, Codex, Gemini CLI and other agents that read skill files can add and manage downloads for you, with a token of their own and a skill file served by your NAS ([docs/AI-AGENT.md](docs/AI-AGENT.md)).
 - **Works with existing clients.** Qget, Qfile and browser extensions keep working through a compatible `/downloadstation/V4/` endpoint once Download Station is removed or disabled.
 - **Import from Download Station.** Settings, unfinished tasks, history and site accounts. The import only reads the official data and can be run again.
 - **Runs anywhere you open it.** Inside the QTS desktop, in its own browser tab, or on a phone; light and dark themes; 13 languages.
@@ -53,7 +54,7 @@ GO=/path/to/go sh build.sh [arch] # vet, build dcd, lint, package with qbuild in
 | `dcbt/`, `dcdl/` | Engine sources and their protocol with `dcd` |
 | `shared/` | Service script and the web interface (ES5, no build step) |
 | `tools/` | Engine build scripts |
-| `docs/` | Integration API, interface design notes and a clickable prototype |
+| `docs/` | Integration API, AI agent guide and skill, interface design notes and a clickable prototype |
 
 ## Use it lawfully
 
