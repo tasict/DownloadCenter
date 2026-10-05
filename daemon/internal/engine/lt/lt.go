@@ -56,7 +56,13 @@ type Engine struct {
 	haveG   bool
 	version string
 	cmd     *exec.Cmd
-	oldBT   atomic.Bool // dc-bt older than 1.1: cannot move data while seeding
+	oldBT   atomic.Bool  // dc-bt older than 1.1: cannot move data while seeding
+	lib     atomic.Value // libtorrent version (string), for the default identity
+	// The client identity ([2]string: Global.PeerID, PeerAgent) the running
+	// dc-bt started with. Torrents keep the peer id they were added with, so
+	// it keeps that identity until it starts again: sending a new User-Agent
+	// alone would announce a mix of both.
+	runIdentity atomic.Value
 
 	omu       sync.Mutex
 	offsets   map[string]int64 // upload already counted before a resumed re-add
@@ -110,8 +116,55 @@ func (e *Engine) sockPath() string {
 func (e *Engine) pidPath() string      { return filepath.Join(e.dataDir, "run", "dc-bt.pid") }
 func (e *Engine) settingsPath() string { return filepath.Join(e.dataDir, "dc-bt.json") }
 
-// settingsJSON maps the global options to the dc-bt settings object.
-func settingsJSON(g engine.Global) map[string]any {
+var errRestart = errors.New("dc-bt: restart required for the new client identity")
+
+// ownIdentity is libtorrent's own peer id prefix and User-Agent for its
+// version, written the way libtorrent's generate_fingerprint does it:
+// "2.0.15.0" gives "-LT20F0-" and "libtorrent/2.0.15.0". Empty when the
+// version is unknown.
+func ownIdentity(version string) (string, string) {
+	if version == "" {
+		return "", ""
+	}
+	b := []byte("-LT0000-")
+	for i, p := range strings.SplitN(version, ".", 4) {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 || n > 35 {
+			return "", ""
+		}
+		if n < 10 {
+			b[3+i] = byte('0' + n)
+		} else {
+			b[3+i] = byte('A' + n - 10)
+		}
+	}
+	return string(b), "libtorrent/" + version
+}
+
+func (e *Engine) libVersion() string {
+	v, _ := e.lib.Load().(string)
+	return v
+}
+
+// OwnIdentity reports the identity the default client identity setting uses.
+func (e *Engine) OwnIdentity() (string, string) { return ownIdentity(e.libVersion()) }
+
+// binVersion asks the dc-bt binary for its libtorrent version, before the
+// first start (its settings are read when it starts).
+func (e *Engine) binVersion() {
+	out, err := exec.Command(e.bin, "--version").Output()
+	if err != nil {
+		return
+	}
+	// "dc-bt 1.3 libtorrent 2.0.15.0"
+	if f := strings.Fields(string(out)); len(f) == 4 && f[2] == "libtorrent" {
+		e.lib.Store(f[3])
+	}
+}
+
+// settingsJSON maps the global options to the dc-bt settings object; lib is
+// the libtorrent version, whose own identity is the default one.
+func settingsJSON(g engine.Global, lib string) map[string]any {
 	from, to := g.PortFrom, g.PortTo
 	if from <= 0 {
 		from, to = 16891, 16899
@@ -132,17 +185,21 @@ func settingsJSON(g engine.Global) map[string]any {
 			px["peers"] = false
 		}
 	}
+	prefix, agent := g.PeerID, g.PeerAgent
+	if prefix == "" {
+		prefix, agent = ownIdentity(lib)
+	}
 	return map[string]any{
 		"listen_from": from, "listen_to": to,
 		"dht": g.DHT, "lsd": g.LSD, "pex": g.PEX, "upnp": g.UPnP, "encrypt": g.Encrypt,
 		"connections_limit": g.MaxConn, "max_down": g.MaxDown, "max_up": g.MaxUp,
-		"peer_id_prefix": g.PeerID, "user_agent": g.PeerAgent,
+		"peer_id_prefix": prefix, "user_agent": agent,
 		"proxy": px,
 	}
 }
 
 func (e *Engine) writeSettings() error {
-	b, _ := json.Marshal(settingsJSON(e.global))
+	b, _ := json.Marshal(settingsJSON(e.global, e.libVersion()))
 	os.MkdirAll(e.dataDir, 0700)
 	tmp := e.settingsPath() + ".tmp"
 	if err := os.WriteFile(tmp, b, 0600); err != nil {
@@ -164,8 +221,9 @@ func (e *Engine) Start() error {
 	if err := e.connect(); err == nil {
 		if v, err := e.getVersion(); err == nil {
 			e.version = v
+			e.runIdentity.Store([2]string{e.global.PeerID, e.global.PeerAgent})
 			if e.haveG {
-				e.call("apply_settings", map[string]any{"settings": settingsJSON(e.global)}, nil)
+				e.call("apply_settings", map[string]any{"settings": settingsJSON(e.global, e.libVersion())}, nil)
 			}
 			log.Printf("libtorrent: reusing running dc-bt (%s)", v)
 			return nil
@@ -180,6 +238,10 @@ func (e *Engine) spawn() error {
 	os.MkdirAll(filepath.Join(e.dataDir, "logs"), 0700)
 	os.MkdirAll(filepath.Join(e.dataDir, "bt"), 0700)
 	os.MkdirAll(filepath.Join(e.dataDir, "torrents"), 0700)
+	if e.libVersion() == "" {
+		e.binVersion()
+	}
+	e.runIdentity.Store([2]string{e.global.PeerID, e.global.PeerAgent})
 	if err := e.writeSettings(); err != nil {
 		return err
 	}
@@ -387,6 +449,7 @@ func (e *Engine) getVersion() (string, error) {
 		return "", err
 	}
 	e.oldBT.Store(!versionAtLeast(v.Dcbt, 1, 1))
+	e.lib.Store(v.Libtorrent)
 	return v.Libtorrent, nil
 }
 
@@ -448,10 +511,21 @@ func (e *Engine) ApplyGlobal(g engine.Global) error {
 	if !e.connected() {
 		return nil
 	}
-	return e.call("apply_settings", map[string]any{"settings": settingsJSON(g)}, nil)
+	live := g
+	if run, ok := e.runIdentity.Load().([2]string); ok {
+		live.PeerID, live.PeerAgent = run[0], run[1]
+	}
+	if err := e.call("apply_settings", map[string]any{"settings": settingsJSON(live, e.libVersion())}, nil); err != nil {
+		return err
+	}
+	if live.PeerID != g.PeerID || live.PeerAgent != g.PeerAgent {
+		return errRestart
+	}
+	return nil
 }
 
-// Restart applies new settings; dc-bt applies them live.
+// Restart applies new settings; dc-bt applies them live, or starts again
+// when they need it (peer exchange, the client identity).
 func (e *Engine) Restart(g engine.Global) error {
 	if err := e.ApplyGlobal(g); err != nil {
 		e.smu.Lock()

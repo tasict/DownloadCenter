@@ -126,7 +126,13 @@
 			field(DC.t('Client ID'), DC.t('Two letters'), h('input', {type:'text', id:'bPeerId', value:tor.peer_id || '', maxlength:'2', size:'3'}), 'bPeerId'),
 			field(DC.t('Version'), null, h('input', {type:'text', id:'bPeerVer', value:tor.peer_version || '', size:'8'}), 'bPeerVer'),
 			field('User agent', null, h('input', {type:'text', id:'bPeerAgent', value:tor.peer_agent || '', maxlength:'64'}), 'bPeerAgent')]);
-		var peerSel = DC.select('bPeerMode', PEER_MODES, String(tor.peer_mode === undefined ? 1 : tor.peer_mode), function(){ peerCustom.hidden = this.value !== '0'; });
+		/* The default is the torrent engine's own identity: say which libtorrent it is and what it sends */
+		var peerMode = String(tor.peer_mode === undefined ? 1 : tor.peer_mode), bid = r.bt_identity, ltVer = (r.engine_versions || {}).libtorrent, peerModes = PEER_MODES, peerNote = null;
+		if(bid && ltVer){
+			peerModes = [[1, DC.t('Download Center (libtorrent {version}, default)', {version:ltVer})]].concat(PEER_MODES.slice(1));
+			peerNote = h('p', {'class':'note', hidden:peerMode !== '1', text:DC.t('Reported to trackers and peers as peer ID prefix {peer_id} and User-Agent {agent}.', {peer_id:bid.peer_id, agent:bid.user_agent})});
+		}
+		var peerSel = DC.select('bPeerMode', peerModes, peerMode, function(){ peerCustom.hidden = this.value !== '0'; if(peerNote) peerNote.hidden = this.value !== '1'; });
 		function kind(id, t, help){
 			return [field(t, help || null, num(id + 'Max', s[id] ? s[id].max_num : 1, DC.t('max'), {min:'1', max:'50'}), id + 'Max')];
 		}
@@ -179,6 +185,7 @@
 				field(DC.t('Connection limit per torrent'), DC.t('0 means no limit'), num('bTConn', tor.torrent_max_conn, DC.t('max')), 'bTConn'),
 				field(DC.t('Upload limit per torrent'), DC.t('0 means no limit'), num('bTUp', tor.torrent_max_up, 'KB/s'), 'bTUp'),
 				field(DC.t('Client identity'), DC.t('Some private trackers accept only specific clients'), peerSel, 'bPeerMode'),
+				peerNote,
 				peerCustom,
 			]),
 			proxySec(px, caps, ucaps),

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"downloadcenter/internal/engine"
@@ -189,13 +190,95 @@ func TestAdapter(t *testing.T) {
 }
 
 func TestSettingsHTTPProxy(t *testing.T) {
-	s := settingsJSON(engine.Global{Proxy: engine.Proxy{Type: "http", Host: "h", Port: 3128, ApplyPeers: true, ApplyTrackers: true}})
+	s := settingsJSON(engine.Global{Proxy: engine.Proxy{Type: "http", Host: "h", Port: 3128, ApplyPeers: true, ApplyTrackers: true}}, "")
 	px := s["proxy"].(map[string]any)
 	if px["peers"] != false || px["trackers"] != true {
 		t.Fatalf("http proxy must only carry trackers: %v", px)
 	}
-	s = settingsJSON(engine.Global{})
+	s = settingsJSON(engine.Global{}, "")
 	if s["proxy"].(map[string]any)["type"] != "none" || s["listen_from"] != 16891 {
 		t.Fatalf("defaults %v", s)
+	}
+}
+
+func TestOwnIdentity(t *testing.T) {
+	for v, want := range map[string][2]string{
+		"2.0.15.0": {"-LT20F0-", "libtorrent/2.0.15.0"},
+		"2.0.9":    {"-LT2090-", "libtorrent/2.0.9"},
+		"2.1.10.1": {"-LT21A1-", "libtorrent/2.1.10.1"},
+		"":         {"", ""},
+		"dev":      {"", ""},
+	} {
+		if id, agent := ownIdentity(v); id != want[0] || agent != want[1] {
+			t.Errorf("%q -> %q %q", v, id, agent)
+		}
+	}
+}
+
+// The default identity is libtorrent's own; another one is sent as set.
+func TestSettingsIdentity(t *testing.T) {
+	s := settingsJSON(engine.Global{}, "2.0.15.0")
+	if s["peer_id_prefix"] != "-LT20F0-" || s["user_agent"] != "libtorrent/2.0.15.0" {
+		t.Errorf("default: %v %v", s["peer_id_prefix"], s["user_agent"])
+	}
+	s = settingsJSON(engine.Global{PeerID: "-TR2940-", PeerAgent: "Transmission/2.94"}, "2.0.15.0")
+	if s["peer_id_prefix"] != "-TR2940-" || s["user_agent"] != "Transmission/2.94" {
+		t.Errorf("transmission: %v %v", s["peer_id_prefix"], s["user_agent"])
+	}
+}
+
+// The version is read from the binary before dc-bt first starts.
+func TestBinVersion(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "dc-bt")
+	os.WriteFile(bin, []byte("#!/bin/sh\necho \"dc-bt 1.3 libtorrent 2.0.15.0\"\n"), 0755)
+	e := newEngine(bin, t.TempDir())
+	e.binVersion()
+	if id, _ := e.OwnIdentity(); id != "-LT20F0-" {
+		t.Errorf("identity %q", id)
+	}
+}
+
+// A new client identity needs dc-bt to start again: running torrents keep
+// the peer id they were added with.
+func TestNewIdentity(t *testing.T) {
+	dir := t.TempDir()
+	f := newFake(t, dir, func(req map[string]any) (any, string) {
+		if req["cmd"] == "version" {
+			return map[string]any{"dcbt": "1.3", "libtorrent": "2.0.15.0"}, ""
+		}
+		return map[string]any{}, ""
+	})
+	defer f.ln.Close()
+	e := newEngine("/bin/true", dir)
+	if err := e.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ApplyGlobal(engine.Global{DHT: true}); err != nil {
+		t.Fatalf("first settings: %v", err)
+	}
+	if err := e.ApplyGlobal(engine.Global{DHT: false}); err != nil {
+		t.Fatalf("same identity: %v", err)
+	}
+	err := e.ApplyGlobal(engine.Global{PeerID: "-TR2940-", PeerAgent: "Transmission/2.94"})
+	if err == nil || !strings.Contains(err.Error(), "restart required") {
+		t.Fatalf("new identity: %v", err)
+	}
+	// The running dc-bt keeps the identity it started with until then
+	var live map[string]any
+	for len(f.reqs) > 0 {
+		if r := <-f.reqs; r["cmd"] == "apply_settings" {
+			live = r["settings"].(map[string]any)
+		}
+	}
+	if live == nil || live["peer_id_prefix"] != "-LT20F0-" || live["user_agent"] != "libtorrent/2.0.15.0" {
+		t.Errorf("sent to the running dc-bt: %v", live)
+	}
+	// Until dc-bt has started again
+	if err := e.ApplyGlobal(engine.Global{PeerID: "-TR2940-", PeerAgent: "Transmission/2.94"}); err == nil {
+		t.Fatal("restart forgotten")
+	}
+	b, _ := os.ReadFile(e.settingsPath())
+	if !strings.Contains(string(b), "-TR2940-") {
+		t.Errorf("settings file: %s", b)
 	}
 }

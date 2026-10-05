@@ -155,7 +155,7 @@ Poll `GET /tasks/{id}` until `state` is `done` or `seeding` (finished) or `error
 
 ### Settings (administrators with `settings:*`)
 
-`GET /settings`, then `PUT /settings` with only the keys you change, for example the speed limits in **KB/s** under `http`, `ftp`, `bt`: `{"bt": {"max_down": 5000}}`. `GET /schedule`; `PUT /schedule` with `{"enabled": true}` or `{"days": [7 strings of 24 characters, Monday first]}` where each character is one hour: `1` full speed, `2` limited, `0` paused. Settings apply to every user of the NAS: change them only when asked, and say what you changed.
+`GET /settings` (it also answers `bt_identity`: the peer ID prefix and User-Agent the default client identity sends), then `PUT /settings` with only the keys you change, for example the speed limits in **KB/s** under `http`, `ftp`, `bt`: `{"bt": {"max_down": 5000}}`. `GET /schedule`; `PUT /schedule` with `{"enabled": true}` or `{"days": [7 strings of 24 characters, Monday first]}` where each character is one hour: `1` full speed, `2` limited, `0` paused. Settings apply to every user of the NAS: change them only when asked, and say what you changed.
 
 ## Task fields
 

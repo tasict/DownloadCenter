@@ -12,6 +12,7 @@ import (
 
 	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
+	"downloadcenter/internal/engine"
 	"downloadcenter/internal/netutil"
 )
 
@@ -41,12 +42,19 @@ func (s *Server) settingsView(p *auth.Principal) map[string]any {
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-	OK(w, map[string]any{
+	resp := map[string]any{
 		"settings":        s.settingsView(p),
 		"engines":         s.engineCaps(),
 		"engine_versions": s.engineVersions(),
 		"health":          s.M.EngineHealth(),
-	})
+	}
+	// What the default client identity sends
+	if bt, ok := s.M.BTEngine().(engine.OwnIdentity); ok {
+		if id, agent := bt.OwnIdentity(); id != "" {
+			resp["bt_identity"] = map[string]string{"peer_id": id, "user_agent": agent}
+		}
+	}
+	OK(w, resp)
 }
 
 func (s *Server) engineVersions() map[string]string {

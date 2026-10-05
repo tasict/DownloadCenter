@@ -87,7 +87,7 @@ Errors: HTTP status + `{"error": {"code": "folder_not_allowed", "message": "…"
 | `POST /events/ticket`, `GET /events/stream?ticket=` | `events:read` | Server-Sent Events, one `data:` line per event, heartbeat every 25 s |
 | `POST /commands` | per command | See 5 |
 | `GET/POST/PATCH/DELETE /webhooks…` | `notify:manage` | See 4 |
-| `GET/PUT /settings`, `GET/PUT /schedule` | `settings:*` | |
+| `GET/PUT /settings`, `GET/PUT /schedule` | `settings:*` | `GET /settings` also answers `engine_versions` and, with a torrent engine, `bt_identity` (`peer_id`, `user_agent`): what the default client identity sends |
 
 ## 3. Events
 

@@ -63,7 +63,7 @@ Download Center downloads whatever links, torrent files or magnet links you give
 - Only download content you have the right to obtain. Downloading or sharing copyrighted software, video, music or other works without permission may be illegal where you live.
 - BitTorrent uploads the pieces you have to other people while you download, and they can see your IP address.
 - You are responsible for what you download and how you use this software. As stated in the [license](LICENSE), it comes without warranty, and the authors are not liable for any damage or legal consequence arising from its use.
-- **Client identity** (Settings → Download → Torrents) can make the torrent engine report itself as another BitTorrent client. Some private trackers forbid this and may ban accounts that do it. Leave it at "Download Center" unless you know your tracker's rules.
+- **Client identity** (Settings → Download → Torrents): by default the torrent engine reports what it is, libtorrent (for libtorrent 2.0.15 the peer ID starts with `-LT20F0-` and the User-Agent is `libtorrent/2.0.15.0`). Whether a private tracker accepts it is up to the tracker. The other choices make the engine report itself as another BitTorrent client; some private trackers forbid this and may ban accounts that do it. Leave it at "Download Center" unless you know your tracker's rules.
 - When you use a file-hosting account, the hosting service's terms of use apply.
 
 The interface shows a short version of this notice the first time each account signs in.

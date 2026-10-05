@@ -41,6 +41,7 @@ func (m *Manager) GlobalFor(name string) engine.Global {
 }
 
 // peerIdentity maps the official peer_mode to a peer id prefix and agent.
+// The default (1) leaves both empty: the engine reports its own identity.
 func peerIdentity(b BTSettings) (prefix, agent string) {
 	switch b.PeerMode {
 	case 0:

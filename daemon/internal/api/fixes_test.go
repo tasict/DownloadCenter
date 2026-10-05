@@ -9,6 +9,7 @@ import (
 
 	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
+	"downloadcenter/internal/engine"
 	"downloadcenter/internal/store"
 )
 
@@ -89,5 +90,35 @@ func TestBulkMoveNeedsAnchor(t *testing.T) {
 	s.bulk(rec, httptest.NewRequest("POST", "/x", bytes.NewReader(b)), &auth.Principal{User: "admin", Admin: true, Via: "session", AllTasks: true})
 	if rec.Code != 400 {
 		t.Errorf("status %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// identEngine is a torrent engine that reports its own client identity.
+type identEngine struct{ engine.Engine }
+
+func (identEngine) Name() string                  { return "libtorrent" }
+func (identEngine) Version() string               { return "2.0.15.0" }
+func (identEngine) Caps() engine.Caps             { return engine.Caps{Torrents: true} }
+func (identEngine) Health() error                 { return nil }
+func (identEngine) OwnIdentity() (string, string) { return "-LT20F0-", "libtorrent/2.0.15.0" }
+
+// The settings say what the default client identity sends.
+func TestSettingsBTIdentity(t *testing.T) {
+	s := fixServer(t)
+	admin := &auth.Principal{User: "admin", Admin: true, Via: "session", AllTasks: true}
+	get := func() map[string]any {
+		rec := httptest.NewRecorder()
+		s.getSettings(rec, httptest.NewRequest("GET", "/x", nil), admin)
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return out
+	}
+	if _, ok := get()["bt_identity"]; ok {
+		t.Error("bt_identity without a torrent engine")
+	}
+	s.M.Engines["libtorrent"] = identEngine{}
+	id, _ := get()["bt_identity"].(map[string]any)
+	if id["peer_id"] != "-LT20F0-" || id["user_agent"] != "libtorrent/2.0.15.0" {
+		t.Errorf("bt_identity %v", id)
 	}
 }

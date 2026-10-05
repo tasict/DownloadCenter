@@ -133,7 +133,7 @@ type Global struct {
 	TorrentMaxUp   int64
 	SeedRatio      float64
 	SeedTime       int
-	PeerID         string // peer id prefix, e.g. "-LT1218-"
+	PeerID         string // peer id prefix, e.g. "-TR2940-"; empty = the engine's own identity
 	PeerAgent      string
 	Proxy          Proxy
 }
@@ -192,6 +192,13 @@ type Engine interface {
 // (or single file) on the way; nothing at the destination is replaced.
 type StorageMover interface {
 	MoveStorage(ref, dir, root string) error
+}
+
+// OwnIdentity is implemented by engines with a client identity of their own,
+// used when Global.PeerID is empty: the peer id prefix and User-Agent (empty
+// while unknown).
+type OwnIdentity interface {
+	OwnIdentity() (peerID, agent string)
 }
 
 // Error codes reported in Status.ErrorCode. The numbers are aria2's exit
