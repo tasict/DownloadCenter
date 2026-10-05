@@ -243,40 +243,50 @@ func Error(w http.ResponseWriter, status int, code, msg string) {
 // Fail maps a core error to an HTTP error.
 func Fail(w http.ResponseWriter, err error) {
 	var dup *core.DupError
-	switch {
-	case errors.As(err, &dup):
+	if errors.As(err, &dup) {
 		JSON(w, 409, map[string]any{"error": map[string]string{"code": "duplicate", "message": Tr(w, "這個任務已在清單中")}, "id": dup.ID})
-	case errors.Is(err, core.ErrFolder):
-		Error(w, 403, "folder_not_allowed", "不能使用這個資料夾")
-	case errors.Is(err, core.ErrReadOnly):
-		Error(w, 403, "folder_read_only", "這個資料夾無法寫入")
-	case errors.Is(err, core.ErrNotFound):
-		Error(w, 404, "not_found", "找不到這個任務")
-	case errors.Is(err, core.ErrNotOwner):
-		Error(w, 403, "not_owner", "這不是你的任務")
-	case errors.Is(err, core.ErrBadURL):
-		Error(w, 400, "url_not_supported", "不支援這種網址")
-	case errors.Is(err, core.ErrBadTorrent):
-		Error(w, 400, "torrent_invalid", "種子檔格式不正確")
-	case errors.Is(err, core.ErrBadMagnet):
-		Error(w, 400, "magnet_invalid", "磁力連結格式不正確")
-	case errors.Is(err, core.ErrOtherOwner):
-		Error(w, 409, "duplicate_other_owner", "其他使用者已經在下載這個種子")
-	case errors.Is(err, core.ErrProxyGone):
-		Error(w, 400, "proxy_gone", err.Error())
-	case errors.Is(err, core.ErrProxyNotAllowed):
-		Error(w, 403, "proxy_not_allowed", err.Error())
-	case errors.Is(err, core.ErrProxyRequired):
-		Error(w, 403, "proxy_required", err.Error())
-	case errors.Is(err, core.ErrNoURL):
-		Error(w, 400, "url_unavailable", "這台 NAS 無法下載這種網址（下載元件 dc-dl 無法使用）")
-	case errors.Is(err, core.ErrNoBT):
-		Error(w, 400, "bt_unavailable", "這台 NAS 無法下載種子（缺少 BT 引擎）")
-	case errors.Is(err, core.ErrUnsupported):
-		Error(w, 400, "unsupported", "目前的引擎不支援這個操作")
-	default:
-		Error(w, 400, "failed", err.Error())
+		return
 	}
+	status, code, msg := coreError(err)
+	Error(w, status, code, msg)
+}
+
+// coreError is the HTTP status, error code and (untranslated) message of a
+// core error, for Fail and for the per-source results of adding tasks.
+func coreError(err error) (status int, code, msg string) {
+	switch {
+	case errors.Is(err, core.ErrDuplicate):
+		return 409, "duplicate", "這個任務已在清單中"
+	case errors.Is(err, core.ErrFolder):
+		return 403, "folder_not_allowed", "不能使用這個資料夾"
+	case errors.Is(err, core.ErrReadOnly):
+		return 403, "folder_read_only", "這個資料夾無法寫入"
+	case errors.Is(err, core.ErrNotFound):
+		return 404, "not_found", "找不到這個任務"
+	case errors.Is(err, core.ErrNotOwner):
+		return 403, "not_owner", "這不是你的任務"
+	case errors.Is(err, core.ErrBadURL):
+		return 400, "url_not_supported", "不支援這種網址"
+	case errors.Is(err, core.ErrBadTorrent):
+		return 400, "torrent_invalid", "種子檔格式不正確"
+	case errors.Is(err, core.ErrBadMagnet):
+		return 400, "magnet_invalid", "磁力連結格式不正確"
+	case errors.Is(err, core.ErrOtherOwner):
+		return 409, "duplicate_other_owner", "其他使用者已經在下載這個種子"
+	case errors.Is(err, core.ErrProxyGone):
+		return 400, "proxy_gone", err.Error()
+	case errors.Is(err, core.ErrProxyNotAllowed):
+		return 403, "proxy_not_allowed", err.Error()
+	case errors.Is(err, core.ErrProxyRequired):
+		return 403, "proxy_required", err.Error()
+	case errors.Is(err, core.ErrNoURL):
+		return 400, "url_unavailable", "這台 NAS 無法下載這種網址（下載元件 dc-dl 無法使用）"
+	case errors.Is(err, core.ErrNoBT):
+		return 400, "bt_unavailable", "這台 NAS 無法下載種子（缺少 BT 引擎）"
+	case errors.Is(err, core.ErrUnsupported):
+		return 400, "unsupported", "目前的引擎不支援這個操作"
+	}
+	return 400, "failed", err.Error()
 }
 
 // Decode reads a JSON body (max 4 MB).

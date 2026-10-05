@@ -343,7 +343,14 @@ func (s *Server) checkFolders(p *auth.Principal, o *core.AddOptions) bool {
 type addOut struct {
 	Source string `json:"source"`
 	*core.AddResult
-	Error map[string]string `json:"error,omitempty"`
+	Error  map[string]string `json:"error,omitempty"`
+	status int               // HTTP status of Error when it is the only result
+}
+
+// fail records why a source could not be added.
+func (out *addOut) fail(err error) {
+	st, code, msg := coreError(err)
+	out.status, out.Error = st, map[string]string{"code": code, "message": msg}
 }
 
 func (s *Server) addOne(p *auth.Principal, src string, o core.AddOptions) addOut {
@@ -355,13 +362,13 @@ func (s *Server) addOne(p *auth.Principal, src string, o core.AddOptions) addOut
 	switch {
 	case strings.HasPrefix(low, "magnet:"):
 		if !p.SourceAllowed("magnet") {
-			out.Error = map[string]string{"code": "source_not_allowed", "message": "The token may not add magnet links"}
+			out.status, out.Error = 403, map[string]string{"code": "source_not_allowed", "message": "The token may not add magnet links"}
 			return out
 		}
 		res, err = s.M.AddMagnet(src, o)
 	default:
 		if !p.SourceAllowed("url") {
-			out.Error = map[string]string{"code": "source_not_allowed", "message": "The token may not add URLs"}
+			out.status, out.Error = 403, map[string]string{"code": "source_not_allowed", "message": "The token may not add URLs"}
 			return out
 		}
 		if b := s.fetchTorrentURL(p, src, o.Proxy); b != nil {
@@ -372,30 +379,7 @@ func (s *Server) addOne(p *auth.Principal, src string, o core.AddOptions) addOut
 	}
 	out.AddResult = res
 	if err != nil {
-		code := "failed"
-		switch {
-		case err == core.ErrFolder:
-			code = "folder_not_allowed"
-		case err == core.ErrReadOnly:
-			code = "folder_read_only"
-		case err == core.ErrOtherOwner:
-			code = "duplicate_other_owner"
-		case strings.Contains(err.Error(), "duplicate"):
-			code = "duplicate"
-		case err == core.ErrBadURL:
-			code = "url_not_supported"
-		case err == core.ErrBadMagnet:
-			code = "magnet_invalid"
-		}
-		msg := err.Error()
-		if code == "duplicate_other_owner" {
-			msg = "其他使用者已經在下載這個種子"
-		} else if code == "duplicate" {
-			msg = "這個任務已在清單中"
-		} else if code == "folder_not_allowed" {
-			msg = "不能使用這個資料夾"
-		}
-		out.Error = map[string]string{"code": code, "message": msg}
+		out.fail(err)
 	}
 	return out
 }
@@ -431,18 +415,11 @@ func (s *Server) addTasks(w http.ResponseWriter, r *http.Request, p *auth.Princi
 	if len(results) == 1 {
 		r0 := results[0]
 		if r0.Error != nil {
-			status := 400
-			switch r0.Error["code"] {
-			case "duplicate", "duplicate_other_owner":
-				status = 409
-			case "folder_not_allowed", "source_not_allowed":
-				status = 403
-			}
 			body := map[string]any{"error": r0.Error}
 			if r0.AddResult != nil {
 				body["id"] = r0.ID
 			}
-			JSON(w, status, body)
+			JSON(w, r0.status, body)
 			return
 		}
 		OK(w, map[string]any{"id": r0.ID, "name": r0.Name, "merged": r0.Merged, "results": results})
@@ -511,25 +488,17 @@ func (s *Server) addTorrentUpload(w http.ResponseWriter, r *http.Request, p *aut
 		res, err := s.M.AddTorrent(data, o)
 		out.AddResult = res
 		if err != nil {
-			code := "failed"
-			if err == core.ErrBadTorrent {
-				code = "torrent_invalid"
-			} else if err == core.ErrFolder {
-				code = "folder_not_allowed"
-			} else if err == core.ErrReadOnly {
-				code = "folder_read_only"
-			}
-			out.Error = map[string]string{"code": code, "message": errMsg(err)}
+			out.fail(err)
 		}
 		results = append(results, out)
 	}
 	trResults(w, results)
 	if len(results) == 1 && results[0].Error != nil {
-		status := 400
-		if results[0].Error["code"] == "folder_not_allowed" {
-			status = 403
+		body := map[string]any{"error": results[0].Error}
+		if results[0].AddResult != nil {
+			body["id"] = results[0].ID
 		}
-		JSON(w, status, map[string]any{"error": results[0].Error})
+		JSON(w, results[0].status, body)
 		return
 	}
 	resp := map[string]any{"results": results}
@@ -537,20 +506,6 @@ func (s *Server) addTorrentUpload(w http.ResponseWriter, r *http.Request, p *aut
 		resp["id"], resp["name"], resp["merged"] = results[0].ID, results[0].Name, results[0].Merged
 	}
 	OK(w, resp)
-}
-
-func errMsg(err error) string {
-	switch err {
-	case core.ErrBadTorrent:
-		return "種子檔格式不正確"
-	case core.ErrFolder:
-		return "不能使用這個資料夾"
-	case core.ErrReadOnly:
-		return "這個資料夾無法寫入"
-	case core.ErrBadMagnet:
-		return "磁力連結格式不正確"
-	}
-	return err.Error()
 }
 
 func (s *Server) checkTasks(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
