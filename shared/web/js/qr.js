@@ -234,8 +234,12 @@
 			localOnly(location.hostname) ? h('p', {'class':'note warn', text:DC.t('This address works only on the same network as this computer.')}) : null
 		], function(close){ return [btn(null, DC.t('Done'), close, 'pri')]; });
 	};
-	/* The button for the sign-in page and Personal settings; CSS hides it on touch devices outside the QTS desktop */
-	DC.phoneButton = function(cls, before){
-		return h('button', {'class':'ib phoneb ' + cls, type:'button', onclick:function(){ if(before) before(); DC.openOnPhone(); }}, [DC.icon('qr'), h('span', {text:DC.t('Open on phone')})]);
+	/* The button: an icon beside the appearance switch of the sign-in card, a named action in Personal settings. CSS hides
+	   everything marked phoneb on touch devices outside the QTS desktop. */
+	DC.phoneButton = function(named, before){
+		var label = DC.t('Open on phone');
+		function open(){ if(before) before(); DC.openOnPhone(); }
+		if(named) return h('button', {'class':'ib linkish phoneb', type:'button', onclick:open}, [DC.icon('qr'), h('span', {text:label})]);
+		return h('button', {'class':'ib sq phoneb', type:'button', 'aria-label':label, title:label, onclick:open}, DC.icon('qr'));
 	};
 })();

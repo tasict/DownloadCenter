@@ -318,10 +318,12 @@
 			h('b', {text:me.user}),
 			h('span', {'class':'note', text:me.admin ? DC.t('Administrator') : DC.t('Regular user')}),
 			me.nas && me.nas.hostname ? h('span', {'class':'note', text:DC.t('NAS: {host}', {host:me.nas.hostname})}) : null])]);
+		/* Open on phone joins the actions above the footer, on a line of its own; touch devices get none of it */
+		var phone = h('div', {'class':'me-phone phoneb'}, DC.phoneButton(true, function(){ closeFn(); }));
 		var out = DC.embedded
-			? h('div', {'class':'me-out'}, [h('button', {'class':'ib linkish', type:'button', onclick:function(){ closeFn(); window.open(location.href, '_blank', 'noopener'); }}, [icon('popout'), DC.t('Open in new tab')]),
+			? h('div', {'class':'me-out'}, [phone, h('button', {'class':'ib linkish', type:'button', onclick:function(){ closeFn(); window.open(location.href, '_blank', 'noopener'); }}, [icon('popout'), DC.t('Open in new tab')]),
 				h('span', {'class':'note', text:DC.t('Inside the QTS desktop, the QTS sign-in is used. To sign out, sign out of QTS.')})])
-			: h('div', {'class':'me-out'}, [h('button', {'class':'ib linkish out', type:'button', onclick:function(){
+			: h('div', {'class':'me-out'}, [phone, h('button', {'class':'ib linkish out', type:'button', onclick:function(){
 					closeFn();
 					DC.confirm(DC.t('Sign out of Download Center?'), 'lock', DC.t('The sign-in is shared with QTS; QTS in this browser will be signed out too.'), DC.t('Sign out'), function(){ stopLive(); DC.login.logout(); }, true);
 				}}, [icon('lock'), DC.t('Sign out')]),
@@ -332,7 +334,6 @@
 			DC.themeSeg(),
 			/* Glass level only inside the QTS desktop, where the window sits over the desktop wallpaper; a full tab keeps the default */
 			DC.embedded ? [h('h3', {'class':'me-h', text:DC.t('Glass')}), glassSlider()] : null,
-			DC.phoneButton('me-qr', function(){ closeFn(); }),
 			out,
 			h('div', {'class':'foot me-foot'}, [h('span', {'class':'num', text:'Download Center ' + ((me.nas && me.nas.version) || '')})].concat(DC.supportLinks()))
 		], function(close){

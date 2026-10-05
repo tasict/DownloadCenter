@@ -218,7 +218,7 @@ button{cursor:pointer}
 }
 
 /* ---------- sign in ---------- */
-.login{min-height:100%;display:grid;place-items:center;align-content:center;row-gap:14px;padding-block:48px;
+.login{min-height:100%;display:grid;place-items:center;padding-block:48px;
 	background:radial-gradient(60% 50% at 20% 25%,var(--w1),transparent 70%),radial-gradient(55% 55% at 85% 30%,var(--w2),transparent 70%),radial-gradient(60% 60% at 50% 95%,var(--w3),transparent 70%),var(--bg)}
 .lbox{width:min(360px,100%);padding:34px 28px 26px;border-radius:30px;animation:rise .45s cubic-bezier(.2,1,.3,1);text-align:center}
 .lbox .brand{flex-direction:column;gap:12px;font-size:22px;margin-bottom:4px}
@@ -236,6 +236,11 @@ button{cursor:pointer}
 .lerr:empty{min-height:0;margin-top:0}
 .lnote{margin-top:18px;font-size:12.5px;color:var(--label2);line-height:1.6;text-align:center}
 .lnote .seg{margin-top:14px}
+/* The foot of the card holds what concerns this device: the appearance switch, and Open on phone as a key of the same size */
+.lutil{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:14px}
+.lutil .seg{margin-top:0}
+.lutil .ib.phoneb{border-radius:10px;background:var(--fill);color:var(--label)}
+.lutil .ib.phoneb:hover,.lutil .ib.phoneb:focus-visible{background:var(--fill2)}
 .lpw{position:relative;display:block}
 .lpw input{padding-right:48px}
 .leye.ib.sq{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;height:40px}
@@ -854,11 +859,7 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 
 /* ---------- open on phone ---------- */
 /* Only on computers: touch devices do not get it, the QTS desktop always does, whatever the window width */
-.phoneb{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:500;color:var(--label2);background:transparent;cursor:pointer}
-.phoneb .ic{width:17px;height:17px}
-.phoneb:hover,.phoneb:focus-visible{color:var(--label);background:var(--fill)}
 @media (hover:none) and (pointer:coarse){ :root:not(.embedded) .phoneb{display:none} }
-.lqr{justify-self:center;background:rgba(var(--glass-rgb),.45);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
 .ic .a-qr{transition:opacity .2s}
 .ib:is(:hover,:focus-visible) .a-qr{animation:qr-blink 1.2s ease-in-out infinite}
 @keyframes qr-blink{50%{opacity:.25}}
@@ -1041,15 +1042,14 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 .me-av{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font:700 19px var(--f-round);color:var(--on-accent);
 	background:linear-gradient(145deg,var(--accent),color-mix(in srgb,var(--accent) 60%,#5E5CE6))}
 .me-h{margin:8px 0 6px;font:600 13px/1.4 var(--f);color:var(--label2)}
-/* The sign-out row sits apart from the footer: a text button with its consequence beside it */
-.me-qr{margin:14px 0 -6px -10px;padding:6px 10px;border-radius:10px;font-size:14px;font-weight:600;color:var(--label)}
-.me-qr .ic{width:16px;height:16px}
-.me-out{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:22px;padding-top:14px;border-top:1px solid var(--sep)}
+/* The actions sit apart from the footer: text buttons, with a consequence beside the last one */
+.me-out{display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;margin-top:22px;padding-top:14px;border-top:1px solid var(--sep)}
 .me-out .linkish{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin-left:-10px;border-radius:10px;font-weight:600;color:var(--label)}
 .me-out .linkish.out{color:var(--fault)}
 .me-out .linkish:hover{background:var(--fill)}
 .me-out .linkish .ic{width:16px;height:16px}
 .me-out .note{flex:1 1 180px;margin:0}
+.me-phone{flex-basis:100%}
 .me-ver{margin:14px 0 0;color:var(--label3)}
 /* Foot of the personal menu: one quiet line, the same as the settings footer */
 .me-foot{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--sep);align-items:center;gap:4px 14px}

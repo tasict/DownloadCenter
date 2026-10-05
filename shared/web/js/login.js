@@ -159,7 +159,8 @@
 					h('label', {'class':'lrem', 'for':'lRem'}, [rem, DC.t('Remember user name')]),
 					go, err
 				]),
-				h('div', {'class':'lnote'}, [h('div', {text:DC.t('Uses the same account as QTS. Opening from the QTS desktop signs you in directly. On a phone, you can add this page to the home screen.')}), DC.themeSeg ? DC.themeSeg() : null])
+				h('div', {'class':'lnote'}, [h('div', {text:DC.t('Uses the same account as QTS. Opening from the QTS desktop signs you in directly. On a phone, you can add this page to the home screen.')}),
+					h('div', {'class':'lutil'}, [DC.themeSeg ? DC.themeSeg() : null, DC.phoneButton ? DC.phoneButton(false) : null])])
 			]);
 			if(msg) err.textContent = msg;
 			httpWarning(warn);
@@ -255,7 +256,7 @@
 				h('div', {'class':'lnote'}, backLink())
 			]);
 		}
-		app.appendChild(h('div', {'class':'login'}, [box, DC.phoneButton('lqr')]));
+		app.appendChild(h('div', {'class':'login'}, box));
 		step1(msg);
 	}
 
