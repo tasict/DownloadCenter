@@ -11,14 +11,23 @@
 
 	function allowed(){ return DC.isAdmin() && DC.S.me && DC.S.me.via === 'session'; }
 	function load(){ return DC.api.get('update', null, {quiet:true}).then(function(v){ U.view = v; tag(); return v; }); }
-	function boot(){ if(allowed()) load().then(lastResult, function(){}); }
+	/* The update runs on the NAS whether or not a page watches it: a page opened meanwhile picks up its progress */
+	function running(v){ var p = v && v.job && v.job.phase; return p === 'download' || p === 'verify' || p === 'backup' || p === 'install'; }
+	function boot(){
+		if(!allowed()) return;
+		load().then(function(v){
+			if(running(v)) progress(v.job.target);
+			else stopped(v);
+			lastResult(v);
+		}, function(){});
+	}
 
 	/* ---------- toolbar tag ---------- */
 	function tag(){
 		var v = U.view, el = R.upd;
 		if(!el) return;
 		clear(el);
-		el.hidden = !(v && v.available && v.latest);
+		el.hidden = !(v && v.available && v.latest) || running(v);
 		if(el.hidden) return;
 		el.title = DC.t('Version {version} is available', {version:v.latest.version});
 		add(el, [icon('up'), h('span', {text:DC.t('New version {version}', {version:v.latest.version})})]);
@@ -53,8 +62,17 @@
 		});
 	}
 
+	/* An update that stopped before installing, once per browser: the page may have been closed while it ran */
+	function stopped(v){
+		var j = v && v.job, seen = +(DC.ls('dc-update-failed-seen') || 0);
+		if(!j || j.phase !== 'failed' || !j.at || j.at <= seen) return;
+		DC.ls('dc-update-failed-seen', j.at);
+		DC.toast(failText(j), null, 9000);
+	}
+	function failText(j){ return DC.sentences(DC.t('The update to {version} did not finish.', {version:j.target}), FAIL[j.error] || DC.t('The update failed.')); }
+
 	function start(version){
-		DC.api.post('update/install', {version:version}).then(function(v){ U.view = v; progress(version); }, function(err){ DC.toast(DC.errText(err)); });
+		DC.api.post('update/install', {version:version}).then(function(v){ U.view = v; tag(); progress(version); }, function(err){ DC.toast(DC.errText(err)); });
 	}
 
 	var FAIL = {
@@ -71,7 +89,7 @@
 		var phase = h('b', {'class':'up-phase', text:DC.t('Preparing…')}), fill = h('i'), sub = h('p', {'class':'note num'});
 		var closeW = DC.modal(DC.t('Update to {version}', {version:target}), 'up', [
 			h('div', {'class':'up-prog'}, [phase, h('div', {'class':'upbar', 'aria-hidden':'true'}, fill), sub]),
-			h('p', {'class':'note', text:DC.t('Keep this page open during the update.')})
+			h('p', {'class':'note', text:DC.t('You can close this page: the update carries on on the NAS, and the result shows the next time you open Download Center.')})
 		], function(){ return []; }, {persist:true});
 		var box = document.querySelectorAll('.modal'), t0 = Date.now(), wentDown = false;
 		box = box[box.length - 1];
@@ -88,8 +106,8 @@
 					if(j.total){ fill.style.width = Math.min(100, j.done * 100 / j.total).toFixed(1) + '%'; sub.textContent = DC.fsize(j.done) + ' / ' + DC.fsize(j.total); }
 				}else if(j.phase === 'verify'){ phase.textContent = DC.t('Checking the signature and files…'); fill.style.width = '100%'; sub.textContent = ''; }
 				else if(j.phase === 'backup') phase.textContent = DC.t('Backing up the database…');
-				else if(j.phase === 'install'){ installing(); return; }
-				else if(j.phase === 'failed'){ failed(FAIL[j.error] || DC.t('The update failed.'), j.detail); return; }
+				else if(j.phase === 'install' || !j.phase){ installing(); return; }
+				else if(j.phase === 'failed'){ DC.ls('dc-update-failed-seen', j.at || 0); failed(FAIL[j.error] || DC.t('The update failed.'), j.detail); return; }
 				setTimeout(job, 800);
 			}, function(){ installing(); });
 		}
@@ -151,7 +169,9 @@
 				toggle('upPre', DC.t('Include pre-releases'), DC.t('Pre-releases may still have problems; turn this on only on a NAS you use for testing'), v.prerelease, function(){ setPref(body, {prerelease:this.checked}); }),
 				v.feed ? h('p', {'class':'note warn mono', text:DC.t('Using a custom update source: {url}', {url:v.feed})}) : null,
 				v.last ? h('p', {'class':'note' + (v.last.ok ? '' : ' warn'), text:v.last.ok ? DC.t('{time}: updated from {from} to {version}.', {time:DC.ftime(v.last.at), from:v.last.from, version:v.last.to}) : DC.t('{time}: the update to {version} did not complete; still {from}.', {time:DC.ftime(v.last.at), from:v.last.from, version:v.last.to})}) : null,
-				v.last && !v.last.ok && v.last.log ? h('pre', {'class':'relnotes mono', text:v.last.log}) : null
+				v.last && !v.last.ok && v.last.log ? h('pre', {'class':'relnotes mono', text:v.last.log}) : null,
+				v.job && v.job.phase === 'failed' ? h('p', {'class':'note warn', text:failText(v.job)}) : null,
+				v.job && v.job.phase === 'failed' && v.job.detail ? h('pre', {'class':'relnotes mono', text:v.job.detail}) : null
 			]),
 			DC.S.me.analytics ? sec('gauge', DC.t('Usage statistics'), null, [
 				toggle('anOn', DC.t('Help improve Download Center'), DC.t('Sends anonymous usage statistics to Google Analytics once a day: version, model, which features are used and how often. No file names, links or accounts.'), DC.S.me.analytics.enabled, function(){

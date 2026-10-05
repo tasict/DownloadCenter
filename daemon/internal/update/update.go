@@ -7,6 +7,7 @@
 package update
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -64,6 +66,7 @@ type Job struct {
 	Total  int64  `json:"total,omitempty"`
 	Error  string `json:"error,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	At     int64  `json:"at,omitempty"` // when it failed
 }
 
 // Last is the outcome of the most recent update, recorded at the next start.
@@ -491,7 +494,8 @@ func (s *Service) setJob(f func(j *Job)) {
 
 func (s *Service) fail(code string, err error) {
 	log.Printf("update: %s: %v", code, err)
-	s.setJob(func(j *Job) { j.Phase, j.Error, j.Detail = "failed", code, err.Error() })
+	at := time.Now().Unix()
+	s.setJob(func(j *Job) { j.Phase, j.Error, j.Detail, j.At = "failed", code, err.Error(), at })
 }
 
 type progress struct {
@@ -562,29 +566,8 @@ func (s *Service) run(r release.FeedRelease, a release.FeedAsset) {
 		return
 	}
 	// The package
-	rc, size, err := s.open(a.URL, 30*time.Minute)
-	if err != nil {
-		s.fail("download", err)
-		return
-	}
-	if size > 0 {
-		s.setJob(func(j *Job) { j.Total = size })
-	}
 	part := filepath.Join(dir, a.Name+".part")
-	f, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
-	if err != nil {
-		rc.Close()
-		s.fail("download", err)
-		return
-	}
-	h, n, err := release.HashReader(io.TeeReader(io.LimitReader(rc, maxPackage+1), io.MultiWriter(f, &progress{s: s})))
-	rc.Close()
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil && n > maxPackage {
-		err = errors.New("the package is too large")
-	}
+	h, err := s.fetch(a.URL, part)
 	if err != nil {
 		os.Remove(part)
 		s.fail("download", err)
@@ -633,6 +616,239 @@ func (s *Service) run(r release.FeedRelease, a release.FeedAsset) {
 		os.Remove(filepath.Join(dir, "state.json"))
 		s.fail("install", err)
 	}
+}
+
+// Packages download in parts over several connections when the server takes
+// ranges: a slow route to a CDN limits each connection, not the line (one
+// connection to GitHub's release files can be a hundred times slower than
+// the line).
+var (
+	partSize    int64 = 1 << 20
+	partWorkers       = 6
+	partTries         = 3
+	partBackoff       = time.Second // before the second try; twice that before the third
+)
+
+// errNoRanges: the server answered a range with the whole file.
+var errNoRanges = errors.New("the server stopped taking ranges")
+
+// fetch downloads the package into part and returns its SHA-256.
+func (s *Service) fetch(u, part string) (string, error) {
+	f, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0600)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if strings.HasPrefix(u, "file://") {
+		return s.whole(u, f)
+	}
+	if !strings.HasPrefix(u, "https://") && (s.official || !strings.HasPrefix(u, "http://")) {
+		return "", fmt.Errorf("refusing %s", u)
+	}
+	h, err := s.parts(u, f)
+	if err == errNoRanges {
+		if err = f.Truncate(0); err != nil {
+			return "", err
+		}
+		return s.whole(u, f)
+	}
+	return h, err
+}
+
+// whole downloads the package in one piece.
+func (s *Service) whole(u string, f *os.File) (string, error) {
+	rc, size, err := s.open(u, 30*time.Minute)
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+	return s.stream(rc, size, f)
+}
+
+// stream writes one answer to f from its start, hashing it on the way.
+func (s *Service) stream(r io.Reader, size int64, f *os.File) (string, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	s.setJob(func(j *Job) {
+		j.Done = 0
+		if size > 0 {
+			j.Total = size
+		}
+	})
+	h, n, err := release.HashReader(io.TeeReader(io.LimitReader(r, maxPackage+1), io.MultiWriter(f, &progress{s: s})))
+	if err == nil && n > maxPackage {
+		err = errors.New("the package is too large")
+	}
+	return h, err
+}
+
+// parts asks for the first range; a server that takes ranges gets the rest
+// from several workers, one part at a time each, so a slow connection does
+// not hold up the end. One answered with the whole file is read in one piece.
+// The parts go straight to where the first one was redirected (GitHub's
+// signed address), back to the original address once that fails: the
+// signature may have run out.
+func (s *Service) parts(u string, f *os.File) (string, error) {
+	c := s.client(10 * time.Minute)
+	resp, err := s.rangeGet(context.Background(), c, u, 0, partSize-1)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode == http.StatusOK {
+		defer resp.Body.Close()
+		return s.stream(resp.Body, resp.ContentLength, f)
+	}
+	total, first, err := rangeOf(resp, 0, partSize-1)
+	if err == nil && total > maxPackage {
+		err = errors.New("the package is too large")
+	}
+	if err != nil {
+		resp.Body.Close()
+		return "", err
+	}
+	s.setJob(func(j *Job) { j.Total, j.Done = total, 0 })
+	var src atomic.Value
+	src.Store(resp.Request.URL.String())
+	var done atomic.Int64
+	add := func(n int64) {
+		v := done.Add(n)
+		s.setJob(func(j *Job) { j.Done = v })
+	}
+	err = readPart(resp.Body, f, 0, first, add)
+	resp.Body.Close()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var next atomic.Int64
+	next.Store(first)
+	var wg sync.WaitGroup
+	var once sync.Once
+	var ferr error
+	for w := int64(0); w < min(int64(partWorkers), (total-first+partSize-1)/partSize); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				start := next.Add(partSize) - partSize
+				if start >= total {
+					return
+				}
+				if err := s.part(ctx, c, u, &src, f, start, min(start+partSize, total)-1, total, add); err != nil {
+					once.Do(func() { ferr = err; cancel() })
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if ferr != nil {
+		return "", ferr
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	h, n, err := release.HashReader(f)
+	if err == nil && n != total {
+		err = fmt.Errorf("downloaded %d of %d bytes", n, total)
+	}
+	return h, err
+}
+
+// part downloads bytes start-end from src, trying again a few times; after a
+// failure src is the original address u again.
+func (s *Service) part(ctx context.Context, c *http.Client, u string, src *atomic.Value, f *os.File, start, end, total int64, add func(int64)) error {
+	var err error
+	for try := 0; try < partTries; try++ {
+		if err != nil {
+			src.Store(u)
+		}
+		if try > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(try) * partBackoff):
+			}
+		}
+		var resp *http.Response
+		if resp, err = s.rangeGet(ctx, c, src.Load().(string), start, end); err != nil {
+			continue
+		}
+		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			return errNoRanges
+		}
+		var size int64
+		if size, _, err = rangeOf(resp, start, end); err == nil && size != total {
+			err = fmt.Errorf("the package changed size (%d, was %d)", size, total)
+		}
+		if err != nil {
+			resp.Body.Close()
+			continue
+		}
+		var got int64
+		err = readPart(resp.Body, f, start, end-start+1, func(n int64) { got += n; add(n) })
+		resp.Body.Close()
+		if err == nil {
+			return nil
+		}
+		add(-got)
+	}
+	return err
+}
+
+func (s *Service) rangeGet(ctx context.Context, c *http.Client, u string, start, end int64) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "DownloadCenter/"+s.version)
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		resp.Body.Close()
+		return nil, fmt.Errorf("%s: HTTP %d", u, resp.StatusCode)
+	}
+	return resp, nil
+}
+
+// rangeOf checks a 206 answer for bytes start-end (or up to the end of a
+// smaller file) and returns the file size and the length of the part.
+func rangeOf(resp *http.Response, start, end int64) (total, n int64, err error) {
+	var a, b int64
+	cr := resp.Header.Get("Content-Range")
+	if resp.StatusCode != http.StatusPartialContent {
+		return 0, 0, fmt.Errorf("HTTP %d for a range", resp.StatusCode)
+	}
+	if _, err := fmt.Sscanf(cr, "bytes %d-%d/%d", &a, &b, &total); err != nil || a != start || b < a || b >= total || (b != end && b != total-1) {
+		return 0, 0, fmt.Errorf("unexpected Content-Range %q for bytes %d-%d", cr, start, end)
+	}
+	return total, b - a + 1, nil
+}
+
+// readPart writes exactly n bytes of r to f at off.
+func readPart(r io.Reader, f *os.File, off, n int64, add func(int64)) error {
+	buf := make([]byte, 32<<10)
+	for n > 0 {
+		m, err := io.ReadFull(r, buf[:min(int64(len(buf)), n)])
+		if m > 0 {
+			if _, werr := f.WriteAt(buf[:m], off); werr != nil {
+				return werr
+			}
+			off += int64(m)
+			n -= int64(m)
+			add(int64(m))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type state struct {
