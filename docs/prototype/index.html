@@ -270,7 +270,9 @@ main{min-width:0}
 .add:focus-within{box-shadow:inset 0 .5px 0 var(--glass-edge),0 0 0 4px color-mix(in srgb,var(--accent) 28%,transparent),var(--glass-shadow)}
 .kind{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--label3);background:var(--fill)}
 .kind.k-url,.kind.k-mixed,.kind.k-page{color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
-.kind.k-magnet,.kind.k-bad{color:var(--fault);background:color-mix(in srgb,var(--fault) 14%,transparent)}
+/* Magnets in purple: red is kept for input that cannot be added */
+.kind.k-magnet{color:var(--work);background:color-mix(in srgb,var(--work) 14%,transparent)}
+.kind.k-bad{color:var(--fault);background:color-mix(in srgb,var(--fault) 14%,transparent)}
 .kind.k-torrent{color:var(--seed);background:color-mix(in srgb,var(--seed) 16%,transparent)}
 .kind .ic{width:19px;height:19px}
 .addInput{border:0;outline:0;background:transparent;resize:none;min-height:34px;max-height:120px;padding:7px 2px;font:14px/1.45 var(--f-mono);width:100%}
