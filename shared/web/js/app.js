@@ -137,7 +137,8 @@
 			loadPortrait();
 			DC.track('session'); DC.track('lang_' + DC.lang); DC.track('theme_' + (S.theme || 'auto'));
 			DC.track(DC.embedded ? 'layout_embedded' : DC.phone() ? 'layout_phone' : 'layout_desktop');
-			if(DC.noticeDue()) DC.showNotice(true);
+			/* First use: the usage notice, then (administrators, next to the official package) the offer to import its data */
+			if(DC.noticeDue()) DC.showNotice(true, DC.offerImport); else DC.offerImport();
 			DC.update.boot();
 		}, function(e){
 			if(e.code === 'not_on_list') DC.login.show(e.message);

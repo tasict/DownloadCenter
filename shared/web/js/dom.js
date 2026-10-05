@@ -329,8 +329,8 @@
 	DC.noticeDue = function(){ var me = DC.S && DC.S.me; return !!(me && me.via !== 'token' && !(me.prefs && me.prefs.notice >= NOTICE_VERSION)); };
 	/* One page, two parts: what the user is responsible for when downloading, and what the anonymous statistics carry.
 	   Administrators decide about the statistics right here (the switch starts on, so agreeing is all it takes);
-	   regular users see the same facts and who decides. */
-	DC.showNotice = function(first){
+	   regular users see the same facts and who decides. then runs once the notice is agreed to. */
+	DC.showNotice = function(first, then){
 		var items = [
 			DC.t('Download Center only downloads the links, torrent files and magnet links you give it. It does not provide, search for or recommend any content.'),
 			DC.t('Only download content you have the right to obtain. Downloading or sharing copyrighted software, video, music or other works without permission may break the law where you live.'),
@@ -364,6 +364,7 @@
 				DC.savePref('notice', NOTICE_VERSION);
 				if(sw) DC.api.put('analytics', {enabled:DC.chk('ntStats')}).then(function(r){ if(DC.S.me) DC.S.me.analytics = r; }, function(){});
 				close();
+				if(then) then();
 			}, 'pri')] : [btn(null, DC.t('Close'), close, 'pri')];
 		}, {persist:!!first});
 	};

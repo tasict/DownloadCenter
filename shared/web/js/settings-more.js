@@ -671,5 +671,37 @@
 		return parts.join(DC.t('; '));
 	}
 
+	/* First use next to the official package: an administrator is asked once (pref "import_offer") whether to bring its data
+	   over, and is taken to the import page or told where to find it later. /me only hints (checked at start-up);
+	   GET /import decides, so nothing is offered once something has been imported. */
+	function offerImport(){
+		var me = DC.S.me;
+		if(!me || !me.admin || me.via !== 'session' || !me.import_available || DC.pref('import_offer')) return;
+		DC.api.get('import', null, {quiet:true}).then(function(r){
+			var vols = r.volumes || [], unfinished = 0, completed = 0, accts = 0, i, off = r.official || {};
+			if(!r.available) return;
+			for(i = 0; i < vols.length; i++){ unfinished += vols[i].unfinished || 0; completed += vols[i].completed || 0; accts += vols[i].accounts || 0; }
+			var where = DC.t('Settings') + ' › ' + DC.t('Import from official version');
+			DC.modal(DC.t('Import from Download Station?'), 'inbox', [
+				h('p', {'class':'lead', text:DC.t('Download Station is installed on this NAS. Download Center can bring over its settings, tasks and site accounts. The import only reads its data and never changes it.')}),
+				h('p', {'class':'note', text:DC.t('Found: {unfinished} unfinished tasks, {completed} finished records, {accounts} site accounts.', {unfinished:unfinished, completed:completed, accounts:accts})}),
+				off.running || off.enabled ? h('p', {'class':'note warn', text:DC.t('Download Station is still running. The import page shows you how to stop it first.')}) : null
+			], function(close){
+				return [btn(null, DC.t('Not now'), function(){
+					DC.savePref('import_offer', 1);
+					close();
+					DC.modal(DC.t('You can import later'), 'inbox', [
+						h('p', {'class':'lead', text:DC.t('Whenever you are ready, open {place}. You can run the import at any time, and again if needed.', {place:where})})
+					], function(close2){ return [btn(null, DC.t('Close'), close2, 'pri')]; });
+				}), btn(null, DC.t('Import now'), function(){
+					DC.savePref('import_offer', 1);
+					close();
+					DC.leave(function(){ DC.S.setTab = 'import'; DC.S.setOpen = true; DC.go('settings'); window.scrollTo(0, 0); });
+				}, 'pri')];
+			}, {persist:true});
+		}, function(){});
+	}
+	DC.offerImport = offerImport;
+
 	DC.setMore = {accounts:accounts, tokens:tokens, notify:notify, importer:importer};
 })();
