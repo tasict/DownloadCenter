@@ -332,6 +332,7 @@
 			DC.themeSeg(),
 			/* Glass level only inside the QTS desktop, where the window sits over the desktop wallpaper; a full tab keeps the default */
 			DC.embedded ? [h('h3', {'class':'me-h', text:DC.t('Glass')}), glassSlider()] : null,
+			DC.phoneButton('me-qr', function(){ closeFn(); }),
 			out,
 			h('div', {'class':'foot me-foot'}, [h('span', {'class':'num', text:'Download Center ' + ((me.nas && me.nas.version) || '')})].concat(DC.supportLinks()))
 		], function(close){

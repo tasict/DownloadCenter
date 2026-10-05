@@ -255,7 +255,7 @@
 				h('div', {'class':'lnote'}, backLink())
 			]);
 		}
-		app.appendChild(h('div', {'class':'login'}, box));
+		app.appendChild(h('div', {'class':'login'}, [box, DC.phoneButton('lqr')]));
 		step1(msg);
 	}
 

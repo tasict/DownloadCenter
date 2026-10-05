@@ -135,6 +135,7 @@ The flow follows what QTS `authLogin.cgi` actually answers. It covers only what 
 - The eye button at the right of the password field shows or hides the password (passwords are easy to mistype on phones).
 - The user name and password fields carry `autocomplete=username` / `current-password` so browsers and password managers can fill them.
 - Light, Dark or Auto can be chosen at the bottom of the sign-in page too, before signing in.
+- **Open on phone** (below the sign-in card, and in Personal settings): a window with a QR code of the page's address, the address itself with "Copy link", and a note that the code carries no sign-in, so the phone signs in on its own. The address leaves out the query (the QTS desktop adds its window id there) and, after `#`, keeps only the app's own view (`#tasks/…`, `#settings/notify`); on a LAN address (`localhost`, private IPv4, `.local`, IPv6 local) the window says it works only on the same network. The code is drawn in the page (no outside service), black on a white card in every theme, and develops onto the card once, corner to corner, when the window opens. Shown on computers only: touch devices (phones, tablets) do not get it; inside the QTS desktop it is always there, also in a window narrowed to the phone layout.
 
 ### Main screen (desktop)
 

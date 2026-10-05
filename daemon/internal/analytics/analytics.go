@@ -78,7 +78,7 @@ var uiKeys = set(
 	"sort_queue", "sort_status", "sort_progress", "sort_eta", "sort_elapsed",
 	"set_dl", "set_sched", "set_users", "set_acct", "set_token", "set_notify", "set_import", "set_about",
 	"add_paste", "add_text", "add_drop", "add_pick", "add_clip", "add_merge",
-	"pick_mode", "bulk", "queue_move", "stream_on", "preview_play", "open_folder",
+	"pick_mode", "bulk", "queue_move", "stream_on", "preview_play", "open_folder", "open_on_phone",
 )
 
 // UI languages (lang_<code>)

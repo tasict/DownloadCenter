@@ -25,6 +25,7 @@
 		up:'<g class="a-up"><path d="M12 19V5.5"/><path d="M6.5 11L12 5.5 17.5 11"/></g>',
 		dn:'<g class="a-dn"><path d="M12 5v13.5"/><path d="M6.5 13L12 18.5 17.5 13"/></g>',
 		grip:'<path class="a-g1" d="M5.5 8h13"/><path d="M5.5 12h13"/><path class="a-g3" d="M5.5 16h13"/>',
+		qr:'<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><path d="M7 7h.01M17 7h.01M7 17h.01"/><g class="a-qr"><path d="M14 14h3v3"/><path d="M20.5 14v.01M14 20.5h.01M20.5 20.5h-3.5"/></g>',
 		folder:'<path d="M3 10.2V7a2 2 0 0 1 2-2h3.8l2 2H19a2 2 0 0 1 2 2v1.2"/><path class="a-flap" d="M3 10.2h18l-1.4 8.1a2 2 0 0 1-2 1.7H6.4a2 2 0 0 1-2-1.7z"/>',
 		cal:'<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 9.5h17"/><path d="M8 3v4M16 3v4"/><g class="a-page"><path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2"/></g>',
 		gauge:'<path d="M3.8 17a8.5 8.5 0 1 1 16.4 0"/><path class="a-needle" d="M12 16.5l3.5-5"/><circle class="dot" cx="12" cy="16.5" r="1.3"/>',
