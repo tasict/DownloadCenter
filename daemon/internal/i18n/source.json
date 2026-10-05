@@ -696,7 +696,7 @@
 		"Testing…",
 		"The API, event stream and webhook signatures are described under “Access tokens”.",
 		"The Download Center service is not responding. Try again later.",
-		"The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.",
+		"The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.",
 		"The NAS did not respond in time.",
 		"The NAS has no mail server configured, so the verification code cannot be sent.",
 		"The NAS must be reachable from outside over HTTPS for messages to come in",

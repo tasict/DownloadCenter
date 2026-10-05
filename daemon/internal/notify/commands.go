@@ -377,7 +377,7 @@ func (s *Service) cmdControl(p *auth.Principal, caller, cmd, arg string) Reply {
 		return Reply{Reply: zh(err.Error())}
 	}
 	if err := do(t); err != nil {
-		return Reply{Reply: "失敗：" + zh(err.Error())}
+		return Reply{Reply: "失敗：" + zh(api.ErrorText(err))}
 	}
 	r := Reply{OK: true, Reply: verb + "：" + t.Name, Task: taskRef(t)}
 	if cmd == "/pause" {
@@ -408,7 +408,7 @@ func (s *Service) cmdDel(p *auth.Principal, caller, arg string) Reply {
 			Buttons: []Button{{"確認移除", "/del " + short(t.Hash) + " confirm"}}}
 	}
 	if err := s.m.Remove(t.Hash, false, false); err != nil {
-		return Reply{Reply: "失敗：" + zh(err.Error())}
+		return Reply{Reply: "失敗：" + zh(api.ErrorText(err))}
 	}
 	s.mu.Lock()
 	delete(s.confirm, key)
@@ -490,7 +490,7 @@ func (s *Service) cmdLimit(arg string) Reply {
 	st := s.m.Settings()
 	st.HTTP.MaxDown, st.FTP.MaxDown, st.BT.MaxDown = kb, kb, kb
 	if err := s.m.SaveSettings(st); err != nil {
-		return Reply{Reply: "失敗：" + zh(err.Error())}
+		return Reply{Reply: "失敗：" + zh(api.ErrorText(err))}
 	}
 	if kb == 0 {
 		return Reply{OK: true, Reply: "已取消下載速度上限"}
@@ -513,7 +513,7 @@ func (s *Service) cmdSched(arg string) Reply {
 		return Reply{OK: true, Reply: "排程目前" + state + "。用法：/sched on|off"}
 	}
 	if err := s.m.SaveSettings(st); err != nil {
-		return Reply{Reply: "失敗：" + zh(err.Error())}
+		return Reply{Reply: "失敗：" + zh(api.ErrorText(err))}
 	}
 	if st.Schedule.Enabled {
 		return Reply{OK: true, Reply: "已開啟排程"}

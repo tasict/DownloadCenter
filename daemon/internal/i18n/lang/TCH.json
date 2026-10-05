@@ -863,7 +863,7 @@
 	"The .torrent file of this task cannot be found": "找不到這個任務的 .torrent 檔",
 	"The API, event stream and webhook signatures are described under “Access tokens”.": "API、事件串流與 Webhook 簽章的說明在「存取權杖」。",
 	"The Download Center service is not responding. Try again later.": "Download Center 服務沒有回應，請稍後再試。",
-	"The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.": "從網際網路連到 Download Center 的 HTTPS 位址。通知裡的連結會使用它，LINE 也需要它才能在聊天中操作下載。",
+	"The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.": "從網際網路連到這台 NAS 的 HTTPS 位址，例如 https://nas.example.com。通知裡的連結會使用它，LINE 也需要它才能在聊天中操作下載。",
 	"The NAS did not respond in time.": "NAS 沒有在時間內回應。",
 	"The NAS has no mail server configured, so the verification code cannot be sent.": "NAS 沒有設定寄信伺服器，無法寄出驗證碼。",
 	"The NAS must be reachable from outside over HTTPS for messages to come in": "需要 NAS 能從外部用 HTTPS 連到，才能把訊息送進來",

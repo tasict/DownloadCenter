@@ -863,7 +863,7 @@
 	"The .torrent file of this task cannot be found": "Файл .torrent для этой задачи не найден",
 	"The API, event stream and webhook signatures are described under “Access tokens”.": "API, поток событий и подписи вебхуков описаны в разделе «Токены доступа».",
 	"The Download Center service is not responding. Try again later.": "Служба Download Center не отвечает. Повторите попытку позже.",
-	"The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.": "HTTPS-адрес Download Center из интернета. Он используется в ссылках уведомлений, а LINE нужен, чтобы управлять загрузками в чате.",
+	"The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.": "HTTPS-адрес этого NAS из интернета, например https://nas.example.com. Он используется в ссылках уведомлений, а LINE нужен, чтобы управлять загрузками в чате.",
 	"The NAS did not respond in time.": "NAS не ответил вовремя.",
 	"The NAS has no mail server configured, so the verification code cannot be sent.": "На NAS не настроен почтовый сервер, поэтому код проверки отправить нельзя.",
 	"The NAS must be reachable from outside over HTTPS for messages to come in": "Чтобы сообщения могли поступать, NAS должен быть доступен извне по HTTPS",

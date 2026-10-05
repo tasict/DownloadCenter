@@ -149,3 +149,24 @@ func TestFetchTorrentLink(t *testing.T) {
 		t.Error("a regular user reached a local address")
 	}
 }
+
+// The public address is the NAS's: dcd adds the package path, so a pasted
+// address of the Download Center page is cut back.
+func TestExternalURLNormalised(t *testing.T) {
+	m := testManager(t)
+	for in, want := range map[string]string{
+		"https://nas.example.com/DownloadCenter/": "https://nas.example.com",
+		"https://nas.example.com:8081/":           "https://nas.example.com:8081",
+		"https://nas.example.com":                 "https://nas.example.com",
+		"":                                        "",
+	} {
+		s := m.Settings()
+		s.ExternalURL = in
+		if err := m.SaveSettings(s); err != nil {
+			t.Fatal(err)
+		}
+		if got := m.Settings().ExternalURL; got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+	}
+}

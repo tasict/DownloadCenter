@@ -863,7 +863,7 @@
 	"The .torrent file of this task cannot be found": "이 작업의 .torrent 파일을 찾을 수 없습니다",
 	"The API, event stream and webhook signatures are described under “Access tokens”.": "API, 이벤트 스트림, Webhook 서명 설명은 '액세스 토큰'에 있습니다.",
 	"The Download Center service is not responding. Try again later.": "Download Center 서비스가 응답하지 않습니다. 잠시 후 다시 시도하세요.",
-	"The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.": "인터넷에서 Download Center에 접속하는 HTTPS 주소입니다. 알림의 링크에 사용되며, LINE 채팅에서 다운로드를 조작하는 데도 필요합니다.",
+	"The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.": "인터넷에서 이 NAS에 접속하는 HTTPS 주소입니다(예: https://nas.example.com). 알림의 링크에 사용되며, LINE 채팅에서 다운로드를 조작하는 데도 필요합니다.",
 	"The NAS did not respond in time.": "NAS가 제시간에 응답하지 않았습니다.",
 	"The NAS has no mail server configured, so the verification code cannot be sent.": "NAS에 메일 서버가 설정되어 있지 않아 인증 코드를 보낼 수 없습니다.",
 	"The NAS must be reachable from outside over HTTPS for messages to come in": "NAS가 외부에서 HTTPS로 접속 가능해야 메시지를 받을 수 있습니다",

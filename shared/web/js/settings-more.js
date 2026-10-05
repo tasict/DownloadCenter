@@ -580,15 +580,15 @@
 	/* Administrators: the public HTTPS address of the package (setting external_url), used for links in notifications and
 	   for LINE's webhook. Saved on its own, like the other choices of this page. */
 	function publicSec(){
-		var inp = h('input', {type:'url', id:'sExtUrl', placeholder:'https://nas.example.com/DownloadCenter', autocapitalize:'off', spellcheck:'false'}), save;
+		var inp = h('input', {type:'url', id:'sExtUrl', placeholder:'https://nas.example.com', autocapitalize:'off', spellcheck:'false'}), save;
 		DC.api.get('settings', null, {quiet:true}).then(function(r){ inp.value = (r.settings || {}).external_url || ''; }, function(){});
 		save = btn(null, DC.t('Save'), function(){
-			var v = inp.value.trim().replace(/\/+$/, '');
+			var v = inp.value.trim().replace(/\/+$/, '').replace(/\/downloadcenter$/i, '');
 			if(v && !/^https:\/\/[^\/\s]+/i.test(v)){ inp.focus(); DC.toast(DC.t('Enter an address that starts with https://')); return; }
 			DC.busy(save, true);
 			DC.api.put('settings', {external_url:v}).then(function(){ DC.busy(save, false); inp.value = v; DC.toast(DC.t('Settings saved')); }, function(e){ DC.busy(save, false); DC.toast(DC.errText(e)); });
 		});
-		return sec('link', DC.t('Address from outside'), DC.t('The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.'), [
+		return sec('link', DC.t('Address from outside'), DC.t('The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.'), [
 			field(DC.t('Address'), null, [inp, save], 'sExtUrl')
 		]);
 	}

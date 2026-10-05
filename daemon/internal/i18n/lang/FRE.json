@@ -863,7 +863,7 @@
 	"The .torrent file of this task cannot be found": "Fichier .torrent de cette tâche introuvable",
 	"The API, event stream and webhook signatures are described under “Access tokens”.": "L'API, le flux d'événements et les signatures de webhook sont décrits dans « Jetons d'accès ».",
 	"The Download Center service is not responding. Try again later.": "Le service Download Center ne répond pas. Veuillez réessayer plus tard.",
-	"The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.": "L’adresse HTTPS de Download Center depuis Internet. Les liens des notifications l’utilisent, et LINE en a besoin pour gérer les téléchargements depuis une conversation.",
+	"The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.": "L’adresse HTTPS de ce NAS depuis Internet, par exemple https://nas.example.com. Les liens des notifications l’utilisent, et LINE en a besoin pour gérer les téléchargements depuis une conversation.",
 	"The NAS did not respond in time.": "Le NAS n'a pas répondu à temps.",
 	"The NAS has no mail server configured, so the verification code cannot be sent.": "Aucun serveur de messagerie n'est configuré sur le NAS ; impossible d'envoyer le code de vérification.",
 	"The NAS must be reachable from outside over HTTPS for messages to come in": "Le NAS doit être joignable depuis l'extérieur en HTTPS pour recevoir les messages",

@@ -251,6 +251,12 @@ func Fail(w http.ResponseWriter, err error) {
 	Error(w, status, code, msg)
 }
 
+// ErrorText is the message (untranslated) a core error is answered with.
+func ErrorText(err error) string {
+	_, _, msg := coreError(err)
+	return msg
+}
+
 // coreError is the HTTP status, error code and (untranslated) message of a
 // core error, for Fail and for the per-source results of adding tasks.
 func coreError(err error) (status int, code, msg string) {

@@ -863,7 +863,7 @@
 	"The .torrent file of this task cannot be found": "Het .torrent-bestand van deze taak is niet gevonden",
 	"The API, event stream and webhook signatures are described under “Access tokens”.": "De API, de gebeurtenisstroom en webhookhandtekeningen staan beschreven onder ‘Toegangstokens’.",
 	"The Download Center service is not responding. Try again later.": "De Download Center-service reageert niet. Probeer het later opnieuw.",
-	"The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.": "Het HTTPS-adres van Download Center vanaf internet. Links in meldingen gebruiken het, en LINE heeft het nodig om downloads in een chat te bedienen.",
+	"The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.": "Het HTTPS-adres van deze NAS vanaf internet, bijvoorbeeld https://nas.example.com. Links in meldingen gebruiken het, en LINE heeft het nodig om downloads in een chat te bedienen.",
 	"The NAS did not respond in time.": "De NAS reageerde niet op tijd.",
 	"The NAS has no mail server configured, so the verification code cannot be sent.": "Er is geen mailserver ingesteld op de NAS, dus de verificatiecode kan niet worden verzonden.",
 	"The NAS must be reachable from outside over HTTPS for messages to come in": "De NAS moet van buitenaf via HTTPS bereikbaar zijn om berichten te kunnen ontvangen",

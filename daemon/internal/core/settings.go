@@ -181,6 +181,12 @@ func (s *Settings) normalize() {
 	for _, p := range []*string{&s.Torrent.PeerID, &s.Torrent.PeerVersion, &s.Torrent.PeerAgent, &s.ExternalURL} {
 		*p = printable(*p)
 	}
+	// The address of the NAS from outside; dcd adds the package path itself,
+	// so a pasted address of the Download Center page is cut back to the NAS
+	s.ExternalURL = strings.TrimRight(s.ExternalURL, "/")
+	if low := strings.ToLower(s.ExternalURL); strings.HasSuffix(low, "/downloadcenter") {
+		s.ExternalURL = strings.TrimRight(s.ExternalURL[:len(s.ExternalURL)-len("/downloadcenter")], "/")
+	}
 	s.Proxy.normalize()
 	if len(s.Torrent.PeerAgent) > 64 {
 		s.Torrent.PeerAgent = s.Torrent.PeerAgent[:64]

@@ -863,7 +863,7 @@
 	"The .torrent file of this task cannot be found": "このタスクの .torrent ファイルが見つかりません",
 	"The API, event stream and webhook signatures are described under “Access tokens”.": "API、イベントストリーム、Webhook 署名の説明は「アクセストークン」にあります。",
 	"The Download Center service is not responding. Try again later.": "Download Center サービスが応答しません。しばらくしてからもう一度お試しください。",
-	"The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.": "インターネットから Download Center に接続する HTTPS アドレスです。通知のリンクに使われ、LINE のチャットでダウンロードを操作するのにも必要です。",
+	"The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.": "インターネットからこの NAS に接続する HTTPS アドレスです（例：https://nas.example.com）。通知のリンクに使われ、LINE のチャットでダウンロードを操作するのにも必要です。",
 	"The NAS did not respond in time.": "NAS が時間内に応答しませんでした。",
 	"The NAS has no mail server configured, so the verification code cannot be sent.": "NAS にメールサーバーが設定されていないため、認証コードを送信できません。",
 	"The NAS must be reachable from outside over HTTPS for messages to come in": "メッセージを受け取るには、NAS に外部から HTTPS で接続できる必要があります",

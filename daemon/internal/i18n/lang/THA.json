@@ -863,7 +863,7 @@
 	"The .torrent file of this task cannot be found": "ไม่พบไฟล์ .torrent ของงานนี้",
 	"The API, event stream and webhook signatures are described under “Access tokens”.": "คำอธิบาย API, สตรีมเหตุการณ์ และลายเซ็น Webhook อยู่ใน “โทเค็นการเข้าถึง”",
 	"The Download Center service is not responding. Try again later.": "บริการ Download Center ไม่ตอบสนอง โปรดลองอีกครั้งภายหลัง",
-	"The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.": "ที่อยู่ HTTPS ของ Download Center จากอินเทอร์เน็ต ลิงก์ในการแจ้งเตือนใช้ที่อยู่นี้ และ LINE ต้องใช้เพื่อควบคุมการดาวน์โหลดในแชต",
+	"The HTTPS address of this NAS from the internet, for example https://nas.example.com. Links in notifications use it, and LINE needs it to control downloads in a chat.": "ที่อยู่ HTTPS ของ NAS เครื่องนี้จากอินเทอร์เน็ต เช่น https://nas.example.com ลิงก์ในการแจ้งเตือนใช้ที่อยู่นี้ และ LINE ต้องใช้เพื่อควบคุมการดาวน์โหลดในแชต",
 	"The NAS did not respond in time.": "NAS ไม่ตอบสนองภายในเวลาที่กำหนด",
 	"The NAS has no mail server configured, so the verification code cannot be sent.": "NAS ยังไม่ได้ตั้งค่าเซิร์ฟเวอร์อีเมล จึงส่งรหัสยืนยันไม่ได้",
 	"The NAS must be reachable from outside over HTTPS for messages to come in": "NAS ต้องเข้าถึงได้จากภายนอกผ่าน HTTPS จึงจะรับข้อความเข้ามาได้",
