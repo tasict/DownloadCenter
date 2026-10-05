@@ -14,7 +14,7 @@ A token belongs to exactly one account that may use Download Center (the owner) 
 effective rights = token scopes ∩ owner's current rights ∩ token restrictions
 ```
 
-If the owner is deleted or disabled in QTS, or loses the Download Center application privilege, every token they own stops working (checked per request, cached for at most 60 s). Admin-only scopes, everyone's tasks and folder allowlists on a non-admin owner are rejected or dropped at creation and ignored at runtime, also when the owner stops being an administrator later; a token made by a regular user does not grow when its owner becomes one.
+If the owner is deleted or disabled in QTS, or loses the Download Center application privilege, every token they own stops working (checked per request, cached for at most 30 s). Admin-only scopes, everyone's tasks and folder allowlists on a non-admin owner are rejected or dropped at creation and ignored at runtime, also when the owner stops being an administrator later; a token made by a regular user does not grow when its owner becomes one.
 
 | Field | Meaning |
 |---|---|
@@ -71,15 +71,15 @@ Errors: HTTP status + `{"error": {"code": "folder_not_allowed", "message": "…"
 | Method & path | Scope | Notes |
 |---|---|---|
 | `GET /me` | any | Owner, scopes, restrictions, expiry. Lets a client check what it can do |
-| `GET /tasks?state=&kind=&q=&sort=&order=&after=&limit=` | `tasks:read` | Cursor pagination. `sort` = `queue` (default) \| `status` \| `progress` \| `eta` \| `elapsed`; `order` = `asc` \| `desc` |
+| `GET /tasks?state=&kind=&q=&sort=&order=&after=&limit=` | `tasks:read` | Cursor pagination. `sort` = `queue` (default) \| `status` \| `progress` \| `eta` \| `elapsed` \| `name` \| `size` \| `created`; `order` = `asc` \| `desc` |
 | `GET /tasks/{id}` | `tasks:read` | `id` is the stable task hash (infohash or URL SHA-1) |
 | `GET /tasks/{id}/files` | `tasks:read` | |
-| `GET /tasks/{id}/folder` | `tasks:read` | `{"path": "/Download/…", "file": "…"}`: the folder the task's data is in right now (its temporary folder while it downloads) and, for a single file, the file to select |
+| `GET /tasks/{id}/folder` | `tasks:read` | `{"path": "Download/…", "file": "…"}`: the folder the task's data is in right now (its temporary folder while it downloads) and, for a single file, the file to select |
 | `GET /folders?path=` | `tasks:add` | Folders to save into: the shared folders when `path` is empty, otherwise the sub-folders of `path`, as `{"folders": [{"name", "path", "writable", "choosable", "free"}], "free": bytes, "writable", "choosable"}` (`choosable` = can hold downloads; `free` per entry only at the top level). A token with a folder allowlist sees only those folders and what lies below them (`403 folder_not_allowed` elsewhere). `free_only=1` answers `{"free": bytes}` alone. Regular users get their home `Download` folder only |
 | `POST /tasks` | `tasks:add` | `{"source": "<url or magnet>", "folder": "/Download", "move_to": null, "files": "all"\|[indices], "auto_remove": null\|"completed"\|"seeded", "start": true}`. A source that duplicates an existing task returns `409 duplicate` with that task's id, unless it is the same torrent, which is merged (`200`, `"merged": true`); multiple sources via `"sources": [...]`. For regular users `folder` and `move_to` must be omitted (or equal their home `Download`), otherwise `folder_not_allowed`. A folder on a read-only volume fails with `folder_read_only` |
 | `POST /tasks/torrent` | `tasks:add` | `multipart/form-data`, field `file`, plus the same options |
 | `POST /tasks/{id}/pause` · `/resume` · `/retry` | `tasks:control` | |
-| `PATCH /tasks/{id}` | `tasks:control` | `{"position": "top"\|"up"\|"down"\|n, "files": [...], "max_download": bytes_per_s}` |
+| `PATCH /tasks/{id}` | `tasks:control` | Any of `{"position": "top"\|"up"\|"down"\|"bottom"\|n, "files": [...], "max_download": bytes_per_s, "max_upload": bytes_per_s, "sequential": bool, "auto_remove": ""\|"completed"\|"seeded", "proxy": "auto"\|"none"\|profile id}` (`proxy` for URL tasks only) |
 | `DELETE /tasks/{id}?delete_files=false` | `tasks:remove` (+ `files:delete` when `true`) | |
 | `GET /stats` | `stats:read` | Current speeds, schedule mode and next change, free space per allowed folder |
 | `GET /events?after=<event id>&limit=` | `events:read` | Polling alternative to the stream |
@@ -109,7 +109,7 @@ The engine tick writes events into an append-only table (kept 30 days). Every co
 |---|---|
 | `task.added` | A task was created (any client) |
 | `task.started` | Left the queue and began transferring |
-| `task.paused`, `task.resumed` | User or schedule action (`by` says which) |
+| `task.paused`, `task.resumed` | Paused or resumed by a person or for a reason; `by` is `user`, `chat`, `v4`, `timer` (a timed pause ended) or `disk` (low space). Schedule switches report `schedule.changed` instead |
 | `task.completed` | All selected data downloaded and moved out of the temporary folder (torrents keep seeding from there) |
 | `task.seeding_finished` | Ratio or seed-time target reached |
 | `task.moved` | Moved to its completion folder |
@@ -120,13 +120,14 @@ The engine tick writes events into an append-only table (kept 30 days). Every co
 | `account.expiring` | A file-hosting account expires within 7 days or ran out of today's traffic (owner only) |
 | `queue.idle` | Nothing left downloading |
 | `disk.low` | A download folder's volume fell below the configured threshold; downloads to it pause |
-| `schedule.changed` | Mode switched (full / limited / paused) |
+| `schedule.changed` | The schedule switched the mode (`full`, `limited`, `off`), with `by`: `schedule` when the time came, `settings` when the schedule was edited |
 | `engine.down`, `engine.up` | An engine sidecar (dc-dl or dc-bt) stopped answering / is back (admin only) |
 | `security.token_created`, `security.token_rejected` | Admin only |
+| `notify.disabled` | A channel or webhook was disabled after 20 failed deliveries in a row; always delivered to its owner's other channels |
 
 ## 4. Outbound webhooks
 
-Created per owner (`notify:manage`). Each has a URL, the event types it wants, and a secret.
+Created per owner (`notify:manage`). Each has a URL, the event types it wants, and a secret. Left empty, the secret is generated and returned once when the webhook is created (the web UI shows it then).
 
 ```
 POST <your URL>
@@ -139,7 +140,7 @@ X-DC-Signature: t=1790866032,v1=<hex HMAC-SHA256(secret, t + "." + body)>
 
 Verify by recomputing the HMAC and rejecting timestamps older than 5 minutes. Delivery: 10 s timeout, success = any 2xx, retries after 1, 5, 30 min and 2, 6 h, then the delivery is marked failed; 20 consecutive failures disable the webhook and notify its owner. The UI shows the last 50 deliveries with status and response time, and has "Send test notification".
 
-Target restrictions: non-admin owners cannot target loopback, link-local, or the NAS's own addresses (prevents using webhooks to reach dcd, QTS or other local services). Admins can, with a warning.
+Target restrictions: non-admin owners cannot target loopback, link-local, or the NAS's own addresses (prevents using webhooks to reach dcd, QTS or other local services). Administrators' webhooks are not restricted.
 
 ## 5. Chat commands
 
@@ -164,7 +165,7 @@ Target restrictions: non-admin owners cannot target loopback, link-local, or the
 
 ### 5.1 Operating from a channel
 
-Notification and chat control are the same channel. Each channel has an `operate` switch, off by default and only available on services that can deliver incoming messages (Telegram; LINE when the NAS is reachable over public HTTPS; Webhook channels through `/commands`). With it off, the bot only sends notifications and ignores commands.
+Notification and chat control are the same channel. Each channel has an `operate` switch, off by default and only available on services that can deliver incoming messages: Telegram, and LINE when the NAS is reachable over public HTTPS (the address is set by an administrator in Settings › Notifications & integrations › Address from outside). With it off, the bot only sends notifications and ignores commands. Webhook channels have no switch: your service operates downloads by calling `/commands` with a token.
 
 ### 5.2 Linking a chat account
 
@@ -182,7 +183,7 @@ Channels with `operate` on map a chat user to a QTS account by pairing, per chan
 | QTS Notification Center | ✓ (email, SMS, push via QTS) | — | Nothing |
 | Generic webhook | ✓ | via `/commands` | See 4 |
 
-Per channel: event selection, the `operate` switch, own tasks vs all (admins), quiet hours, digest mode (one summary every N minutes instead of one message per event), and a message template.
+Per channel: event selection (none chosen means no notifications), the `operate` switch, own tasks vs all (admins), quiet hours, and digest mode (one summary every N minutes instead of one message per event). Through the API a channel can also have a message `template` for the text of chat services; webhooks and declarative adapters send their own format.
 
 ## 7. Declarative adapters
 

@@ -247,5 +247,21 @@
 	"Going back to this version needs a database backup from that time, and there is none",
 	"Going back to this version needs the database backup from that time restored",
 	"Could not start the update",
-	"Switched to the new proxy, reconnecting"
+	"Switched to the new proxy, reconnecting",
+	"Missing X-Requested-With header",
+	"Session ids and tokens are not accepted in the query string",
+	"This endpoint is available to the web UI only",
+	"Invalid token",
+	"The token has expired",
+	"The token is not allowed from this address",
+	"Too many requests",
+	"The token lacks the scope {0}",
+	"Deleting data needs the files:delete scope",
+	"The token may not use this folder",
+	"The token may not add magnet links",
+	"The token may not add URLs",
+	"The token may not add torrent files",
+	"The ticket is invalid or expired",
+	"QTS did not answer",
+	"The files of this task are being moved. Try again when the move has finished."
 ]

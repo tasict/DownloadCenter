@@ -256,6 +256,8 @@ func (s *Service) cmdAdd(p *auth.Principal, text string) Reply {
 	for _, l := range links {
 		var res *core.AddResult
 		var err error
+		// thunder://, flashget:// and qqdl:// carry the real link, maybe a magnet
+		l = core.UnwrapLink(l)
 		if strings.HasPrefix(strings.ToLower(l), "magnet:") {
 			if !p.SourceAllowed("magnet") {
 				lines = append(lines, "不允許加入磁力連結")
@@ -267,7 +269,11 @@ func (s *Service) cmdAdd(p *auth.Principal, text string) Reply {
 				lines = append(lines, "不允許加入網址")
 				continue
 			}
-			res, err = s.m.AddURL(l, o)
+			if b := s.m.FetchTorrentLink(l, o.Proxy, p.Admin); b != nil {
+				res, err = s.m.AddTorrent(b, o)
+			} else {
+				res, err = s.m.AddURL(l, o)
+			}
 		}
 		switch {
 		case err != nil && errors.Is(err, core.ErrDuplicate):

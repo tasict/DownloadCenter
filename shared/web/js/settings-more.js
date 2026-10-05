@@ -331,6 +331,14 @@
 		return DC.t('This service can only receive notifications');
 	}
 	function canOperate(s){ return s.ops === 'yes' || s.ops === 'https'; }
+	/* A webhook's signing secret, when the server made it: shown once, like a token */
+	function secretDialog(value){
+		var code = h('code', {text:value});
+		DC.modal(DC.t('Webhook signing secret'), 'plug', [
+			h('p', {'class':'lead', text:DC.t('Copy it now: it is shown only once. Your service uses it to check the X-DC-Signature of every request.')}),
+			h('div', {'class':'secret'}, [code, btn('copy', DC.t('Copy'), function(){ DC.copyText(value, code); })])
+		], function(close){ return [btn(null, DC.t('I\'ve copied it'), close, 'pri')]; });
+	}
 	function pairDialog(c, p){
 		var left = Math.max(0, (p.expires_at || 0) - Math.floor(Date.now() / 1000)), timer = h('small', {'class':'num'}), iv, cmd = p.command || ('/link ' + p.code);
 		function upd(){ timer.textContent = left > 0 ? DC.t('Valid for {min} min {sec} s', {min:Math.floor(left / 60), sec:DC.pad(left % 60)}) : DC.t('Expired. Generate a new one'); }
@@ -515,7 +523,8 @@
 						o.enabled = true;
 						DC.api.post('channels', o).then(function(x){
 							close(); reload();
-							if(x.pair) pairDialog(x.channel || {name:o.name}, x.pair); else DC.toast(DC.t('“{name}” added', {name:o.name}));
+							if(x.secret && o.service === 'webhook' && !(o.config && o.config.secret)) secretDialog(x.secret);
+							else if(x.pair) pairDialog(x.channel || {name:o.name}, x.pair); else DC.toast(DC.t('“{name}” added', {name:o.name}));
 						}, function(err){ DC.busy(ok, false); DC.toast(DC.errText(err)); });
 					}else{
 						delete o.service;
@@ -562,8 +571,25 @@
 		render();
 		add(body, [
 			sec('bell', DC.t('Notifications and chat bots'), DC.t('Each channel notifies you when the events you choose happen. Supported services (Telegram, and LINE when reachable from outside over HTTPS) can also turn on “Control downloads in the channel” to check, add and pause downloads with commands.'), [list, svcs.length && chans.length ? DC.addRow(DC.t('Add channel'), function(){ channelForm(null); }) : null]),
+			admin ? publicSec() : null,
 			adapterSec(),
 			h('p', {'class':'note'}, [DC.t('The API, event stream and webhook signatures are described under “Access tokens”.') + ' ', h('button', {'class':'ib linkish', type:'button', onclick:function(){ DC.S.setTab = 'token'; DC.S.setOpen = true; DC.renderView(); window.scrollTo(0, 0); }}, DC.t('Go there'))])
+		]);
+	}
+
+	/* Administrators: the public HTTPS address of the package (setting external_url), used for links in notifications and
+	   for LINE's webhook. Saved on its own, like the other choices of this page. */
+	function publicSec(){
+		var inp = h('input', {type:'url', id:'sExtUrl', placeholder:'https://nas.example.com/DownloadCenter', autocapitalize:'off', spellcheck:'false'}), save;
+		DC.api.get('settings', null, {quiet:true}).then(function(r){ inp.value = (r.settings || {}).external_url || ''; }, function(){});
+		save = btn(null, DC.t('Save'), function(){
+			var v = inp.value.trim().replace(/\/+$/, '');
+			if(v && !/^https:\/\/[^\/\s]+/i.test(v)){ inp.focus(); DC.toast(DC.t('Enter an address that starts with https://')); return; }
+			DC.busy(save, true);
+			DC.api.put('settings', {external_url:v}).then(function(){ DC.busy(save, false); inp.value = v; DC.toast(DC.t('Settings saved')); }, function(e){ DC.busy(save, false); DC.toast(DC.errText(e)); });
+		});
+		return sec('link', DC.t('Address from outside'), DC.t('The HTTPS address of Download Center from the internet. Links in notifications use it, and LINE needs it to control downloads in a chat.'), [
+			field(DC.t('Address'), null, [inp, save], 'sExtUrl')
 		]);
 	}
 
@@ -581,7 +607,7 @@
 		if(!r.available){ body.appendChild(sec('inbox', DC.t('Import from the official Download Station'), null, [h('p', {'class':'note', text:DC.t('No official Download Station data found.')})])); return; }
 		var userBoxes = h('div');
 		for(i = 0; i < missing.length; i++) userBoxes.appendChild(toggle('imU' + i, DC.t('Allow {name} to use Download Center', {name:missing[i]}), DC.t('They have tasks in the official version but no permission to use Download Center in QTS yet'), true));
-		body.appendChild(sec('inbox', DC.t('Import from the official Download Station'), DC.t('Import only reads the official data and never changes or deletes it. You can run it again.'), [
+		body.appendChild(sec('inbox', DC.t('Import from the official Download Station'), DC.t('Import only reads the official data and never changes or deletes it.'), [
 			h('ol', {'class':'steps'}, [h('li', {'class':running ? 'on' : '', text:DC.t('1 Stop official version')}), h('li', {'class':running ? '' : 'on', text:DC.t('2 Select items and import')}), h('li', {text:DC.t('3 Verify')})]),
 			running ? h('div', null, [
 				h('p', {'class':'note warn', text:DC.t('The official Download Station is still running. Stop it before importing so that both don\'t write to the same temporary files.')}),
@@ -691,7 +717,7 @@
 					DC.savePref('import_offer', 1);
 					close();
 					DC.modal(DC.t('You can import later'), 'inbox', [
-						h('p', {'class':'lead', text:DC.t('Whenever you are ready, open {place}. You can run the import at any time, and again if needed.', {place:where})})
+						h('p', {'class':'lead', text:DC.t('Whenever you are ready, open {place}. It stays there until you have imported.', {place:where})})
 					], function(close2){ return [btn(null, DC.t('Close'), close2, 'pri')]; });
 				}), btn(null, DC.t('Import now'), function(){
 					DC.savePref('import_offer', 1);

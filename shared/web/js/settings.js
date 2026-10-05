@@ -145,7 +145,7 @@
 				field(DC.t('Keep history for'), null, num('sHist', s.history_days || 90, DC.t('days'), {min:'1'}), 'sHist')
 			]),
 			sec('all', DC.t('Concurrent downloads'), DC.t('Extra tasks are queued and start in list order when a slot is free.'), [kind('bt', DC.t('Torrent'), eng ? null : DC.t('This NAS cannot download torrents (the BT engine is missing)')), kind('http', DC.t('URL'), ucaps.urls ? null : DC.t('This NAS cannot download this kind of URL (the download component dc-dl is unavailable)')), kind('ftp', DC.t('FTP/SFTP'), ucaps.ftp ? null : DC.t('This NAS cannot download this kind of URL (the download component dc-dl is unavailable)'))]),
-			sec('gauge', DC.t('Speed'), DC.t('Values are in KB/s; leave empty for no limit. “Limited speed” periods in the schedule use the right-hand column.'), [
+			sec('gauge', DC.t('Speed'), DC.t('Values are in KB/s; leave empty for no limit. “Limited speed” periods in the schedule use the right-hand column; left empty, the normal limit applies there.'), [
 				h('div', {'class':'sptab', role:'table', 'aria-label':DC.t('Speed limits')}, [
 					h('div', {'class':'sprow sphead', role:'row'}, [h('span'), h('span', {role:'columnheader', text:DC.t('Normal')}), h('span', {role:'columnheader', text:DC.t('Limited speed period')})]),
 					speedRow(DC.t('Torrent download'), 'bDn', 'bt.max_down', 'bLDn', 'bt.limited_down'),
@@ -243,8 +243,10 @@
 					l.length ? toggle('pxReq', DC.t('Regular users must use a proxy'), DC.t('Regular users cannot choose “No proxy”; when no proxy is available, their tasks stop instead of connecting directly'), val('require_for_users', !!p.require_for_users)) : null,
 					l.length ? field(DC.t('Torrents use'), DC.t('All torrents on the NAS share one'), DC.select('pxBt', choices(), val('bt', p.bt || ''), function(){ keep(); render(); }), 'pxBt') : null,
 					bt ? toggle('pxTrk', DC.t('Torrent trackers'), null, val('apply_trackers', p.apply_trackers !== false)) : null,
-					bt && bt.type === 'socks5' && c.socks5_peers ? toggle('pxPeers', DC.t('Torrent connections'), DC.t('Connections for exchanging data with peers'), val('apply_peers', p.apply_peers !== false)) : null,
+					bt && bt.type === 'socks5' && c.socks5_peers ? toggle('pxPeers', DC.t('Torrent connections'), DC.t('Connections for exchanging data with peers'), val('apply_peers', p.apply_peers !== false), function(){ keep(); render(); }) : null,
 					bt ? toggle('pxOnly', DC.t('Proxy only'), DC.t('When the proxy cannot be reached, torrents stop instead of connecting directly, and UPnP is not used'), val('force', p.force !== false)) : null,
+					/* An HTTP proxy carries tracker requests only, and peers can be left out of a SOCKS5 one: say that data goes direct */
+					bt && !(bt.type === 'socks5' && c.socks5_peers && val('apply_peers', p.apply_peers !== false)) ? h('p', {'class':'note warn', text:DC.t('Only tracker requests go through this proxy. Data connections with peers are direct, even with “Proxy only”.')}) : null,
 					l.length ? field(DC.t('Notifications and webhooks use'), null, DC.select('pxNotify', choices(), val('notify_profile', p.notify_profile || '')), 'pxNotify') : null
 				]));
 			}
@@ -262,7 +264,12 @@
 					ibtn('edit', DC.t('Edit'), function(){ keep(); editProfile(pr); }),
 					ibtn('trash', DC.t('Delete'), function(){
 						keep();
-						DC.confirm(DC.t('Delete proxy “{name}”?', {name:pr.name}), 'trash', DC.t('URL tasks using this proxy will stop until another proxy is chosen; they will not switch to a direct connection.'), DC.t('Delete'), function(){
+						var uses = [];
+						if(val('url_default', p.url_default || '') === pr.id) uses.push(DC.t('URL downloads'));
+						if(val('bt', p.bt || '') === pr.id) uses.push(DC.t('torrents'));
+						if(val('notify_profile', p.notify_profile || '') === pr.id) uses.push(DC.t('notifications'));
+						/* Tasks that chose it stop; where it is a default, the default is cleared and those connections go direct */
+						DC.confirm(DC.t('Delete proxy “{name}”?', {name:pr.name}), 'trash', DC.sentences(DC.t('URL tasks using this proxy will stop until another proxy is chosen; they will not switch to a direct connection.'), uses.length ? DC.t('It is the default for {uses}. Until you choose another default, those connect directly.', {uses:uses.join(DC.t(', '))}) : ''), DC.t('Delete'), function(){
 							saveProfiles(list().filter(function(x){ return x.id !== pr.id; }), null, function(){ DC.toast(DC.t('Proxy deleted')); });
 						}, true);
 					})])
@@ -393,9 +400,9 @@
 		loadingInto(body);
 		Promise.all([DC.api.get('schedule'), DC.api.get('settings', null, {quiet:true}).then(null, function(){ return null; })]).then(function(rs){ clear(body); scheduleForm(body, rs[0], rs[1] && rs[1].settings); }, function(e){ errorInto(body, e); });
 	}
-	/* The speeds of the Limited speed periods, as set on the Downloads page (KB/s, 0 = no limit) */
+	/* The speeds of the Limited speed periods, as set on the Downloads page (KB/s; 0 keeps the normal limit, which may be none) */
 	function limitText(st){
-		function v(k, f){ var x = st[k] && st[k][f]; return x > 0 ? DC.fspeed(x * 1024) : DC.t('No limit'); }
+		function v(k, f){ var x = st[k] && st[k][f]; if(!(x > 0)) x = st[k] && st[k][f.replace('limited_', 'max_')]; return x > 0 ? DC.fspeed(x * 1024) : DC.t('No limit'); }
 		return DC.t('“Limited speed” periods: torrent download {bd}, upload {bu}; URL {http}; FTP {ftp}.', {bd:v('bt', 'limited_down'), bu:v('bt', 'limited_up'), http:v('http', 'limited_down'), ftp:v('ftp', 'limited_down')});
 	}
 	function scheduleForm(body, r, st){

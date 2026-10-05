@@ -81,7 +81,7 @@ The flow follows what QTS `authLogin.cgi` actually answers. It covers only what 
 
 **The package backend never handles credentials; the session is QTS's sign-in cookie**: the page's JS signs in directly against QTS `/cgi-bin/authLogin.cgi` on the same origin (as QTS's own sign-in page does) and on success sets the `NAS_SID`, `NAS_USER` and `NAS_PW_STATUS` cookies the way QTS does. Lockout after failures, 2-step verification and session lifetime are all handled by QTS, and lockout is recorded against the browser's IP. A browser has only one NAS session: after signing in to the QTS web UI, Download Center opens straight away; after signing in to Download Center, the QTS web UI is signed in too.
 
-- With a valid `NAS_SID` when the page opens, the sign-in page is skipped; when `NAS_PW_STATUS` says the password must change, the "password expired" screen is shown directly.
+- With a valid `NAS_SID` when the page opens, the sign-in page is skipped. An expired password is reported by QTS while signing in, which then shows the "password expired" screen.
 - "Sign out" in the account menu also signs QTS out in this browser, and says so next to the button.
 - The account menu is a popover under the avatar on desktops (no dimming) and a bottom sheet on phones; an appearance choice applies and is remembered immediately, without "Save". The toolbar avatar, like the one in the menu, is the QTS profile picture, or the first letter of the account name when there is none.
 - **Terms of use**: shown once per account at first sign-in (cannot be closed by clicking outside or `Esc`, only with "I understand and agree"). It says the software only downloads links the user provides, to download only content one has the right to, that BitTorrent shares data and exposes the IP address, who is responsible, the disclaimer, and that it has nothing to do with QNAP. The consent is stored in the user's settings; the text can be read again from "Terms of use" in the settings footer. The footer also has "Licenses" (the third-party license notices shipped in the package).
@@ -118,7 +118,7 @@ The flow follows what QTS `authLogin.cgi` actually answers. It covers only what 
 
 - The default is the authenticator's 6-digit code: one field (`inputmode=numeric`, `autocomplete=one-time-code`, so phones can fill it from a text message or the authenticator) that submits by itself once 6 digits are in.
 - A wrong code shows the NAS's current time: "The code is incorrect. Try again. The NAS time is 09:41; your authenticator's clock must match it." An out-of-sync authenticator clock is the most common cause.
-- A countdown at the bottom left (3 minutes for the authenticator, 5 for backup email and security question, as in QTS); when it runs out, the page returns to the first step with "Verification timed out. Sign in again."
+- A countdown at the bottom left (3 minutes for the authenticator, 5 for backup email and security question, as in QTS); when it runs out, the page returns to the first step with "The verification time has passed. Sign in again."
 - "Verify another way" lists the methods set up for this account: authenticator, send a code to the backup email (shown masked), answer the security question. After the email is sent, its code goes into the same field; too many wrong security answers disable the method and ask the user to contact the administrator.
 - A "Don't verify again on this device" switch maps to QTS's `dont_verify_2sv_again`; the vtoken QTS issues is kept in this browser (localStorage) as the QTS sign-in page does, so the next sign-in on the same device skips the second step.
 - Every screen has "Use another account" to go back to the first step.
@@ -126,7 +126,7 @@ The flow follows what QTS `authLogin.cgi` actually answers. It covers only what 
 **Other rules**:
 
 - Opening `https://<NAS>:<port>/DownloadCenter/` lands on this page; opening from the QTS desktop reuses the QTS session and skips it.
-- On load, the page asks QTS whether HTTPS is enforced: if so, it goes straight to the same page on `https://` (the browser must share an origin with QTS's sign-in CGI to call it); otherwise, when opened over `http://` (except `localhost`), a warning line with "Use encrypted connection" appears at the top.
+- When opened over `http://` (except `localhost`), the page asks QTS for its HTTPS port and shows a warning line with "Use encrypted connection", which opens the same page on `https://` (the browser must share an origin with QTS's sign-in CGI to call it). When QTS only allows HTTPS, its own web server already sends `http://` requests there.
 - While submitting, the button reads "Signing in…" and is disabled to prevent double submits.
 - **Repeated failures** are QTS's business; the package keeps no count. QTS gives no reason when it blocks, so the screen shows the same failure sentence.
 - "Remember user name" keeps only the user name in this browser, never the password. There is no "stay signed in"; session lifetime follows QTS.

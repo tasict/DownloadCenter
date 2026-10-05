@@ -416,7 +416,13 @@ func (s *service) addURL(c *call) result {
 		if strings.HasPrefix(strings.ToLower(raw), "magnet:") {
 			_, err = s.m.AddMagnet(raw, o)
 		} else {
-			_, err = s.m.AddURL(normalizeScheme(raw), o)
+			// A link to a .torrent file is added as a torrent, as in the web UI
+			link := normalizeScheme(raw)
+			if b := s.m.FetchTorrentLink(link, o.Proxy, o.Admin); b != nil {
+				_, err = s.m.AddTorrent(b, o)
+			} else {
+				_, err = s.m.AddURL(link, o)
+			}
 		}
 		if err != nil {
 			var dup *core.DupError

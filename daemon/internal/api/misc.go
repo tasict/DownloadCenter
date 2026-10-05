@@ -86,7 +86,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	}
 	resp := map[string]any{
 		"user": p.User, "role": p.Role, "admin": p.Admin, "qts_admin": p.QTSAdmin, "via": p.Via,
-		"scopes": p.Scopes(), "tasks": map[bool]string{true: "all", false: "own"}[p.AllTasks],
+		"scopes": p.Scopes(), "tasks": map[bool]string{true: "all", false: "own"}[p.Admin && p.AllTasks],
 		"prefs": prefs, "home_folder": home,
 		"bt_engine": btName, "caps": btCaps, "url_caps": urlCaps, "engines": s.engineCaps(),
 		"defaults": map[string]any{

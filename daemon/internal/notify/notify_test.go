@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -78,7 +79,7 @@ func newEnv(t *testing.T) *env {
 func (e *env) channel(t *testing.T, owner, service string, cfg map[string]string, secrets map[string]string) *Channel {
 	t.Helper()
 	c := &Channel{ID: auth.RandomID("ch_", 8), Owner: owner, Service: service, Name: service, Config: cfg, Enabled: true,
-		Scope: "own", Events: []string{}, State: map[string]any{}, CreatedAt: e.now.Unix()}
+		Scope: "own", Events: []string{"*"}, State: map[string]any{}, CreatedAt: e.now.Unix()}
 	if err := e.s.saveChannel(c); err != nil {
 		t.Fatal(err)
 	}
@@ -635,5 +636,37 @@ func TestEmbeddedMessagesInChinese(t *testing.T) {
 	}
 	if got := addError(core.ErrProxyRequired); got != "系統管理者要求一般使用者必須使用代理，這個任務沒有可用的代理" {
 		t.Errorf("add error %q", got)
+	}
+}
+
+// A channel with no event chosen notifies nothing (the web UI shows it so).
+func TestNoEventsChosen(t *testing.T) {
+	e := newEnv(t)
+	rec := &recorder{}
+	srv := httptest.NewServer(http.HandlerFunc(rec.handler))
+	defer srv.Close()
+	c := e.channel(t, "boss", "webhook", map[string]string{"url": srv.URL}, map[string]string{"secret": "x"})
+	c.Events = []string{}
+	e.s.saveChannel(c)
+	e.emit("task.completed", "boss")
+	var n int
+	e.s.db.QueryRow(`SELECT COUNT(*) FROM deliveries WHERE channel_id = ?`, c.ID).Scan(&n)
+	if n != 0 {
+		t.Errorf("%d deliveries", n)
+	}
+}
+
+// Links wrapped by download managers (thunder:// …) are unwrapped before a
+// chat command decides whether they are magnets.
+func TestChatUnwrapsLinks(t *testing.T) {
+	e := newEnv(t)
+	p, err := e.au.FromQTS("alice", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	magnet := "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel"
+	link := "thunder://" + base64.StdEncoding.EncodeToString([]byte("AA"+magnet+"ZZ"))
+	if r := e.s.Run(p, "c", "/add "+link); !r.OK || !strings.Contains(r.Reply, "Sintel") {
+		t.Errorf("wrapped magnet: %+v", r)
 	}
 }

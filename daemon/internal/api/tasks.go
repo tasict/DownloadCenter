@@ -3,16 +3,13 @@ package api
 import (
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
-	"downloadcenter/internal/netutil"
 	"downloadcenter/internal/torrent"
 )
 
@@ -371,7 +368,7 @@ func (s *Server) addOne(p *auth.Principal, src string, o core.AddOptions) addOut
 			out.status, out.Error = 403, map[string]string{"code": "source_not_allowed", "message": "The token may not add URLs"}
 			return out
 		}
-		if b := s.fetchTorrentURL(p, src, o.Proxy); b != nil {
+		if b := s.M.FetchTorrentLink(src, o.Proxy, p.Admin); b != nil {
 			res, err = s.M.AddTorrent(b, o)
 		} else {
 			res, err = s.M.AddURL(src, o)
@@ -892,6 +889,12 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request, p *auth.Principal)
 		Error(w, 400, "bad_request", err.Error())
 		return
 	}
+	switch b.Action {
+	case "pause", "resume", "start", "retry", "remove", "top", "up", "down", "bottom":
+	default:
+		Error(w, 400, "bad_request", "unknown action")
+		return
+	}
 	var ids []string
 	if v, ok := b.IDs.(string); ok && v == "all" {
 		for _, t := range s.M.List() {
@@ -949,39 +952,6 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request, p *auth.Principal)
 		}
 	}
 	OK(w, map[string]any{"ok": true, "count": n})
-}
-
-// fetchTorrentURL downloads a .torrent link so it is added as a torrent
-// task instead of a plain file. It returns nil for anything else.
-func (s *Server) fetchTorrentURL(p *auth.Principal, src, proxyChoice string) []byte {
-	u, err := url.Parse(src)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || !strings.HasSuffix(strings.ToLower(u.Path), ".torrent") {
-		return nil
-	}
-	pr, err := s.M.ProxyFor(proxyChoice, src, p.Admin)
-	if err != nil {
-		return nil
-	}
-	proxy := ""
-	if pr != nil {
-		proxy = s.M.ProxyURL(pr.ID)
-	}
-	resp, err := netutil.Client(30*time.Second, !p.Admin, proxy).Get(src)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil
-	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	if err != nil {
-		return nil
-	}
-	if _, err := torrent.Parse(b); err != nil {
-		return nil
-	}
-	return b
 }
 
 // trResults translates the error messages of add results.

@@ -356,7 +356,7 @@
 			h('h3', {'class':'nthead', text:DC.t('What you download')}), list,
 			h('h3', {'class':'nthead', text:DC.t('Usage statistics')}),
 			h('div', {'class':'ntstats'}, [head, h('div', {'class':'ntsplit'}, [
-				column('yes', 'done', DC.t('Sent'), [DC.t('Version, architecture and NAS model'), DC.t('Which features are used, and how often'), DC.t('Number of tasks, completed and failed')]),
+				column('yes', 'done', DC.t('Sent'), [DC.t('Version, architecture and NAS model'), DC.t('Which features are used, and how often'), DC.t('Number of tasks, completed and failed, and how much was downloaded')]),
 				column('no', 'close', DC.t('Not sent'), [DC.t('File names, links and downloaded content'), DC.t('Accounts, passwords and tokens'), DC.t('NAS name and folder paths')])
 			])])
 		], function(close){

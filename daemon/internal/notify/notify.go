@@ -210,16 +210,15 @@ func (s *Service) wants(ch *Channel, e core.Event) bool {
 	if e.Type == "notify.disabled" {
 		return e.Owner == ch.Owner
 	}
-	if len(ch.Events) > 0 {
-		ok := false
-		for _, t := range ch.Events {
-			if t == e.Type || t == "*" {
-				ok = true
-			}
+	// No event chosen means none: the web UI shows such a channel as notifying nothing
+	ok := false
+	for _, t := range ch.Events {
+		if t == e.Type || t == "*" {
+			ok = true
 		}
-		if !ok {
-			return false
-		}
+	}
+	if !ok {
+		return false
 	}
 	admin := s.isAdmin(ch.Owner)
 	return core.Visible(e, ch.Owner, admin, admin && ch.Scope == "all")

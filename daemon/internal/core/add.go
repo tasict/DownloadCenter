@@ -62,6 +62,7 @@ var (
 	ErrOtherOwner   = errors.New("duplicate_other_owner")
 	ErrNoURL        = errors.New("url_unavailable")
 	ErrNoBT         = errors.New("bt_unavailable")
+	ErrMoving       = errors.New("task_moving")
 )
 
 // DupError carries the id of the existing task.
@@ -308,7 +309,9 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 			if rerr != nil {
 				return nil, rerr
 			}
-			if r != nil && r.URL != "" && r.URL != raw {
+			// A result is used when it changes the address or adds headers
+			// (a cookie account keeps the link and adds its cookies)
+			if r != nil && r.URL != "" && (r.URL != raw || len(r.Headers) > 0) {
 				res, svc = r, s
 			}
 		}

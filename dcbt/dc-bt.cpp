@@ -23,6 +23,9 @@
 #include <libtorrent/version.hpp>
 #include <libtorrent/bdecode.hpp>
 #include <libtorrent/download_priority.hpp>
+#include <libtorrent/extensions/ut_metadata.hpp>
+#include <libtorrent/extensions/ut_pex.hpp>
+#include <libtorrent/extensions/smart_ban.hpp>
 
 #include "json.hpp"
 
@@ -52,7 +55,7 @@ namespace lt = libtorrent;
 using json = nlohmann::json;
 using clk = std::chrono::steady_clock;
 
-static const char *DCBT_VERSION = "1.2";
+static const char *DCBT_VERSION = "1.3";
 
 static volatile sig_atomic_t g_stop = 0;
 static void on_signal(int) { g_stop = 1; }
@@ -480,7 +483,14 @@ struct Engine
 			}
 		}
 		sp.settings = pack_from(initial);
+		// The extensions are added below: peer exchange only when it is on.
+		// It is a session plugin, so changing it needs a restart (apply_settings)
+		sp.extensions.clear();
 		ses.reset(new lt::session(std::move(sp)));
+		ses->add_extension(&lt::create_ut_metadata_plugin);
+		ses->add_extension(&lt::create_smart_ban_plugin);
+		if (initial.value("pex", true))
+			ses->add_extension(&lt::create_ut_pex_plugin);
 		restore();
 	}
 
@@ -918,7 +928,11 @@ struct Engine
 			return json{{"dcbt", DCBT_VERSION}, {"libtorrent", LIBTORRENT_VERSION}, {"hardware", hardware_json(hw, tune)}};
 		if (cmd == "apply_settings")
 		{
-			settings = req.value("settings", req);
+			json next = req.value("settings", req);
+			// Peer exchange is chosen when the session starts: dcd restarts dc-bt
+			if (next.value("pex", true) != settings.value("pex", true))
+				throw std::runtime_error("restart required");
+			settings = next;
 			ses->apply_settings(pack_from(settings));
 			return json::object();
 		}

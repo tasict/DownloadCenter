@@ -166,8 +166,11 @@ func (s *Server) previewRoutes() {
 		if files == nil {
 			files = []previewFile{}
 		}
-		OK(w, map[string]any{"files": files, "sequential_supported": s.M.BTEngine().Caps().Sequential && t.Kind == core.KindBT,
-			"sequential": t.Options.Sequential})
+		seq := false
+		if bt := s.M.BTEngine(); bt != nil && t.Kind == core.KindBT {
+			seq = bt.Caps().Sequential
+		}
+		OK(w, map[string]any{"files": files, "sequential_supported": seq, "sequential": t.Options.Sequential})
 	})
 	s.Route("GET /tasks/{id}/preview", "tasks:read", 0, s.preview)
 	s.Route("GET /tasks/{id}/archive", "tasks:read", 0, s.archiveList)

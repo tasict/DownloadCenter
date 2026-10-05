@@ -258,7 +258,12 @@ func (m *Manager) SaveSettings(s Settings) error {
 	m.settings = s
 	m.smu.Unlock()
 	if old.Schedule.Enabled != s.Schedule.Enabled || old.Schedule.Days != s.Schedule.Days {
-		m.Emit(Event{Type: "schedule.changed", Data: map[string]any{"mode": m.scheduleMode(), "by": "settings"}})
+		mode := m.scheduleMode()
+		m.Emit(Event{Type: "schedule.changed", Data: map[string]any{"mode": mode, "by": "settings"}})
+		// Reported here: the next tick does not report the same switch again
+		m.mu.Lock()
+		m.schedMode = mode
+		m.mu.Unlock()
 	}
 	m.applyEngines(old)
 	m.refreshProxies()

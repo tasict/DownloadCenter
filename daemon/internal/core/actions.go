@@ -129,7 +129,7 @@ func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
 	}
 	if m.moving[hash] || t.State == StMoving {
 		m.mu.Unlock()
-		return errors.New("files_moving")
+		return ErrMoving
 	}
 	e := m.engineOf(t)
 	ref := t.EngineRef

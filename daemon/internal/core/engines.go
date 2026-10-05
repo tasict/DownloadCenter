@@ -85,6 +85,16 @@ func (m *Manager) applyEngines(old Settings) {
 	}
 	m.mu.Lock()
 	m.applied = map[string][2]int64{}
+	// Seeding targets are given to a torrent when it is added: send changed ones to the running torrents too
+	if nt := m.Settings().Torrent; nt.SeedRatio != old.Torrent.SeedRatio || nt.SeedTime != old.Torrent.SeedTime {
+		for _, t := range m.live {
+			if e := m.engineOf(t); t.Kind == KindBT && t.EngineRef != "" && e != nil {
+				if err := e.SetSeeding(t.EngineRef, nt.SeedRatio, nt.SeedTime); err != nil {
+					log.Printf("core: seeding targets of %s: %v", t.Hash, err)
+				}
+			}
+		}
+	}
 	m.mu.Unlock()
 }
 

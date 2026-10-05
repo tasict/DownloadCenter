@@ -237,9 +237,10 @@
 			var files = r.files || [], chooser = null, area = h('div'), i, best = 0;
 			clear(D.body);
 			if(!files.length){ D.body.appendChild(h('p', {'class':'note', text:DC.t('No files to preview yet.')})); return; }
-			/* Default to the largest media file */
-			for(i = 0; i < files.length; i++) if((files[i].type === 'video' || files[i].type === 'audio') && files[i].size > files[best].size) best = i;
-			if(files[best].type !== 'video' && files[best].type !== 'audio') for(i = 0; i < files.length; i++) if(files[i].size > files[best].size) best = i;
+			/* Default to the largest audio or video file, else to the largest file */
+			best = -1;
+			for(i = 0; i < files.length; i++) if((files[i].type === 'video' || files[i].type === 'audio') && (best < 0 || files[i].size > files[best].size)) best = i;
+			if(best < 0){ best = 0; for(i = 1; i < files.length; i++) if(files[i].size > files[best].size) best = i; }
 			if(files.length > 1){
 				chooser = h('select', {id:'pvFile', 'aria-label':DC.t('File to preview'), onchange:function(){ show(files[+this.value]); }});
 				for(i = 0; i < files.length; i++) chooser.appendChild(h('option', {value:String(i), text:shown(files[i].path)}));

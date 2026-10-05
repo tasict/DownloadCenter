@@ -66,6 +66,7 @@ type Manager struct {
 	health     sync.Map        // engine name -> down (bool), readable without mu
 	inMinute   atomic.Bool     // housekeeping pass running
 	busy       bool            // something is downloading (for queue.idle)
+	schedMode  string          // schedule mode at the last tick (for schedule.changed)
 	lastTick   time.Time
 	lastMin    time.Time
 	lastDay    time.Time
@@ -1248,6 +1249,10 @@ func (m *Manager) kindLimits(kind string) TypeLimits {
 // schedule decides which tasks run and applies speed limits. Caller holds m.mu.
 func (m *Manager) schedule(now time.Time) {
 	mode := m.scheduleMode()
+	if m.schedMode != "" && mode != m.schedMode {
+		m.Emit(Event{Type: "schedule.changed", Data: map[string]any{"mode": mode, "by": "schedule"}})
+	}
+	m.schedMode = mode
 	nowU := now.Unix()
 	var list []*Task
 	for _, t := range m.live {
@@ -1450,9 +1455,13 @@ func (m *Manager) checkDisk(min int64) {
 			m.Emit(Event{Type: "disk.low", Data: map[string]any{"folder": m.DisplayPath("", dir), "free": FreeSpace(dir)}})
 		}
 	}
+	// Warned again only once the space has come back: tasks paused for lack of
+	// space no longer count here, and a new one would repeat the warning
 	for dir := range diskWarned {
 		if !low[dir] {
-			delete(diskWarned, dir)
+			if free := FreeSpace(dir); free < 0 || free >= min {
+				delete(diskWarned, dir)
+			}
 		}
 	}
 }

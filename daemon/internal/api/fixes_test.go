@@ -1,0 +1,60 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+
+	"downloadcenter/internal/auth"
+	"downloadcenter/internal/core"
+	"downloadcenter/internal/store"
+)
+
+func fixServer(t *testing.T) *Server {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "dc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return New(core.New(db, dir), auth.New(db), dir, "test")
+}
+
+// /me says "all" only when the caller really sees everyone's tasks.
+func TestMeTasksScope(t *testing.T) {
+	s := fixServer(t)
+	for _, c := range []struct {
+		admin bool
+		want  string
+	}{{false, "own"}, {true, "all"}} {
+		rec := httptest.NewRecorder()
+		s.me(rec, httptest.NewRequest("GET", "/x", nil), &auth.Principal{User: "bob", Admin: c.admin, Via: "session", AllTasks: true})
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		if out["tasks"] != c.want {
+			t.Errorf("admin %v: tasks %v, want %s", c.admin, out["tasks"], c.want)
+		}
+	}
+}
+
+// An unknown bulk action is refused even when no task matches.
+func TestBulkUnknownAction(t *testing.T) {
+	s := fixServer(t)
+	rec := httptest.NewRecorder()
+	b, _ := json.Marshal(map[string]any{"ids": []string{}, "action": "explode"})
+	s.bulk(rec, httptest.NewRequest("POST", "/x", bytes.NewReader(b)), &auth.Principal{User: "admin", Admin: true, Via: "session", AllTasks: true})
+	if rec.Code != 400 {
+		t.Errorf("status %d", rec.Code)
+	}
+}
+
+// Removing a task whose files are being moved has its own code and message.
+func TestMovingTaskError(t *testing.T) {
+	status, code, msg := coreError(core.ErrMoving)
+	if status != 409 || code != "task_moving" || msg == "task_moving" {
+		t.Errorf("%d %s %q", status, code, msg)
+	}
+}
