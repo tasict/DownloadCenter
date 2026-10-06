@@ -2,6 +2,13 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.1.2
+
+- When a video you preview has a subtitle file with the same name in the same folder (.srt or .vtt), a Subtitles switch below the player shows them. Your choice is remembered, and subtitles that are not in UTF-8 can be read with another text encoding.
+- In queue order, every task can be dragged to a new place, including finished, seeding and failed ones. Finished and seeding tasks do not take a download slot, so moving them changes only where they appear in the list; a failed task queues from its new place when you retry it.
+- On phones, the AI Agent section in Settings › Access tokens and the token windows no longer cover their own text, and addresses are no longer broken in the middle of a word.
+- For the API: .vtt files are previewed as text.
+
 ## 1.1.1
 
 - Updates download several parts of the package at once. Where each connection to GitHub is slow, this is many times faster; the package is still checked against the signed release list.
