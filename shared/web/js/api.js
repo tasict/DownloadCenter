@@ -73,6 +73,24 @@
 				};
 				x.send();
 			});
+		},
+		/* Raw bytes (subtitles, which may not be UTF-8): resolves with an ArrayBuffer. */
+		bytes:function(path, limit){
+			return new Promise(function(resolve, reject){
+				var x = new XMLHttpRequest();
+				x.open('GET', BASE + path, true);
+				x.responseType = 'arraybuffer';
+				x.setRequestHeader('X-DC-Lang', DC.lang || 'ENG');
+				if(limit) x.setRequestHeader('Range', 'bytes=0-' + (limit - 1));
+				x.onreadystatechange = function(){
+					if(x.readyState !== 4) return;
+					if(x.status >= 200 && x.status < 300 && x.response){ resolve(x.response); return; }
+					var d = null;
+					try{ d = JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(x.response))); }catch(e){}
+					reject(fail(x.status, d));
+				};
+				x.send();
+			});
 		}
 	};
 

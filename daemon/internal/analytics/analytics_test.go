@@ -76,11 +76,12 @@ func TestBuildLimits(t *testing.T) {
 // The UI can only add known counters, in bounded steps.
 func TestUIWhitelist(t *testing.T) {
 	s := testService(t)
-	s.UI("alice", map[string]int64{"tab_peers": 3, "lang_ENG": 1, "lang_XX": 1, "/share/Download/secret.mkv": 1, "ui_evil": 1, "sort_eta": 1000})
-	if s.counts["ui_tab_peers"] != 3 || s.counts["ui_lang_eng"] != 1 || s.counts["ui_sort_eta"] != maxUIPerPost {
+	s.UI("alice", map[string]int64{"tab_peers": 3, "lang_ENG": 1, "lang_XX": 1, "/share/Download/secret.mkv": 1, "ui_evil": 1, "sort_eta": 1000, "preview_subs": 2, "subs_enc": 1})
+	if s.counts["ui_tab_peers"] != 3 || s.counts["ui_lang_eng"] != 1 || s.counts["ui_sort_eta"] != maxUIPerPost ||
+		s.counts["ui_preview_subs"] != 2 || s.counts["ui_subs_enc"] != 1 {
 		t.Fatalf("counts %v", s.counts)
 	}
-	if len(s.counts) != 3 {
+	if len(s.counts) != 5 {
 		t.Fatalf("unexpected keys in %v", s.counts)
 	}
 	s.UI("alice", map[string]int64{"tab_log": 1}) // too soon after the last report

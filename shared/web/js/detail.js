@@ -2,10 +2,15 @@
 (function(){
 	'use strict';
 	var DC = window.DC, h = DC.h, add = DC.add, clear = DC.clear, icon = DC.icon, ibtn = DC.ibtn, btn = DC.btn;
-	var D = {id:null, tab:'info', el:null, scrim:null, extra:null, peerTimer:null};
+	var D = {id:null, tab:'info', el:null, scrim:null, extra:null, peerTimer:null, subURL:null};
 
+	/* The preview's subtitle track lives in a blob URL until the file, the tab or the drawer changes */
+	function dropSubs(){
+		if(D.subURL){ URL.revokeObjectURL(D.subURL); D.subURL = null; }
+	}
 	function close(){
 		clearTimeout(D.peerTimer);
+		dropSubs();
 		if(D.el){ DC.remove(D.el); DC.remove(D.scrim); D.el = null; }
 		document.documentElement.classList.remove('dr-dock');
 		D.id = null;
@@ -95,6 +100,7 @@
 		var t = task();
 		if(!t) return;
 		clearTimeout(D.peerTimer);
+		dropSubs();
 		if(D.tab === 'info') info(t);
 		else if(D.tab === 'files') filesTab(t);
 		else if(D.tab === 'preview') previewTab(t);
@@ -267,12 +273,83 @@
 					c < 1 ? h('div', {'class':'pvkey'}, [h('span', null, [h('i', {'class':'k1'}), DC.t('Previewable')]), h('span', null, [h('i', {'class':'k2'}), DC.t('Downloaded')])]) : null,
 					h('p', {'class':'sum num', text:txt})];
 			}
+			/* A video with a same-name .srt/.vtt beside it gets a Subtitles switch. The file is rebuilt as clean WebVTT (DC.subs)
+			   in a blob track; the switch and the player's own captions menu stay in step, and both choices are remembered. */
+			function subtitles(video, sf){
+				var name = shown(DC.baseName(sf.path)), on = DC.pref('subtitles') !== false, raw = null, guessed = false, track = null, box,
+					input = h('input', {type:'checkbox', id:'pvSubs', checked:on, disabled:true, onchange:function(){
+						on = this.checked;
+						if(track) track.mode = on ? 'showing' : 'hidden';
+						encRow.hidden = !(on && guessed);
+						DC.savePref('subtitles', on);
+					}}),
+					note = h('small', {'class':'mono', text:name}),
+					encRow = h('div', {'class':'pvenc', hidden:true});
+				box = h('div', {'class':'pvsubs'}, [h('label', {'class':'toggle', 'for':'pvSubs'}, [input, h('span', null, [DC.t('Subtitles'), note])]), encRow]);
+				add(area, box);
+				function off(text){
+					dropSubs();
+					if(track && track.mode !== 'disabled') track.mode = 'disabled';
+					clear(video);
+					track = null; input.disabled = true; input.checked = false; encRow.hidden = true;
+					note.className = ''; note.textContent = text;
+				}
+				function attach(d){
+					var vtt = d && DC.subs.toVTT(d.text), el;
+					if(!vtt){ off(DC.t('{name} could not be read as subtitles.', {name:name})); return false; }
+					if(track) track.mode = 'disabled';
+					dropSubs();
+					clear(video);
+					D.subURL = URL.createObjectURL(new Blob([vtt], {type:'text/vtt'}));
+					el = h('track', {kind:'subtitles', label:DC.t('Subtitles'), src:D.subURL});
+					video.appendChild(el);
+					track = el.track;
+					track.mode = on ? 'showing' : 'hidden';
+					return true;
+				}
+				function encodings(enc){
+					var names = {'utf-8':DC.t('Unicode (UTF-8)'), big5:DC.t('Traditional Chinese (Big5)'), gb18030:DC.t('Simplified Chinese (GB18030)'),
+						shift_jis:DC.t('Japanese (Shift_JIS)'), 'euc-kr':DC.t('Korean (EUC-KR)'), 'windows-1252':DC.t('Western European (Windows-1252)')}, i,
+						sel = h('select', {id:'pvEnc', onchange:function(){
+							if(!attach(DC.subs.decodeAs(raw, this.value))) return;
+							DC.savePref('subtitle_encoding', this.value);
+							DC.track('subs_enc');
+						}});
+					for(i = 0; i < DC.subs.ENCODINGS.length; i++) sel.appendChild(h('option', {value:DC.subs.ENCODINGS[i], text:names[DC.subs.ENCODINGS[i]]}));
+					sel.value = enc;
+					add(encRow, [h('label', {'for':'pvEnc', text:DC.t('Text encoding')}), sel]);
+				}
+				/* The player's captions menu: follow it when it shows or hides our track */
+				if(video.textTracks && video.textTracks.addEventListener) video.textTracks.addEventListener('change', function(){
+					var s = !!track && track.mode === 'showing';
+					if(!track || s === on) return;
+					on = s; input.checked = s; encRow.hidden = !(on && guessed);
+					DC.savePref('subtitles', on);
+				});
+				if(sf.contiguous < sf.size){ off(DC.t('Subtitles can be shown once {name} has finished downloading.', {name:name})); return; }
+				DC.api.bytes('tasks/' + t.id + '/preview?file=' + sf.index, 4194304).then(function(buf){
+					var d;
+					if(!document.body.contains(box)) return;
+					raw = buf;
+					d = DC.subs.decode(buf, DC.pref('subtitle_encoding'), DC.lang);
+					if(!attach(d)) return;
+					guessed = d.guessed;
+					if(guessed) encodings(d.enc);
+					encRow.hidden = !(on && guessed);
+					input.disabled = false;
+					DC.track('preview_subs');
+				}, function(){ if(document.body.contains(box)) off(DC.t('{name} could not be read as subtitles.', {name:name})); });
+			}
 			function show(f){
-				var src = DC.api.url('tasks/' + t.id + '/preview', {file:f.index}), pre;
+				var src = DC.api.url('tasks/' + t.id + '/preview', {file:f.index}), pre, media, sub;
+				dropSubs();
 				clear(area);
 				if(f.contiguous <= 0){ add(area, [h('p', {'class':'note', text:DC.t('The beginning of this file has not been downloaded yet, so it cannot be previewed for now.')}), bars(f)]); return; }
 				if((f.type === 'video' || f.type === 'audio') && f.playable){
-					add(area, [h(f.type === 'video' ? 'video' : 'audio', {'class':f.type === 'video' ? 'pvmedia' : 'pvaudio', controls:true, preload:'metadata', src:src, onplay:function(){ if(!this._played){ this._played = true; DC.track('preview_play'); } }}), bars(f)]);
+					media = h(f.type === 'video' ? 'video' : 'audio', {'class':f.type === 'video' ? 'pvmedia' : 'pvaudio', controls:true, preload:'metadata', src:src, onplay:function(){ if(!this._played){ this._played = true; DC.track('preview_play'); } }});
+					add(area, [media, bars(f)]);
+					sub = DC.subs.match(files, f);
+					if(sub) subtitles(media, sub);
 				}else if(f.type === 'video' || f.type === 'audio'){
 					add(area, [h('p', {'class':'note', text:DC.t('The browser cannot play this format directly. Download the downloaded part and play it on your computer.')}), bars(f),
 						h('a', {'class':'ib btn', href:DC.api.url('tasks/' + t.id + '/preview', {file:f.index, download:1}), download:shown(DC.baseName(f.path))}, [icon('down'), h('span', {text:DC.t('Download previewable part')})])]);

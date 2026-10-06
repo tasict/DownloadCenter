@@ -947,6 +947,12 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 .pvaudio{width:100%;margin-bottom:10px}
 .pvimg{max-width:100%;border-radius:14px;margin-bottom:10px;display:block}
 .pvtext{white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto;background:var(--surface);border-radius:14px;padding:12px 14px;margin:0 0 10px}
+/* Subtitles in the UI's own typeface; the size stays relative to what the browser picks for the video's size */
+.pvmedia::cue{font-family:var(--f);font-weight:500;font-size:120%;color:#FFFFFF;background:rgba(0,0,0,.6)}
+.pvsubs{margin-top:6px}
+.pvsubs .toggle small.mono{font-family:var(--f-mono);overflow-wrap:anywhere}
+.pvenc{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 0 10px;font-size:13px;color:var(--label2)}
+.pvenc select{width:auto;flex:0 1 auto;font-size:13px;padding:5px 10px}
 .secretarea{border:0;background:var(--fill);border-radius:8px;padding:8px 10px;font:12.5px/1.45 var(--f-mono);width:100%;min-width:220px;color:var(--label);resize:vertical}
 .group > .secretarea{margin:10px 0}
 .peers em{display:grid;grid-template-columns:72px 72px 40px;gap:6px;text-align:right;white-space:nowrap}

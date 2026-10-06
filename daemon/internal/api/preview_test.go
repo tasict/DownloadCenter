@@ -31,4 +31,7 @@ func TestFileType(t *testing.T) {
 	if k, p := fileType("a/movie.mp4.dsdownload"); k != "video" || !p {
 		t.Error("official unfinished mp4 must stay a playable video")
 	}
+	if k, p := fileType("x.VTT"); k != "text" || !p {
+		t.Error("vtt subtitles are previewed as text")
+	}
 }

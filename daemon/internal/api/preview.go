@@ -35,7 +35,7 @@ var inlineTypes = map[string]string{
 	".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".flac": "audio/flac", ".wav": "audio/wav",
 	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
 	".txt": "text/plain; charset=utf-8", ".nfo": "text/plain; charset=utf-8", ".md": "text/plain; charset=utf-8", ".srt": "text/plain; charset=utf-8",
-	".log": "text/plain; charset=utf-8", ".sfv": "text/plain; charset=utf-8", ".json": "text/plain; charset=utf-8", ".csv": "text/plain; charset=utf-8",
+	".vtt": "text/plain; charset=utf-8", ".log": "text/plain; charset=utf-8", ".sfv": "text/plain; charset=utf-8", ".json": "text/plain; charset=utf-8", ".csv": "text/plain; charset=utf-8",
 }
 
 // cleanName drops the suffix the official Download Station gives unfinished
