@@ -24,8 +24,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
 	"downloadcenter/internal/netutil"
 	"downloadcenter/internal/notify"
@@ -79,12 +81,17 @@ var uiKeys = set(
 	"set_dl", "set_sched", "set_users", "set_acct", "set_token", "set_notify", "set_import", "set_about",
 	"add_paste", "add_text", "add_drop", "add_pick", "add_clip", "add_merge",
 	"pick_mode", "bulk", "queue_move", "stream_on", "preview_play", "preview_subs", "subs_enc", "open_folder", "open_on_phone",
+	"token_agent", "agent_copy_claude", "agent_copy_other", "skill_download",
 )
 
 // UI languages (lang_<code>)
 var uiLangs = set("TCH", "SCH", "ENG", "JPN", "KOR", "GER", "FRE", "SPA", "ITA", "POR", "RUS", "DUT", "THA")
 
 var schemes = set("http", "https", "ftp", "ftps", "sftp", "scp")
+
+// Counter groups a report carries: task adds and results, the web UI, and
+// the uses of tokens, the REST API, the V4 API and chat commands.
+var groups = set("add", "res", "ui", "tok", "api", "v4", "chat")
 
 func set(v ...string) map[string]bool {
 	m := make(map[string]bool, len(v))
@@ -106,6 +113,7 @@ type Service struct {
 	// Post sends one request body; tests replace it.
 	Post func(u string, body []byte) error
 
+	on     atomic.Bool // the switch (kOff), cached: token requests count on every call
 	mu     sync.Mutex
 	counts map[string]int64
 	dirty  bool
@@ -123,6 +131,7 @@ func New(m *core.Manager, db *store.DB, data, version, arch string) *Service {
 	if _, err := os.Stat(filepath.Join(data, "analytics_debug")); err == nil {
 		s.debug = true
 	}
+	s.on.Store(db.Meta(kOff) != "1")
 	if c := db.Meta(kCounts); c != "" {
 		json.Unmarshal([]byte(c), &s.counts)
 	}
@@ -135,7 +144,7 @@ func New(m *core.Manager, db *store.DB, data, version, arch string) *Service {
 }
 
 // Enabled reports the switch (on unless an administrator turned it off).
-func (s *Service) Enabled() bool { return s.db.Meta(kOff) != "1" }
+func (s *Service) Enabled() bool { return s.on.Load() }
 
 // configured: there is somewhere to send to (or the dry run logs it).
 func (s *Service) configured() bool { return s.dryRun || (MeasurementID != "" && APISecret != "") }
@@ -144,6 +153,7 @@ func (s *Service) configured() bool { return s.dryRun || (MeasurementID != "" &&
 // was collected.
 func (s *Service) SetEnabled(on bool) {
 	s.db.SetMeta(kAck, "1")
+	s.on.Store(on)
 	if on {
 		s.db.SetMeta(kOff, "")
 		return
@@ -164,6 +174,16 @@ func (s *Service) add(key string, n int64) {
 	s.counts[key] += n
 	s.dirty = true
 	s.mu.Unlock()
+}
+
+// hooked are the groups other packages count through api.Count.
+var hooked = set("tok", "api", "v4", "chat")
+
+// count is api.Counter: one use of a token, API endpoint or chat command.
+func (s *Service) count(key string) {
+	if g, _, _ := strings.Cut(key, "_"); hooked[g] {
+		s.add(key, 1)
+	}
 }
 
 // UI adds the counters one browser reported; user rate-limits reports.
@@ -412,7 +432,7 @@ func (s *Service) build(counts map[string]int64, state map[string]int64, now tim
 	sort.Strings(keys)
 	for _, k := range keys {
 		g, _, _ := strings.Cut(k, "_")
-		if (g == "add" || g == "res" || g == "ui") && counts[k] > 0 {
+		if groups[g] && counts[k] > 0 {
 			evs = append(evs, counter("usage", g, k, counts[k], base))
 		}
 	}
@@ -475,6 +495,14 @@ func (s *Service) snapshot() map[string]int64 {
 	count("st_tasks", `SELECT COUNT(*) FROM tasks WHERE removed_at = 0`)
 	count("st_tasks_bt", `SELECT COUNT(*) FROM tasks WHERE removed_at = 0 AND kind = ?`, core.KindBT)
 	count("st_tokens", `SELECT COUNT(*) FROM tokens`)
+	now := time.Now().Unix()
+	count("st_tokens_1d", `SELECT COUNT(*) FROM tokens WHERE last_used_at >= ?`, now-86400)
+	count("st_tokens_30d", `SELECT COUNT(*) FROM tokens WHERE last_used_at >= ?`, now-30*86400)
+	count("st_token_owners", `SELECT COUNT(DISTINCT owner) FROM tokens`)
+	// scopes is a JSON array of strings: the quoted name matches one scope only
+	for _, sc := range auth.AllScopes {
+		count("st_tok_"+strings.ReplaceAll(sc, ":", "_"), `SELECT COUNT(*) FROM tokens WHERE scopes LIKE ?`, "%\""+sc+"\"%")
+	}
 	count("st_channels", `SELECT COUNT(*) FROM channels`)
 	count("st_chat_ops", `SELECT COUNT(*) FROM channels WHERE operate = 1`)
 	for _, d := range notify.Services {

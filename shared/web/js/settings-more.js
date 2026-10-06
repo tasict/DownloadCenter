@@ -128,6 +128,7 @@
 		['files:delete', DC.t('Remove tasks and delete files')], ['stats:read', DC.t('View speed and space')], ['events:read', DC.t('Receive events')], ['notify:manage', DC.t('Manage my notifications')],
 		['settings:read', DC.t('Read settings')], ['settings:write', DC.t('Edit settings and schedule')]
 	];
+	/* The usage statistics name a new token after these (tokenPresets in daemon/internal/api/stats.go; a test keeps them equal) */
 	var PRESETS = {read:['tasks:read', 'stats:read', 'events:read'], add:['tasks:read', 'tasks:add', 'stats:read', 'events:read'], full:['tasks:read', 'tasks:add', 'tasks:control', 'tasks:remove', 'stats:read', 'events:read']};
 	function scopeLabel(s){ for(var i = 0; i < SCOPES.length; i++) if(SCOPES[i][0] === s) return SCOPES[i][1]; return s; }
 	var PRESET_LABEL = {read:DC.t('Read only'), add:DC.t('Add download'), full:DC.t('Full control (no file deletion)')};
@@ -155,7 +156,7 @@
 	function agentInstall(id, token){
 		var code = h('code', {text:agentCmd(token)});
 		var sel = DC.select(id, [['claude', 'Claude Code'], ['agents', DC.t('Codex, Gemini CLI and others')]], agentKind, function(){ agentKind = this.value; code.textContent = agentCmd(token); });
-		return {field:field(DC.t('AI Agent'), null, sel, id), cmd:h('div', {'class':'secret cmd'}, [code, btn('copy', DC.t('Copy'), function(){ DC.copyText(code.textContent, code); })])};
+		return {field:field(DC.t('AI Agent'), null, sel, id), cmd:h('div', {'class':'secret cmd'}, [code, btn('copy', DC.t('Copy'), function(){ DC.copyText(code.textContent, code); DC.track(agentKind === 'agents' ? 'agent_copy_other' : 'agent_copy_claude'); })])};
 	}
 	function reveal(value, regen, agent){
 		var code = h('code', {text:value}), inst = agentInstall('tAgent', value);
@@ -270,7 +271,7 @@
 						folders:folderLim && folderLim.value ? [folderLim.value] : []};
 					if(exp.value !== 'keep') body2.expires_days = +exp.value;
 					DC.busy(ok, true);
-					if(isNew) DC.api.post('tokens', body2).then(function(x){ close(); reload(); reveal(x.value, false, agent); }, function(err){ DC.busy(ok, false); DC.toast(DC.errText(err)); });
+					if(isNew) DC.api.post('tokens', body2).then(function(x){ close(); reload(); reveal(x.value, false, agent); if(agent) DC.track('token_agent'); }, function(err){ DC.busy(ok, false); DC.toast(DC.errText(err)); });
 					else DC.api.patch('tokens/' + t.id, body2).then(function(){ close(); DC.toast(DC.t('Token saved')); reload(); }, function(err){ DC.busy(ok, false); DC.toast(DC.errText(err)); });
 				}, 'pri');
 				return [btn(null, DC.t('Cancel'), close), ok];
@@ -300,7 +301,7 @@
 			h('details', {'class':'agentuse'}, [h('summary', {text:DC.t('Install or update the skill by hand')}),
 				h('p', {'class':'note', text:DC.t('After updating Download Center, run this command to update the skill file. The token settings stay as they are.')}),
 				inst.field, inst.cmd,
-				h('p', {'class':'inline agentlinks'}, [h('a', {'class':'linkish', href:'docs/skill/SKILL.md', download:'SKILL.md'}, [icon('down'), DC.t('Download the skill file (SKILL.md)')]),
+				h('p', {'class':'inline agentlinks'}, [h('a', {'class':'linkish', href:'docs/skill/SKILL.md', download:'SKILL.md', onclick:function(){ DC.track('skill_download'); }}, [icon('down'), DC.t('Download the skill file (SKILL.md)')]),
 					h('a', {'class':'linkish', href:'docs/ai-agent.txt', target:'_blank', rel:'noopener'}, [icon('popout'), DC.t('AI agent guide (AI-AGENT.md)')])])])
 		]);
 	}

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -262,4 +264,43 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("no session: %v", out)
 	}
 	_ = http.StatusOK
+}
+
+// Requests are counted by the endpoint table's name and the answer's error
+// code; the answers stay as they were.
+func TestCounts(t *testing.T) {
+	got := map[string]int{}
+	api.Counter = func(k string) { got[k]++ }
+	defer func() { api.Counter = nil }()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "dc.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	m := core.New(db, dir)
+	au := auth.New(db)
+	srv := api.New(m, au, dir, "test")
+	Register(srv, m, au, dir, dir)
+	for _, c := range []struct{ path, body, counts string }{
+		{"/downloadstation/V4/Task/Query", `{"error":5}`, "v4_err_5=1 v4_task_query=1"},
+		{"/downloadstation/V4/Task/Secretname", `{"error":2}`, "v4_err_2=1 v4_unknown=1"},
+		{"/DownloadCenter/downloadstation/V4/Rss/Feed", `{"error":2}`, "v4_err_2=1 v4_rss=1"},
+		{"/downloadstation/V4/Misc/Logout", `{"error":0}`, "v4_misc_logout=1"},
+	} {
+		clear(got)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, httptest.NewRequest("GET", c.path, nil))
+		if body := strings.TrimSpace(w.Body.String()); w.Code != 200 || body != c.body {
+			t.Errorf("%s: %d %s, want %s", c.path, w.Code, body, c.body)
+		}
+		var l []string
+		for k, n := range got {
+			l = append(l, k+"="+strconv.Itoa(n))
+		}
+		sort.Strings(l)
+		if s := strings.Join(l, " "); s != c.counts {
+			t.Errorf("%s: counted %q, want %q", c.path, s, c.counts)
+		}
+	}
 }

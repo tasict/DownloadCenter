@@ -445,6 +445,9 @@ func (s *Server) miscRoutes() {
 			return
 		}
 		s.M.Emit(core.Event{Type: "security.token_created", Data: map[string]any{"token": t.ID, "owner": p.User, "name": t.Name}})
+		for _, k := range tokenKeys(t, p.Admin) {
+			Count(k)
+		}
 		OK(w, map[string]any{"token": t, "value": value})
 	})
 	// Edit what a token may do; expires_days absent keeps the expiry, 0 means
@@ -506,6 +509,7 @@ func (s *Server) miscRoutes() {
 			Error(w, 400, "failed", err.Error())
 			return
 		}
+		Count("tok_edited")
 		OK(w, map[string]any{"token": s.Auth.TokenOf(t.ID, p.User)})
 	})
 	s.Route("POST /tokens/{id}/regenerate", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
@@ -514,10 +518,15 @@ func (s *Server) miscRoutes() {
 			Error(w, 404, "not_found", "Token not found")
 			return
 		}
+		Count("tok_regenerated")
 		OK(w, map[string]any{"value": value})
 	})
 	s.Route("DELETE /tokens/{id}", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-		s.Auth.RevokeToken(r.PathValue("id"), p.User)
+		id := r.PathValue("id")
+		had := s.Auth.TokenOf(id, p.User) != nil
+		if s.Auth.RevokeToken(id, p.User) == nil && had {
+			Count("tok_revoked")
+		}
 		OK(w, map[string]any{"ok": true})
 	})
 	s.Route("GET /tokens/audit", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {

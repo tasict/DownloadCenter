@@ -670,3 +670,36 @@ func TestChatUnwrapsLinks(t *testing.T) {
 		t.Errorf("wrapped magnet: %+v", r)
 	}
 }
+
+// Commands are counted by their name (aliases together), whatever the
+// caller may do; their text never becomes a name.
+func TestCommandCounts(t *testing.T) {
+	e := newEnv(t)
+	ro, err := e.au.ForChat("alice", []string{"tasks:read"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	api.Counter = func(k string) { got[k]++ }
+	defer func() { api.Counter = nil }()
+	for text, want := range map[string]string{
+		"/start":      "chat_help",
+		"/rm 1":       "chat_del",
+		"/list@MyBot": "chat_list",
+		"/LIST":       "chat_list",
+		"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567": "chat_add",
+		"/add https://example.com/a":                                   "chat_add",
+		"/downloadall /share/secret":                                   "chat_unknown",
+		"   ":                                                          "",
+	} {
+		clear(got)
+		e.s.Run(ro, "c1", text)
+		var keys []string
+		for k := range got {
+			keys = append(keys, k)
+		}
+		if strings.Join(keys, " ") != want || (want != "" && got[want] != 1) {
+			t.Errorf("%q counted %v, want %s", text, got, want)
+		}
+	}
+}

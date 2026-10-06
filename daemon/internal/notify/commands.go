@@ -47,6 +47,14 @@ func deny(scope string) Reply {
 	return Reply{Reply: "沒有權限執行這個指令（需要 " + scope + "）。"}
 }
 
+// commandKeys name the commands in the usage statistics (aliases together).
+var commandKeys = map[string]string{
+	"/help": "help", "/start": "help", "/list": "list", "/add": "add",
+	"/pause": "pause", "/resume": "resume", "/retry": "retry",
+	"/del": "del", "/delete": "del", "/rm": "del",
+	"/speed": "speed", "/disk": "disk", "/limit": "limit", "/sched": "sched", "/link": "link",
+}
+
 // Run executes one chat command for principal p. caller identifies the
 // conversation (list numbers are kept per caller for 10 minutes).
 func (s *Service) Run(p *auth.Principal, caller, text string) Reply {
@@ -67,6 +75,11 @@ func (s *Service) Run(p *auth.Principal, caller, text string) Reply {
 	// A bare link is an /add
 	if !strings.HasPrefix(cmd, "/") && linkLineRe.MatchString(text) {
 		cmd, rest = "/add", text
+	}
+	if k, ok := commandKeys[cmd]; ok {
+		api.Count("chat_" + k)
+	} else {
+		api.Count("chat_unknown")
 	}
 	switch cmd {
 	case "/help", "/start":

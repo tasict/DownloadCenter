@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
 	"downloadcenter/internal/store"
 )
@@ -76,12 +77,14 @@ func TestBuildLimits(t *testing.T) {
 // The UI can only add known counters, in bounded steps.
 func TestUIWhitelist(t *testing.T) {
 	s := testService(t)
-	s.UI("alice", map[string]int64{"tab_peers": 3, "lang_ENG": 1, "lang_XX": 1, "/share/Download/secret.mkv": 1, "ui_evil": 1, "sort_eta": 1000, "preview_subs": 2, "subs_enc": 1})
+	s.UI("alice", map[string]int64{"tab_peers": 3, "lang_ENG": 1, "lang_XX": 1, "/share/Download/secret.mkv": 1, "ui_evil": 1, "sort_eta": 1000, "preview_subs": 2, "subs_enc": 1,
+		"token_agent": 1, "agent_copy_claude": 2, "agent_copy_other": 1, "skill_download": 1})
 	if s.counts["ui_tab_peers"] != 3 || s.counts["ui_lang_eng"] != 1 || s.counts["ui_sort_eta"] != maxUIPerPost ||
-		s.counts["ui_preview_subs"] != 2 || s.counts["ui_subs_enc"] != 1 {
+		s.counts["ui_preview_subs"] != 2 || s.counts["ui_subs_enc"] != 1 || s.counts["ui_token_agent"] != 1 ||
+		s.counts["ui_agent_copy_claude"] != 2 || s.counts["ui_agent_copy_other"] != 1 || s.counts["ui_skill_download"] != 1 {
 		t.Fatalf("counts %v", s.counts)
 	}
-	if len(s.counts) != 5 {
+	if len(s.counts) != 9 {
 		t.Fatalf("unexpected keys in %v", s.counts)
 	}
 	s.UI("alice", map[string]int64{"tab_log": 1}) // too soon after the last report
@@ -120,6 +123,10 @@ func TestDisable(t *testing.T) {
 	if len(s.counts) != 0 || s.Enabled() || s.db.Meta(kAck) != "1" {
 		t.Fatalf("counts %v enabled %v", s.counts, s.Enabled())
 	}
+	// The switch is cached; a restart reads it back from the database
+	if New(s.m, s.db, s.data, s.version, s.arch).Enabled() {
+		t.Fatal("reloaded service is on")
+	}
 	s.SetEnabled(true)
 	if !s.Enabled() {
 		t.Fatal("not re-enabled")
@@ -144,5 +151,71 @@ func TestSendDryRun(t *testing.T) {
 	reqs := s.build(nil, nil, time.Now())
 	if reqs[0].Events[1].Name != "upgrade" || reqs[0].Events[1].Params["from_version"] != "1.2.3" {
 		t.Fatalf("events %+v", reqs[0].Events)
+	}
+}
+
+// Counters of every group reach the report under their group; others do not.
+func TestBuildGroups(t *testing.T) {
+	s := testService(t)
+	counts := map[string]int64{"tok_created": 1, "api_get_tasks": 3, "v4_task_query": 2, "chat_add": 1, "zz_x": 1}
+	got := map[string]string{}
+	for _, p := range s.build(counts, nil, time.Now()) {
+		for _, e := range p.Events {
+			if e.Name == "usage" {
+				got[e.Params["key"].(string)] = e.Params["group"].(string)
+			}
+		}
+	}
+	want := map[string]string{"tok_created": "tok", "api_get_tasks": "api", "v4_task_query": "v4", "chat_add": "chat"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("usage events %v, want %v", got, want)
+	}
+}
+
+// Other packages can only count their own groups, and nothing while off.
+func TestCountHook(t *testing.T) {
+	s := testService(t)
+	for _, k := range []string{"api_get_tasks", "ui_session", "/share/x", "add_https", "tok_created"} {
+		s.count(k)
+	}
+	if len(s.counts) != 2 || s.counts["api_get_tasks"] != 1 || s.counts["tok_created"] != 1 {
+		t.Fatalf("counts %v", s.counts)
+	}
+	s.SetEnabled(false)
+	s.count("api_get_tasks")
+	if len(s.counts) != 0 {
+		t.Fatalf("counted while off: %v", s.counts)
+	}
+}
+
+// Tokens are described by how many there are, are in use and hold each scope.
+func TestTokenState(t *testing.T) {
+	s := testService(t)
+	au := auth.New(s.db)
+	now := time.Now().Unix()
+	for i, tk := range []struct {
+		owner  string
+		scopes []string
+		used   int64
+	}{
+		{"alice", []string{"tasks:read", "tasks:add"}, now - 3*3600},
+		{"alice", []string{"tasks:read", "files:delete"}, now - 60*86400},
+		{"bob", []string{"stats:read"}, 0},
+	} {
+		tok := &auth.Token{Owner: tk.owner, Name: fmt.Sprintf("t%d", i), Scopes: tk.scopes}
+		if _, err := au.CreateToken(tok, false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.db.X(`UPDATE tokens SET last_used_at = ? WHERE id = ?`, tk.used, tok.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st := s.snapshot()
+	want := map[string]int64{"st_tokens": 3, "st_tokens_1d": 1, "st_tokens_30d": 1, "st_token_owners": 2,
+		"st_tok_tasks_read": 2, "st_tok_tasks_add": 1, "st_tok_files_delete": 1, "st_tok_stats_read": 1, "st_tok_settings_write": 0}
+	for k, v := range want {
+		if n, ok := st[k]; !ok || n != v {
+			t.Errorf("%s = %d (present %v), want %d", k, n, ok, v)
+		}
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"downloadcenter/internal/api"
@@ -248,36 +249,50 @@ func (s *service) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ns, action := mt[1], mt[2]
+	ep, ok := s.eps[ns+"/"+action]
+	// Usage statistics: the endpoint's name from the table (never the
+	// requested one) and the error code of the answer
+	switch {
+	case ns == "Rss" || ns == "Addon":
+		api.Count("v4_" + strings.ToLower(ns))
+	case ok:
+		api.Count("v4_" + strings.ToLower(ns) + "_" + strings.ToLower(action))
+	default:
+		api.Count("v4_unknown")
+	}
+	answer := func(res result) {
+		if code, _ := res["error"].(int); code < 0 {
+			api.Count("v4_err_neg" + strconv.Itoa(-code))
+		} else if code > 0 {
+			api.Count("v4_err_" + strconv.Itoa(code))
+		}
+		s.write(w, r, res)
+	}
 	c := &call{s: s, w: w, r: r}
 	var err error
 	c.p, c.files, err = parseRequest(r)
 	if err != nil {
-		s.write(w, r, fail(errParameter))
+		answer(fail(errParameter))
 		return
 	}
-	if ns == "Rss" || ns == "Addon" {
-		s.write(w, r, fail(errAPINotExists))
-		return
-	}
-	ep, ok := s.eps[ns+"/"+action]
-	if !ok {
-		s.write(w, r, fail(errAPINotExists))
+	if ns == "Rss" || ns == "Addon" || !ok {
+		answer(fail(errAPINotExists))
 		return
 	}
 	if !ep.public {
 		if code := c.authenticate(); code != errOK {
-			s.write(w, r, fail(code))
+			answer(fail(code))
 			return
 		}
 		// A session taken from a cookie (not the sid parameter official
 		// clients send) is only good for state changes from the same
 		// origin: otherwise any web page could drive the API (CSRF)
 		if c.cookieSID && !readOnly[ns+"/"+action] && (r.Method != "POST" || !sameOrigin(r)) {
-			s.write(w, r, fail(errPermission))
+			answer(fail(errPermission))
 			return
 		}
 		if ep.admin && !c.who.Admin {
-			s.write(w, r, fail(errPermission))
+			answer(fail(errPermission))
 			return
 		}
 	}
@@ -296,7 +311,7 @@ func (s *service) serve(w http.ResponseWriter, r *http.Request) {
 	if _, ok := res["error"]; !ok {
 		res["error"] = errOK
 	}
-	s.write(w, r, res)
+	answer(res)
 }
 
 // write answers JSON with the content type ds.cgi chooses from Accept.

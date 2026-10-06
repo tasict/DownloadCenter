@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +43,7 @@ type Server struct {
 	// not come through Apache as this user. Development only: the service
 	// script never sets it.
 	DevUser string
+	keys    map[string]string // route pattern -> name in the usage statistics
 }
 
 // Handler is an authenticated API handler.
@@ -54,8 +56,20 @@ const (
 	Public                // no authentication
 )
 
+// Counter is set by the usage statistics before the server starts. Keys
+// are fixed names from the code (route patterns, V4 endpoints, chat
+// commands), never taken from a request.
+var Counter func(key string)
+
+// Count adds one use of key to the usage statistics, when they run.
+func Count(key string) {
+	if Counter != nil {
+		Counter(key)
+	}
+}
+
 func New(m *core.Manager, a *auth.Service, webDir, version string) *Server {
-	s := &Server{M: m, Auth: a, WebDir: webDir, Version: version, mux: http.NewServeMux(), Extra: map[string]any{}}
+	s := &Server{M: m, Auth: a, WebDir: webDir, Version: version, mux: http.NewServeMux(), Extra: map[string]any{}, keys: map[string]string{}}
 	s.routes()
 	return s
 }
@@ -78,12 +92,20 @@ func (s *Server) Mux() *http.ServeMux { return s.mux }
 // to APIBase), scope required for tokens ("" = any), opts flags.
 func (s *Server) Route(pattern, scope string, opts int, h Handler) {
 	method, path, _ := strings.Cut(pattern, " ")
+	key := routeKey(pattern)
+	if key == "api_other" {
+		log.Printf("api: %s is counted as api_other in the usage statistics", pattern)
+	}
+	s.keys[pattern] = key
 	s.mux.HandleFunc(method+" "+APIBase+path, func(w http.ResponseWriter, r *http.Request) {
-		s.serveAPI(w, r, scope, opts, h)
+		s.serveAPI(w, r, key, scope, opts, h)
 	})
 }
 
-func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, scope string, opts int, h Handler) {
+// serveAPI authenticates and answers one API request. Calls made with a
+// token are counted under key, the route's name (never the path, which
+// holds task ids), with the kind of client and any error status.
+func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, key, scope string, opts int, h Handler) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Messages follow the UI language (the language chosen in QTS)
@@ -100,10 +122,18 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, scope string, 
 	p, err := s.Authenticate(r)
 	if err != nil {
 		s.authError(w, err)
+		if r.Header.Get("Authorization") != "" {
+			countStatus(rec.status)
+		}
 		return
 	}
 	if p.Via == "token" {
-		defer func() { s.Auth.Audit(p.Token.ID, p.User, ClientIP(r), r.Method, r.URL.Path, rec.status) }()
+		Count(key)
+		Count("api_client_" + clientOf(r.UserAgent()))
+		defer func() {
+			s.Auth.Audit(p.Token.ID, p.User, ClientIP(r), r.Method, r.URL.Path, rec.status)
+			countStatus(rec.status)
+		}()
 		if opts&Session != 0 {
 			Error(rec, 403, "session_required", "This endpoint is available to the web UI only")
 			return
@@ -123,6 +153,13 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, scope string, 
 		return
 	}
 	h(rec, r, p)
+}
+
+// countStatus counts an error answer to a token call.
+func countStatus(status int) {
+	if status >= 400 && status <= 599 {
+		Count("api_status_" + strconv.Itoa(status))
+	}
 }
 
 type statusRecorder struct {

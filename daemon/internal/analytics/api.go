@@ -29,6 +29,7 @@ func Register(srv *api.Server, m *core.Manager, root, data string) func() {
 	s := New(m, m.DB(), data, srv.Version, arch)
 	go s.Run()
 	srv.Extra["analytics"] = state{s}
+	api.Counter = s.count
 	opts := api.AdminOnly | api.Session
 	srv.Route("GET /analytics", "", opts, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		api.OK(w, state{s})
