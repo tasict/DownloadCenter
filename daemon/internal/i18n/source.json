@@ -265,6 +265,8 @@
 		"Drag to change the order",
 		"Drop to add torrents",
 		"Drop to keep downloading",
+		"Drop to put it here; it does not take a download slot",
+		"Drop to put it here; when retried it queues from here",
 		"Drop to start downloading now; another task will wait",
 		"Drop to start downloading now; “{name}” will wait",
 		"Drop to wait as #{n} in the FTP queue",

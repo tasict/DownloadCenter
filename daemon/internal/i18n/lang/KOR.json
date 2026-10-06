@@ -323,6 +323,8 @@
 	"Drag to change the order": "끌어서 순서 변경",
 	"Drop to add torrents": "놓으면 토렌트를 추가합니다",
 	"Drop to keep downloading": "놓으면 다운로드를 계속합니다",
+	"Drop to put it here; it does not take a download slot": "놓으면 이 위치로 옮깁니다. 다운로드 슬롯을 차지하지 않습니다",
+	"Drop to put it here; when retried it queues from here": "놓으면 이 위치로 옮깁니다. 재시도하면 이 위치부터 대기합니다",
 	"Drop to start downloading now; another task will wait": "놓으면 바로 다운로드를 시작하고 다른 작업이 대기합니다",
 	"Drop to start downloading now; “{name}” will wait": "놓으면 바로 다운로드를 시작하고 '{name}'이(가) 대기합니다",
 	"Drop to wait as #{n} in the FTP queue": "놓으면 FTP 대기열 {n}번째로 대기합니다",

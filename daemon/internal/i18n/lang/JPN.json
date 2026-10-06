@@ -323,6 +323,8 @@
 	"Drag to change the order": "ドラッグして順序を変更",
 	"Drop to add torrents": "ドロップしてトレントを追加",
 	"Drop to keep downloading": "ドロップするとダウンロードを続けます",
+	"Drop to put it here; it does not take a download slot": "ドロップするとこの位置に移動します。ダウンロード枠は使いません",
+	"Drop to put it here; when retried it queues from here": "ドロップするとこの位置に移動します。再試行するとこの位置から並びます",
 	"Drop to start downloading now; another task will wait": "ドロップするとすぐにダウンロードを開始し、別のタスクが待機になります",
 	"Drop to start downloading now; “{name}” will wait": "ドロップするとすぐにダウンロードを開始し、「{name}」が待機になります",
 	"Drop to wait as #{n} in the FTP queue": "ドロップすると FTP キューの {n} 番目で待機します",

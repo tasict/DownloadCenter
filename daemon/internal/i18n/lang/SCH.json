@@ -323,6 +323,8 @@
 	"Drag to change the order": "拖动调整顺序",
 	"Drop to add torrents": "松开以添加种子",
 	"Drop to keep downloading": "放开后继续下载",
+	"Drop to put it here; it does not take a download slot": "放开后排在这里，不占下载名额",
+	"Drop to put it here; when retried it queues from here": "放开后排在这里，重试时从这个位置排队",
 	"Drop to start downloading now; another task will wait": "放开后立即开始下载，另一个任务改为等待",
 	"Drop to start downloading now; “{name}” will wait": "放开后立即开始下载，“{name}”改为等待",
 	"Drop to wait as #{n} in the FTP queue": "放开后排在 FTP 队列第 {n} 位",

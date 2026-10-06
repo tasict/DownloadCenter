@@ -323,6 +323,8 @@
 	"Drag to change the order": "Sleep om de volgorde te wijzigen",
 	"Drop to add torrents": "Loslaten om torrent toe te voegen",
 	"Drop to keep downloading": "Loslaten om door te gaan met downloaden",
+	"Drop to put it here; it does not take a download slot": "Loslaten om de taak hier te plaatsen; ze neemt geen downloadplek in",
+	"Drop to put it here; when retried it queues from here": "Loslaten om de taak hier te plaatsen; bij opnieuw proberen sluit ze hier aan in de wachtrij",
 	"Drop to start downloading now; another task will wait": "Loslaten om meteen te downloaden; een andere taak gaat wachten",
 	"Drop to start downloading now; “{name}” will wait": "Loslaten om meteen te downloaden; ‘{name}’ gaat wachten",
 	"Drop to wait as #{n} in the FTP queue": "Loslaten om als {n}e in de FTP-wachtrij te wachten",

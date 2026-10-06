@@ -323,6 +323,8 @@
 	"Drag to change the order": "Trascinare per cambiare l'ordine",
 	"Drop to add torrents": "Rilasciare per aggiungere il torrent",
 	"Drop to keep downloading": "Rilasciare per continuare a scaricare",
+	"Drop to put it here; it does not take a download slot": "Rilasciare per collocarla qui; non occupa un posto di download",
+	"Drop to put it here; when retried it queues from here": "Rilasciare per collocarla qui; riprovando si mette in coda da qui",
 	"Drop to start downloading now; another task will wait": "Rilasciare per iniziare subito a scaricare; un'altra attività resterà in attesa",
 	"Drop to start downloading now; “{name}” will wait": "Rilasciare per iniziare subito a scaricare; “{name}” resterà in attesa",
 	"Drop to wait as #{n} in the FTP queue": "Rilasciare per attendere al posto {n} della coda FTP",

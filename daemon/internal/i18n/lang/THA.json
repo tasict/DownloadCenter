@@ -323,6 +323,8 @@
 	"Drag to change the order": "ลากเพื่อเปลี่ยนลำดับ",
 	"Drop to add torrents": "ปล่อยเพื่อเพิ่มทอร์เรนต์",
 	"Drop to keep downloading": "ปล่อยแล้วจะดาวน์โหลดต่อ",
+	"Drop to put it here; it does not take a download slot": "ปล่อยแล้วจะวางไว้ตรงนี้ ไม่ใช้ช่องดาวน์โหลด",
+	"Drop to put it here; when retried it queues from here": "ปล่อยแล้วจะวางไว้ตรงนี้ เมื่อลองใหม่จะต่อคิวจากตำแหน่งนี้",
 	"Drop to start downloading now; another task will wait": "ปล่อยแล้วจะเริ่มดาวน์โหลดทันที งานอื่นหนึ่งงานจะรอ",
 	"Drop to start downloading now; “{name}” will wait": "ปล่อยแล้วจะเริ่มดาวน์โหลดทันที “{name}” จะรอ",
 	"Drop to wait as #{n} in the FTP queue": "ปล่อยแล้วจะรอเป็นลำดับที่ {n} ในคิว FTP",

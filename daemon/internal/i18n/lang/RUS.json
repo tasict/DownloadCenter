@@ -323,6 +323,8 @@
 	"Drag to change the order": "Перетащите, чтобы изменить порядок",
 	"Drop to add torrents": "Отпустите, чтобы добавить торрент",
 	"Drop to keep downloading": "Отпустите, чтобы продолжить загрузку",
+	"Drop to put it here; it does not take a download slot": "Отпустите, чтобы поставить сюда; задача не занимает место загрузки",
+	"Drop to put it here; when retried it queues from here": "Отпустите, чтобы поставить сюда; при повторе встанет в очередь отсюда",
 	"Drop to start downloading now; another task will wait": "Отпустите, чтобы сразу начать загрузку; другая задача будет ждать",
 	"Drop to start downloading now; “{name}” will wait": "Отпустите, чтобы сразу начать загрузку; «{name}» будет ждать",
 	"Drop to wait as #{n} in the FTP queue": "Отпустите, чтобы встать на {n}-е место в очереди FTP",

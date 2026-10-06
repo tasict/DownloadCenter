@@ -12,14 +12,11 @@
 	function short(n){ n = String(n || ''); return n.length > 24 ? n.slice(0, 22) + '…' : n; }
 	function nameOf(t){ return t.name || t.source || ''; }
 	function has(list, id){ return list.indexOf(id) >= 0; }
-	/* Tasks that take a download slot or wait for one, and paused ones; seeding, finished, failed, checking and moving
-	   tasks keep their place */
-	function movable(t){ var s = DC.uiState(t); return s === 'down' || s === 'wait' || s === 'pause'; }
 	function anySel(){ var k, sel = S().sel; for(k in sel) if(sel.hasOwnProperty(k) && sel[k]) return true; return false; }
 	/* Phones drag only in selection mode, where a press on the row selects instead */
 	function canDrag(t){
 		var s = S();
-		return !!t && s.view === 'tasks' && s.sort === 'queue' && movable(t) && DC.can('tasks:control') && (!DC.phone() || s.picking || anySel());
+		return !!t && s.view === 'tasks' && s.sort === 'queue' && DC.can('tasks:control') && (!DC.phone() || s.picking || anySel());
 	}
 
 	/* ---------- what a move does ---------- */
@@ -84,7 +81,7 @@
 	   task that gives up or takes over the slot may be one it does not see. */
 	function consequence(ids, anchor, after){
 		var cur = slots(S().tasks), next = arrange(ids, anchor, after), now = slots(next), started = [], stopped = [], i, t, other,
-			named = !!(S().me && S().me.tasks === 'all'), lead = DC.task(ids[0]), mine = {go:false, yield:false}, c = {next:next};
+			named = !!(S().me && S().me.tasks === 'all'), lead = DC.task(ids[0]), mine = {go:false, yield:false}, c = {next:next}, st;
 		for(i = 0; i < next.length; i++){
 			t = next[i];
 			if(now[t.id] && !cur[t.id]){ started.push(t); if(has(ids, t.id)) mine.go = true; }
@@ -97,7 +94,11 @@
 			return c;
 		}
 		c.tone = ''; c.icon = 'wait';
-		if(!lead || DC.uiState(lead) === 'pause'){ c.icon = 'pause'; c.text = DC.t('Stays paused; when resumed it queues from here'); }
+		st = lead ? DC.uiState(lead) : 'pause';
+		if(st === 'pause'){ c.icon = 'pause'; c.text = DC.t('Stays paused; when resumed it queues from here'); }
+		else if(st === 'error'){ c.icon = 'error'; c.text = DC.t('Drop to put it here; when retried it queues from here'); }
+		/* Finished, seeding and moving tasks never take a slot: the move only changes where they are in the list */
+		else if(st === 'done' || st === 'seed' || st === 'move'){ c.icon = DC.ST[st].icon; c.text = DC.t('Drop to put it here; it does not take a download slot'); }
 		else if(mine.go){
 			other = stopped[0];
 			c.tone = 'go'; c.icon = 'play';
@@ -116,7 +117,7 @@
 	function moveIds(id){
 		var s = S(), out = [], i, t;
 		if(s.sel[id]){
-			for(i = 0; i < s.tasks.length; i++){ t = s.tasks[i]; if(s.sel[t.id] && movable(t) && DC.R.rows && DC.R.rows[t.id]) out.push(t.id); }
+			for(i = 0; i < s.tasks.length; i++){ t = s.tasks[i]; if(s.sel[t.id] && DC.R.rows && DC.R.rows[t.id]) out.push(t.id); }
 			if(out.length > 1 && has(out, id)) return out;
 		}
 		return [id];
@@ -349,7 +350,8 @@
 				},
 				onclick:function(e){ e.stopPropagation(); }}, icon('grip'));
 		},
-		movable:function(t){ return movable(t) && DC.can('tasks:control'); },
+		/* Every task can move; its place only matters while it waits for a download slot */
+		movable:function(){ return DC.can('tasks:control'); },
 		/* A mouse press on the row: the drag starts once it has moved 6 px, so a click still opens the task */
 		rowDown:function(id, e){
 			var sx = e.clientX, sy = e.clientY;
