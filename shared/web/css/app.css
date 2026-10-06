@@ -456,6 +456,10 @@ input[type=range]{accent-color:var(--accent)}
 .ntcol ul{margin:0;padding:0;list-style:none;font-size:13px;line-height:1.45;color:var(--label2)}
 .ntcol li + li{margin-top:5px}
 @container (max-width:560px){ .ntsplit{grid-template-columns:minmax(0,1fr)} }
+/* Administrators: the switch closes the page, below what is and is not sent */
+.ntstats.ntlast{padding:14px 14px 4px}
+.ntlast .ntsplit{border-top:0;padding-top:0}
+.ntlast .toggle{border-top:.5px solid var(--sep);margin-top:12px}
 
 /* ---------- sheet, inspector, banner ---------- */
 .scrim{position:fixed;inset:0;background:var(--scrim);z-index:40;animation:fade .2s ease}

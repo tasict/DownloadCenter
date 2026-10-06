@@ -330,8 +330,8 @@
 	var NOTICE_VERSION = 2;
 	DC.noticeDue = function(){ var me = DC.S && DC.S.me; return !!(me && me.via !== 'token' && !(me.prefs && me.prefs.notice >= NOTICE_VERSION)); };
 	/* One page, two parts: what the user is responsible for when downloading, and what the anonymous statistics carry.
-	   Administrators decide about the statistics right here (the switch starts on, so agreeing is all it takes);
-	   regular users see the same facts and who decides. then runs once the notice is agreed to. */
+	   Administrators decide about the statistics right here, with the switch at the very end of the page (it starts on, so
+	   agreeing is all it takes); regular users see the same facts and who decides. then runs once the notice is agreed to. */
 	DC.showNotice = function(first, then){
 		var items = [
 			DC.t('Download Center only downloads the links, torrent files and magnet links you give it. It does not provide, search for or recommend any content.'),
@@ -339,7 +339,7 @@
 			DC.t('With BitTorrent, you share the file with other people while you download it, and they can see your IP address.'),
 			DC.t('You are responsible for what you download and how you use this software. To the extent permitted by law, the developer is not liable for any damage or legal consequence arising from its use.'),
 			DC.t('Download Center is independent software. It is not affiliated with or endorsed by QNAP.')
-		], list = h('ul', {'class':'notice'}), i, me = DC.S && DC.S.me, stats = me && me.admin && me.analytics, sw = null, head;
+		], list = h('ul', {'class':'notice'}), i, me = DC.S && DC.S.me, stats = me && me.admin && me.analytics, sw = null;
 		for(i = 0; i < items.length; i++) list.appendChild(h('li', {text:items[i]}));
 		function column(cls, iconName, title, lines){
 			var ul = h('ul'), k;
@@ -351,16 +351,19 @@
 				var el = this;
 				DC.api.put('analytics', {enabled:el.checked}).then(function(r){ DC.S.me.analytics = r; }, function(e){ el.checked = !el.checked; DC.toast(DC.errText(e)); });
 			});
-			head = sw;
-		}else head = h('p', {'class':'ntwho', text:DC.t('Download Center can send anonymous usage statistics to Google Analytics once a day. Your administrator decides whether it does.')});
+		}
 		return DC.modal(DC.t('Terms of use'), 'files', [
 			h('p', {'class':'lead', text:DC.t('Before using Download Center, please read these two things.')}),
 			h('h3', {'class':'nthead', text:DC.t('What you download')}), list,
 			h('h3', {'class':'nthead', text:DC.t('Usage statistics')}),
-			h('div', {'class':'ntstats'}, [head, h('div', {'class':'ntsplit'}, [
-				column('yes', 'done', DC.t('Sent'), [DC.t('Version, architecture and NAS model'), DC.t('Which features are used, and how often'), DC.t('Number of tasks, completed and failed, and how much was downloaded')]),
-				column('no', 'close', DC.t('Not sent'), [DC.t('File names, links and downloaded content'), DC.t('Accounts, passwords and tokens'), DC.t('NAS name and folder paths')])
-			])])
+			h('div', {'class':sw ? 'ntstats ntlast' : 'ntstats'}, [
+				sw ? null : h('p', {'class':'ntwho', text:DC.t('Download Center can send anonymous usage statistics to Google Analytics once a day. Your administrator decides whether it does.')}),
+				h('div', {'class':'ntsplit'}, [
+					column('yes', 'done', DC.t('Sent'), [DC.t('Version, architecture and NAS model'), DC.t('Which features are used, and how often'), DC.t('Number of tasks, completed and failed, and how much was downloaded')]),
+					column('no', 'close', DC.t('Not sent'), [DC.t('File names, links and downloaded content'), DC.t('Accounts, passwords and tokens'), DC.t('NAS name and folder paths')])
+				]),
+				sw
+			])
 		], function(close){
 			return first ? [btn(null, DC.t('I understand and agree'), function(){
 				DC.savePref('notice', NOTICE_VERSION);
