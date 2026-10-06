@@ -656,7 +656,8 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 .secret{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface);border-radius:14px;padding:12px 14px;margin:6px 0 8px}
 .secret code{font-family:var(--f-mono);font-size:12.5px;overflow-wrap:anywhere;flex:1;min-width:0}
 /* AI Agent: numbered steps and the install command */
-.lrow > .stepno{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:14px;color:#FFFFFF;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 75%,#FFFFFF),var(--accent))}
+/* The number sits level with the step's title, however long the text under it */
+.lrow > .stepno{align-self:start;margin-top:-5px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:14px;color:#FFFFFF;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 75%,#FFFFFF),var(--accent))}
 .agentuse{padding:11px 0}
 .agentuse summary{width:fit-content;color:var(--accent);cursor:pointer;font-size:13.5px}
 .agentuse .note{padding:8px 0 4px}
@@ -823,6 +824,16 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 	.empty-add .btn{min-height:46px;padding-inline:22px}
 	.lrow{grid-template-columns:30px minmax(0,1fr)}
 	.lrow .acts2{grid-column:2;justify-content:flex-end;margin:-6px -6px -6px 0}
+	/* A row's own button (the AI Agent's first step) goes under its text, not into the icon column */
+	.lrow > .btn{grid-column:2;justify-self:start;margin-top:6px}
+	/* A command to copy gets the full width, with Copy under it; the agent picker is as wide as in the add/edit windows */
+	.secret.cmd{flex-direction:column;align-items:stretch}
+	.secret.cmd > .btn{align-self:flex-end}
+	.agentuse .field > .inline{flex:1 1 100%}
+	.agentuse select{width:100%}
+	/* Settings lists of values (For developers): each label above its value, so addresses keep the full width */
+	.set .kv{grid-template-columns:minmax(0,1fr);gap:2px 0}
+	.set .kv dd + dt{margin-top:10px}
 	.set > .tabs{display:none}
 	/* 16px keeps iOS from zooming the page when a field gets focus */
 	select,textarea,input[type=text],input[type=number],input[type=password],.addInput,.addInput::placeholder{font-size:16px}
