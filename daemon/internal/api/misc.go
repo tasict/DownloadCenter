@@ -95,7 +95,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 			"auto_remove": st.AutoRemove,
 		},
 		"nas":     map[string]any{"hostname": qts.Hostname(), "firmware": qts.Firmware(), "version": s.Version, "time": time.Now().Unix(), "tz_offset": tzOffset()},
-		"hosters": hosterServices(w),
+		"hosters": hosterServices(w, true),
 	}
 	if p.Via == "token" && p.Token != nil {
 		resp["token"] = map[string]any{"id": p.Token.ID, "name": p.Token.Name, "expires_at": p.Token.ExpiresAt,
@@ -115,13 +115,17 @@ func tzOffset() int {
 }
 
 // hosterServices lists the file-hosting services with their labels and
-// help in the response's language.
-func hosterServices(w http.ResponseWriter) []map[string]any {
+// help in the response's language; the ones that need no account (and
+// cannot be saved as one) only with all.
+func hosterServices(w http.ResponseWriter, all bool) []map[string]any {
 	if Verifier == nil {
 		return []map[string]any{}
 	}
-	var out []map[string]any
+	out := []map[string]any{}
 	for _, svc := range Verifier.Services() {
+		if svc["no_account"] == true && !all {
+			continue
+		}
 		c := map[string]any{}
 		for k, v := range svc {
 			if s, ok := v.(string); ok && (k == "title" || k == "secret_label" || k == "help") {
@@ -316,7 +320,7 @@ func (s *Server) miscRoutes() {
 		if list == nil {
 			list = []*core.Account{}
 		}
-		OK(w, map[string]any{"accounts": list, "kinds": core.AccountKinds, "services": hosterServices(w)})
+		OK(w, map[string]any{"accounts": list, "kinds": core.AccountKinds, "services": hosterServices(w, false)})
 	})
 	s.Route("POST /accounts", "", Session, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		var b struct {

@@ -52,6 +52,7 @@ type AddRequest struct {
 	Proxy        string // per-task proxy URL ("" = direct)
 	MetadataOnly bool   // magnet: fetch the metadata (.torrent) only
 	Guard        bool   // URLs: refuse loopback and the NAS's own addresses
+	NoPages      bool   // URLs: a web page (text/html) in place of the file is an error
 }
 
 // State is the engine-level state of a task.

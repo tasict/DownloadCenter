@@ -206,6 +206,11 @@ func (t *task) openHTTP(ctx context.Context, from, to int64, probe bool) (*strea
 	if h.Status != http.StatusOK && h.Status != http.StatusPartialContent {
 		return fail(&dlError{code: engine.ErrBadResponse, msg: "status=" + strconv.Itoa(h.Status)})
 	}
+	// Where the address never serves pages, a page is an error message
+	// (a quota or sign-in page): starting the file over would replace it
+	if t.req.NoPages && isPage(h.header("Content-Type")) {
+		return fail(&dlError{code: engine.ErrBadResponse, msg: "the server sent a web page instead of the file"})
+	}
 	start, total, partial := contentRange(h)
 	if probe {
 		inf := &info{name: responseName(h), size: h.Length, etag: h.header("ETag"), modified: h.header("Last-Modified")}
@@ -259,6 +264,12 @@ func contentRange(h *hframe) (start, total int64, ok bool) {
 		total = -1
 	}
 	return start, total, true
+}
+
+// isPage reports whether a Content-Type is a web page.
+func isPage(ct string) bool {
+	mt, _, err := mime.ParseMediaType(ct)
+	return err == nil && (mt == "text/html" || mt == "application/xhtml+xml")
 }
 
 // responseName picks the file name: Content-Disposition, else the last

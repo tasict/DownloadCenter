@@ -114,6 +114,18 @@ func TestEventsCountWithoutContent(t *testing.T) {
 	}
 }
 
+// File-hosting adds are counted by service name only for known services.
+func TestHosterKey(t *testing.T) {
+	for h, want := range map[string]string{
+		"gdrive": "add_hoster_gdrive", "1fichier": "add_hoster_1fichier", "cookies": "add_hoster_cookies",
+		"unknown": "add_hoster_other", "/share/x": "add_hoster_other",
+	} {
+		if got := hosterKey(h); got != want {
+			t.Errorf("hosterKey(%q) = %q, want %q", h, got, want)
+		}
+	}
+}
+
 // Turning it off stops counting and drops what was collected.
 func TestDisable(t *testing.T) {
 	s := testService(t)

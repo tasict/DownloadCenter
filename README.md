@@ -12,7 +12,7 @@ Download Center is not affiliated with, endorsed by or supported by QNAP Systems
 - **Where files go.** A temporary location and an optional "move when finished" folder, like Download Station. Regular users always download into their own home folder and own their files.
 - **Users and roles.** Sign in with your NAS account. Administrators see everything; regular users see only their own downloads.
 - **Proxies.** HTTP and SOCKS5 proxies for URL downloads and torrents, chosen per task or per site, with remote DNS.
-- **File-hosting accounts.** 1fichier, Rapidgator, Real-Debrid and AllDebrid through their official APIs with your own account, or cookies for other sites.
+- **File-hosting accounts.** 1fichier, Rapidgator, Real-Debrid and AllDebrid through their official APIs with your own account, or cookies for other sites. Public Google Drive links download the file itself, no account needed.
 - **Preview while downloading.** Watch or listen to the part that is already downloaded, browse archives, and switch a torrent to sequential download.
 - **Notifications and integration.** Telegram, LINE, Discord, Slack, ntfy, Gotify, Bark, QTS notifications and signed webhooks; a REST API with personal access tokens and an event stream ([docs/INTEGRATION.md](docs/INTEGRATION.md)).
 - **AI agents.** Claude Code, Codex, Gemini CLI and other agents that read skill files can add and manage downloads for you, with a token of their own and a skill file served by your NAS ([docs/AI-AGENT.md](docs/AI-AGENT.md)).
@@ -70,7 +70,7 @@ The interface shows a short version of this notice the first time each account s
 
 ## Trademarks
 
-QNAP, QTS, Download Station, Qget, Qfile, File Station and App Center are trademarks of QNAP Systems, Inc. Other product and service names (such as uTorrent, Transmission, Deluge, Telegram, LINE, Discord, Slack and the file-hosting services) belong to their owners. They are used here only to describe compatibility; no endorsement is implied.
+QNAP, QTS, Download Station, Qget, Qfile, File Station and App Center are trademarks of QNAP Systems, Inc. Other product and service names (such as uTorrent, Transmission, Deluge, Telegram, LINE, Discord, Slack, Google Drive and the file-hosting services) belong to their owners. They are used here only to describe compatibility; no endorsement is implied.
 
 ## License
 

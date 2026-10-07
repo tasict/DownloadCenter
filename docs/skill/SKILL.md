@@ -99,7 +99,7 @@ Task ids are 40-character hashes (the infohash for torrents). Always use the ful
 
 `POST /tasks` with `{"source": "<link>"}`, or `{"sources": ["<link>", ...]}` for up to 500 at once.
 
-Accepted: `http`, `https`, `ftp`, `ftps`, `sftp`, `scp` links; `magnet:` links; links to `.torrent` files (fetched and added as torrents); `thunder://`, `flashget://`, `qqdl://` (unwrapped). Links on file hosts for which the user saved an account in Download Center (1fichier, Rapidgator, Real-Debrid, AllDebrid) use that account automatically.
+Accepted: `http`, `https`, `ftp`, `ftps`, `sftp`, `scp` links; `magnet:` links; links to `.torrent` files (fetched and added as torrents); `thunder://`, `flashget://`, `qqdl://` (unwrapped). Links on file hosts for which the user saved an account in Download Center (1fichier, Rapidgator, Real-Debrid, AllDebrid) use that account automatically. Google Drive links to files shared with "Anyone with the link" download the file itself, without an account (task `hoster` is `gdrive`); a cookies account the user saved for Google is used for them too, unless `account.mode` is `none`; folder links, files that are not shared publicly and files Google currently refuses (too many downloads) fail with a message saying so.
 
 Optional fields:
 

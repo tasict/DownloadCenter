@@ -30,6 +30,7 @@ type fileServer struct {
 	ranges    bool
 	noLength  bool
 	status    int           // fixed status to answer with (0 = serve)
+	page      bool          // answer every request with a web page
 	delay     time.Duration // per 64 KiB written
 	mu        sync.Mutex
 	active    int
@@ -44,7 +45,7 @@ func (s *fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if rg := r.Header.Get("Range"); rg != "" && rg != "bytes=0-" {
 		s.ranged = append(s.ranged, rg)
 	}
-	data, etag, status := s.data, s.etag, s.status
+	data, etag, status, page := s.data, s.etag, s.status, s.page
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -53,6 +54,11 @@ func (s *fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 	if status != 0 {
 		w.WriteHeader(status)
+		return
+	}
+	if page {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		io.WriteString(w, "<html><title>Quota exceeded</title></html>")
 		return
 	}
 	if r.Header.Get("Accept-Encoding") != "identity" {
@@ -314,6 +320,60 @@ func TestChangedOnServer(t *testing.T) {
 	checkFile(t, filepath.Join(dir, "c.bin"), fs.data)
 	if len(logged) == 0 {
 		t.Fatal("restart not logged")
+	}
+}
+
+func TestNoPages(t *testing.T) {
+	// A page at the start: an error, nothing written
+	srv := httptest.NewServer(&fileServer{page: true})
+	defer srv.Close()
+	e := newEngine(t)
+	dir := t.TempDir()
+	e.Add("p1", engine.AddRequest{URIs: []string{srv.URL + "/p.bin"}, Dir: dir, NoPages: true})
+	st := waitFor(t, e, "p1", engine.Error, 10*time.Second)
+	if st.ErrorCode != engine.ErrBadResponse {
+		t.Fatalf("code %s %s", st.ErrorCode, st.ErrorMsg)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "p.bin")); err == nil {
+		t.Fatal("page written")
+	}
+	// Without NoPages a page is downloaded like any file
+	e.Add("p2", engine.AddRequest{URIs: []string{srv.URL + "/p2.html"}, Dir: dir})
+	waitFor(t, e, "p2", engine.Complete, 10*time.Second)
+
+	// A page while resuming: an error, the data so far and its control file stay
+	fs := &fileServer{data: randomData(t, 6<<20), etag: `"a"`, ranges: true, delay: 15 * time.Millisecond}
+	srv2 := httptest.NewServer(fs)
+	defer srv2.Close()
+	dir2 := t.TempDir()
+	req := engine.AddRequest{URIs: []string{srv2.URL + "/q.bin"}, Dir: dir2, NoPages: true}
+	e1 := rawEngine(t)
+	e1.Add("p3", req)
+	for {
+		st, _ := e1.Status("p3")
+		if st.Completed > 1<<20 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	e1.Stop()
+	fs.mu.Lock()
+	fs.page = true
+	fs.mu.Unlock()
+	var logged []string
+	e2 := newEngine(t)
+	e2.Logf = func(ref, msg string) { logged = append(logged, msg) }
+	e2.Add("p3", req)
+	st = waitFor(t, e2, "p3", engine.Error, 10*time.Second)
+	if st.ErrorCode != engine.ErrBadResponse || len(logged) > 0 {
+		t.Fatalf("code %s %s, log %q", st.ErrorCode, st.ErrorMsg, logged)
+	}
+	got, err := os.ReadFile(filepath.Join(dir2, "q.bin"))
+	if err != nil || len(got) < 64<<10 || !bytes.Equal(got[:64<<10], fs.data[:64<<10]) {
+		t.Fatalf("data lost: %d bytes, %v", len(got), err)
+	}
+	if _, err := os.Stat(controlPath(dir2, "q.bin")); err != nil {
+		t.Fatal("control file gone")
 	}
 }
 

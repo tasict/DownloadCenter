@@ -38,6 +38,7 @@ type Resolved struct {
 	Headers   []string
 	ExpiresAt int64
 	Account   string
+	NoPages   bool // the direct URL never serves web pages: a page is an error
 }
 
 // Manager is the task manager.
@@ -502,6 +503,7 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 		}
 		req.URIs = []string{t.Options.Direct}
 		req.Headers = append(append([]string{}, t.Options.Headers...), t.Options.DirectHeaders...)
+		req.NoPages = t.Options.NoPages
 	} else if user, pass, ok := m.siteCredentials(t); ok {
 		req.User, req.Pass = user, pass
 	}
@@ -1606,6 +1608,9 @@ func (m *Manager) History(owner string, limit int) []*Task {
 // the engine on a later tick.
 var errResolving = errors.New("resolving")
 
+// errNoAddress: resolving again gave no download address.
+var errNoAddress = errors.New("The file-hosting site cannot provide a download address right now. Try again later")
+
 // resolveAsync resolves a file-hosting link outside the manager lock.
 // Caller holds m.mu.
 func (m *Manager) resolveAsync(t *Task) {
@@ -1613,7 +1618,7 @@ func (m *Manager) resolveAsync(t *Task) {
 		return
 	}
 	m.resolving[t.Hash] = true
-	owner, acct, link, hash := t.Owner, t.Options.HosterAcct, t.Options.OrigURL, t.Hash
+	owner, acct, link, hash, mode := t.Owner, t.Options.HosterAcct, t.Options.OrigURL, t.Hash, t.Options.AccountMode
 	// The share link is resolved through the proxy the download uses: many
 	// services tie the direct link to the address that asked for it
 	proxy, perr := m.proxyFor(t)
@@ -1621,7 +1626,10 @@ func (m *Manager) resolveAsync(t *Task) {
 		var res *Resolved
 		err := perr
 		if err == nil {
-			res, err = m.Hosters.Resolve(owner, acct, link, proxy)
+			res, err = m.resolveLink(mode, owner, acct, link, proxy)
+			if err == nil && (res == nil || res.URL == "") {
+				err = errNoAddress
+			}
 		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -1635,6 +1643,7 @@ func (m *Manager) resolveAsync(t *Task) {
 			return
 		}
 		t.Options.Direct, t.Options.DirectHeaders, t.Options.ExpiresAt = res.URL, res.Headers, res.ExpiresAt
+		t.Options.NoPages = res.NoPages
 		if res.Account != "" {
 			t.Options.HosterAcct = res.Account
 		}

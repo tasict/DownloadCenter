@@ -273,6 +273,21 @@ func (m *Manager) newTask(hash, kind, source, name string, o *AddOptions, temp, 
 	}
 }
 
+// resolveLink resolves a file-hosting link with the owner's accounts. A task
+// added without an account resolves only what needs none (public Google
+// Drive files), never with an account; other links stay plain (nil).
+func (m *Manager) resolveLink(mode, owner, accountID, raw, proxy string) (*Resolved, error) {
+	if mode != "none" {
+		return m.Hosters.Resolve(owner, accountID, raw, proxy)
+	}
+	if pr, ok := m.Hosters.(interface {
+		ResolvePublic(raw, proxy string) (*Resolved, error)
+	}); ok {
+		return pr.ResolvePublic(raw, proxy)
+	}
+	return nil, nil
+}
+
 // AddURL adds an HTTP/FTP download.
 func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	raw = UnwrapLink(raw)
@@ -305,9 +320,9 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	}
 	var res *Resolved
 	svc := ""
-	if m.Hosters != nil && o.AccountMode != "none" {
+	if m.Hosters != nil {
 		if s, ok := m.Hosters.Match(raw); ok {
-			r, rerr := m.Hosters.Resolve(o.Owner, o.AccountID, raw, m.profileURL(proxy))
+			r, rerr := m.resolveLink(o.AccountMode, o.Owner, o.AccountID, raw, m.profileURL(proxy))
 			if rerr != nil {
 				return nil, rerr
 			}
@@ -341,6 +356,7 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	if res != nil {
 		t.Options.Hoster, t.Options.HosterAcct, t.Options.OrigURL = svc, res.Account, raw
 		t.Options.Direct, t.Options.DirectHeaders, t.Options.ExpiresAt = res.URL, res.Headers, res.ExpiresAt
+		t.Options.NoPages = res.NoPages
 		if res.Name != "" {
 			t.Name = torrent.SafeName(res.Name)
 			if t.Options.OutName == "" {

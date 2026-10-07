@@ -44,6 +44,7 @@ type TaskOptions struct {
 	ExpiresAt     int64          `json:"expires_at,omitempty"`
 	Direct        string         `json:"direct,omitempty"`         // resolved direct URL of a file-hosting link
 	DirectHeaders []string       `json:"direct_headers,omitempty"` // headers/cookies the direct URL needs
+	NoPages       bool           `json:"no_pages,omitempty"`       // a web page from the direct URL is an error
 	Retries       int            `json:"retries,omitempty"`
 	AutoRetries   int            `json:"auto_retries,omitempty"`
 	RetryAt       int64          `json:"retry_at,omitempty"`

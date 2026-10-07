@@ -253,11 +253,7 @@ func (s *Service) event(e core.Event) {
 				s.add("add_other", 1)
 			}
 			if h := t.Options.Hoster; h != "" {
-				if codeRe.MatchString(h) && contains(core.AccountKinds, h) {
-					s.add("add_hoster_"+h, 1)
-				} else {
-					s.add("add_hoster_other", 1)
-				}
+				s.add(hosterKey(h), 1)
 			}
 		}
 		if src != "import" {
@@ -297,6 +293,16 @@ func via(caller string) string {
 		return "chat"
 	}
 	return "v4"
+}
+
+// hosterKey names the counter of a task added through a file-hosting
+// service: the services with accounts and Google Drive's public links by
+// name, anything else as other.
+func hosterKey(h string) string {
+	if codeRe.MatchString(h) && (h == "gdrive" || contains(core.AccountKinds, h)) {
+		return "add_hoster_" + h
+	}
+	return "add_hoster_other"
 }
 
 func contains(l []string, v string) bool {

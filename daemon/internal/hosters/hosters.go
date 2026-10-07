@@ -1,6 +1,7 @@
 // Package hosters resolves file-hosting share links into direct URLs with
 // the owner's account (1fichier, Rapidgator, Real-Debrid, AllDebrid,
-// cookies.txt) and verifies accounts.
+// cookies.txt) or without one (public Google Drive files), and verifies
+// accounts.
 package hosters
 
 import (
@@ -70,6 +71,7 @@ const (
 	AllDebrid  = "alldebrid"
 	Cookies    = "cookies"
 	Mega       = "mega"
+	GDrive     = "gdrive"
 )
 
 var defaultBase = map[string]string{
@@ -77,6 +79,7 @@ var defaultBase = map[string]string{
 	Rapidgator: "https://rapidgator.net/api/v2",
 	RealDebrid: "https://api.real-debrid.com/rest/1.0",
 	AllDebrid:  "https://api.alldebrid.com/v4",
+	GDrive:     driveDownload,
 }
 
 // Known domains of the direct hosters.
@@ -153,6 +156,9 @@ func (s *Service) Match(rawURL string) (string, bool) {
 	if host == "" {
 		return "", false
 	}
+	if _, ok := driveLinkOf(rawURL); ok {
+		return GDrive, true
+	}
 	if svc := knownHoster(host); svc != "" {
 		return svc, true
 	}
@@ -208,6 +214,15 @@ func (s *Service) resolve(owner, accountID, rawURL string) (*core.Resolved, erro
 	host := hostOf(rawURL)
 	if host == "" {
 		return nil, core.ErrBadURL
+	}
+	// Drive files: public ones need no account; a cookies account for the
+	// site is used like for any other site
+	if l, ok := driveLinkOf(rawURL); ok {
+		if l.folder {
+			return nil, ErrDriveFolder
+		}
+		a, cookie := s.driveCookies(owner, accountID, rawURL)
+		return s.driveResolve(l, a, cookie)
 	}
 	svc := knownHoster(host)
 	if svc == Mega {
@@ -384,6 +399,9 @@ func (s *Service) Services() []map[string]any {
 			"hosts": []string{"alldebrid.com"}, "help": "Create an API key at alldebrid.com/apikeys. One account can download from many file-hosting sites."},
 		{"id": Cookies, "title": "Other sites (cookies)", "secret_label": "cookies.txt content", "needs_username": false,
 			"hosts": []string{}, "help": "Export cookies.txt (Netscape format) after signing in, using a browser extension, and paste it here; works for other sites that require sign-in."},
+		// Public links only: there is no account to save
+		{"id": GDrive, "title": "Google Drive", "no_account": true,
+			"hosts": []string{"drive.google.com", "drive.usercontent.google.com"}},
 	}
 }
 

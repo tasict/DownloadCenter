@@ -13,16 +13,24 @@
 		for(i = 0; i < list.length; i++) if(host === list[i] || host.slice(-list[i].length - 1) === '.' + list[i]) return true;
 		return false;
 	}
-	/* File-hosting link: {name, acct} where acct says whether the user has an account for it (unknown = true). */
+	/* File-hosting link: {name, acct} where acct says whether the user has an account for it (unknown = true);
+	   free marks services that need no account (public Google Drive links). */
+	function hosterInfo(s){ return {name:s.title || s.id, id:s.id, acct:!s.no_account, free:!!s.no_account}; }
 	function hosterOf(u){
 		var host = hostOf(u), k, svcs = (DC.S.me && DC.S.me.hosters) || [], i, s;
 		if(!host) return null;
 		for(k in UNSUPPORTED) if(host === k || host.slice(-k.length - 1) === '.' + k) return {name:UNSUPPORTED[k], acct:false, unsupported:true};
 		for(i = 0; i < svcs.length; i++){
 			s = svcs[i];
-			if(s.hosts && hostMatch(host, s.hosts)) return {name:s.title || s.id, id:s.id, acct:true};
+			if(s.hosts && hostMatch(host, s.hosts)) return hosterInfo(s);
 		}
 		return null;
+	}
+	/* The service the server matched a link to, by its id */
+	function hosterById(id){
+		var svcs = (DC.S.me && DC.S.me.hosters) || [], i;
+		for(i = 0; i < svcs.length; i++) if(svcs[i].id === id) return hosterInfo(svcs[i]);
+		return {name:id, id:id, acct:true};
 	}
 	function nameFrom(u){
 		var m = /[?&]dn=([^&]+)/.exec(u), p;
@@ -125,7 +133,9 @@
 		else if(one.kind === 'page') hint.textContent = DC.t('This is a web page. The download links on it are listed below.');
 		else if(one.kind === 'magnet') hint.textContent = DC.t('Choose where to save, then click “Start download”. Once the file list is available, you can choose which files to download.');
 		else if(one.kind === 'torrent') hint.textContent = DC.t('This is a .torrent file URL; the file will be downloaded first.');
-		else if(one.host) hint.textContent = one.host.unsupported ? DC.t('{service} is not supported yet.', {service:one.host.name}) : DC.t('Signs in with your {service} account to download.', {service:one.host.name});
+		else if(one.host) hint.textContent = one.host.unsupported ? DC.t('{service} is not supported yet.', {service:one.host.name})
+			: one.host.free ? DC.t('Downloads from {service}. Files shared with “Anyone with the link” need no account.', {service:one.host.name})
+			: DC.t('Signs in with your {service} account to download.', {service:one.host.name});
 		else hint.textContent = DC.t('Choose where to save, then click “Start download”.');
 	}
 	function submit(pb){
@@ -138,7 +148,7 @@
 				var items = [], i, l;
 				for(i = 0; i < (r.links || []).length; i++){
 					l = r.links[i];
-					items.push({kind:l.kind, text:l.url, name:l.name || nameFrom(l.url), host:l.hoster ? {name:l.hoster, acct:true} : (l.kind === 'magnet' ? null : hosterOf(l.url))});
+					items.push({kind:l.kind, text:l.url, name:l.name || nameFrom(l.url), host:l.hoster ? hosterById(l.hoster) : (l.kind === 'magnet' ? null : hosterOf(l.url))});
 				}
 				openAdd(items.length ? items : d.items);
 			}, function(){ openAdd(d.items); });
@@ -356,7 +366,7 @@
 				var cb = h('input', {type:'checkbox', id:'pk' + idx, checked:pk.sel, disabled:pk.blocked, onchange:function(){ pk.sel = this.checked; onChange(); }});
 				boxes.push(cb);
 				if(pk.status && STATUS_LABEL[pk.status]) label = STATUS_LABEL[pk.status];
-				else if(it.host) label = it.host.unsupported ? DC.t('{service} is not supported', {service:it.host.name}) : DC.t('{service} account', {service:it.host.name});
+				else if(it.host) label = it.host.unsupported ? DC.t('{service} is not supported', {service:it.host.name}) : it.host.free ? it.host.name : DC.t('{service} account', {service:it.host.name});
 				else if(it.kind === 'torrentfile') label = DC.t('Torrent file');
 				else if(it.kind === 'url' && hostOf(it.text)) label = /^(s?ftps?|scp):/i.test(it.text) ? it.text.split(':')[0].toUpperCase() + ' · ' + hostOf(it.text) : hostOf(it.text);
 				else if(it.kind === 'torrent' && hostOf(it.text)) label = DC.t('Torrent file from {host}', {host:hostOf(it.text)});
@@ -587,7 +597,7 @@
 				DC.api.post('tasks/extract', {url:pageUrl}).then(function(r){
 					if(closed || my !== gen) return;
 					var list2 = [], k, l;
-					for(k = 0; k < (r.links || []).length; k++){ l = r.links[k]; list2.push({kind:l.kind, text:l.url, name:l.name || nameFrom(l.url), host:l.hoster ? {name:l.hoster, acct:true} : null}); }
+					for(k = 0; k < (r.links || []).length; k++){ l = r.links[k]; list2.push({kind:l.kind, text:l.url, name:l.name || nameFrom(l.url), host:l.hoster ? hosterById(l.hoster) : null}); }
 					if(!list2.length){ clear(body); body.appendChild(h('p', {'class':'note', text:DC.t('No download links found on this page.')})); return; }
 					checkThen(list2, function(st){ if(closed || my !== gen) return; items = list2; picks = makePicks(list2, st); showPicks(); });
 				}, function(e){ if(closed || my !== gen) return; clear(body); body.appendChild(h('p', {'class':'note warn', text:DC.errText(e)})); });
@@ -654,7 +664,7 @@
 					var list = [], i, l;
 					for(i = 0; i < (r.links || []).length; i++){
 						l = r.links[i];
-						list.push({kind:l.kind, text:l.url, name:l.name || nameFrom(l.url), host:l.hoster ? {name:l.hoster, acct:true} : (l.kind === 'magnet' ? null : hosterOf(l.url))});
+						list.push({kind:l.kind, text:l.url, name:l.name || nameFrom(l.url), host:l.hoster ? hosterById(l.hoster) : (l.kind === 'magnet' ? null : hosterOf(l.url))});
 					}
 					load(list.length ? list : d.items);
 				}, function(){ if(!closed && pb.input.value === text) load(d.items); });
