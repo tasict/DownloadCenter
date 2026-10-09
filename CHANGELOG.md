@@ -2,6 +2,15 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.1.3
+
+- Google Drive links to files shared with “Anyone with the link” download the file itself, without an account. Before, such a task finished with Google's preview page or virus-scan warning saved in place of the file. The file's name and size are known before the task is added, and the add window labels these links Google Drive. When Google hands out no file, adding says why: the file does not exist, is not shared publicly, or has been downloaded too often for now. Folder links are not supported yet; open the folder and add the links of its files.
+- A web page that Google Drive sends in the middle of a download, for example once a file has been downloaded too often, stops the task with an error instead of replacing the data downloaded so far.
+- A cookies account you saved for Google is used for Google Drive links too, unless the site account is set to None.
+- The daily usage statistics also count how access tokens and the API are used: the preset, scopes, expiry and limits of new tokens, which API routes, V4 endpoints and chat commands are called, the kind of client, and error codes. Token names, owners and values, task ids and links are never sent, and the web interface's own requests are not counted.
+- In the usage notice, administrators find the statistics switch at the end, after what is and is not sent.
+- For the API: Google Drive tasks have `hoster` `gdrive`. `GET /me` lists Google Drive in `hosters` with `no_account`; `GET /accounts` does not offer services that need no account.
+
 ## 1.1.2
 
 - When a video you preview has a subtitle file with the same name in the same folder (.srt or .vtt), a Subtitles switch below the player shows them. Your choice is remembered, and subtitles that are not in UTF-8 can be read with another text encoding.
