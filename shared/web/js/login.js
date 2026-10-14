@@ -291,9 +291,10 @@
 	}
 
 	/* Keep the QTS session alive in a full browser tab, the way the QTS desktop does (it checks its sid with authLogin.cgi every 15 s).
-	   Inside the QTS desktop the desktop already does this, so nothing runs there. A failed check means the session is gone: show the
-	   login page right away instead of letting the next action fail half way. Browsers throttle timers in hidden tabs to about once a
-	   minute, so the interval is 60 s plus an immediate check whenever the tab becomes visible again. */
+	   Inside the QTS desktop the desktop already does this, so nothing runs there. A check that says the session is gone shows the
+	   login page right away instead of letting the next action fail half way. Only an explicit authPassed=0 says so: a busy QTS answers
+	   with an error page or an empty body, which is no answer at all. Browsers throttle timers in hidden tabs to about once a minute,
+	   so the interval is 60 s plus an immediate check whenever the tab becomes visible again. */
 	var kaTimer = null, kaBusy = false;
 	function keepAliveCheck(){
 		if(kaBusy) return;
@@ -302,7 +303,7 @@
 		kaBusy = true;
 		cgi({sid:sid, r:String(Math.random())}, 'GET').then(function(a){
 			kaBusy = false;
-			if(a.authPassed !== '1'){ stopKeepAlive(); if(DC.onSignedOut) DC.onSignedOut(); }
+			if(a.authPassed === '0'){ stopKeepAlive(); if(DC.onSignedOut) DC.onSignedOut(); }
 		}, function(){ kaBusy = false; /* network hiccup or NAS busy: try again next round */ });
 	}
 	function onVisible(){ if(!document.hidden && kaTimer) keepAliveCheck(); }
@@ -316,5 +317,32 @@
 		document.removeEventListener('visibilitychange', onVisible);
 	}
 
-	DC.login = {show:show, logout:logout, parse:parse, keepAlive:startKeepAlive, stopKeepAlive:stopKeepAlive};
+	/* QTS's idle logout is the desktop's: it reads the QT cookie (the time of the last input, which the desktop writes on mouse and
+	   keyboard input in its own page) every 2 minutes and signs the shared session out once it is older than the user's idle time,
+	   or missing. A QTS desktop tab left open would sign the user out of this page too while they work here, and inside the QTS
+	   desktop input in this frame never reaches the desktop's page. So this page writes the same cookie on its own input, and while a
+	   preview plays, at most every 5 s and only while signed in. Never from timers or polling: the idle logout must keep working. */
+	var qtOn = false, qtLast = 0, INPUT = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel'];
+	function touchQT(){
+		var now = new Date().getTime();
+		if(now - qtLast < 5000) return;
+		qtLast = now;
+		document.cookie = 'QT=' + now + '; path=/';
+	}
+	function onInput(){ if(qtOn) touchQT(); }
+	function onPlaying(e){ var m = e.target; if(qtOn && m && m.paused === false) touchQT(); }
+	function trackInput(){
+		if(qtOn) return;
+		qtOn = true; qtLast = 0;
+		touchQT();
+		for(var i = 0; i < INPUT.length; i++) document.addEventListener(INPUT[i], onInput, {capture:true, passive:true});
+		document.addEventListener('timeupdate', onPlaying, true); /* media events do not bubble; capture still sees them */
+	}
+	function stopInput(){
+		qtOn = false;
+		for(var i = 0; i < INPUT.length; i++) document.removeEventListener(INPUT[i], onInput, {capture:true, passive:true});
+		document.removeEventListener('timeupdate', onPlaying, true);
+	}
+
+	DC.login = {show:show, logout:logout, parse:parse, keepAlive:startKeepAlive, stopKeepAlive:stopKeepAlive, trackInput:trackInput, stopInput:stopInput};
 })();

@@ -109,14 +109,24 @@ func parseQDoc(b []byte) AuthAnswer {
 	return out
 }
 
+// ErrNoAnswer is a sid check that neither passed nor failed: QTS answered
+// without authPassed (a busy CGI server's page, an empty or unreadable
+// body), or passed without a user name.
+var ErrNoAnswer = errors.New("authLogin: no usable answer")
+
 // ValidateSID checks a QTS session id. The answer of a valid sid carries the
-// user name and the administrator flag.
+// user name and the administrator flag. Only an explicit authPassed=0 means
+// the session is gone; anything else that is not a pass is an error, so
+// that a busy QTS does not sign the user out.
 func ValidateSID(sid, clientIP, agent string) (AuthAnswer, error) {
 	if sid == "" || len(sid) > 128 {
 		return AuthAnswer{"authPassed": "0"}, nil
 	}
 	a, err := AuthCall("authLogin.cgi", url.Values{"sid": {sid}, "service": {"1"}}, clientIP, agent)
 	if err != nil {
+		return nil, err
+	}
+	if err := sidAnswer(a); err != nil {
 		return nil, err
 	}
 	if a.Passed() {
@@ -130,6 +140,15 @@ func ValidateSID(sid, clientIP, agent string) (AuthAnswer, error) {
 		})
 	}
 	return a, nil
+}
+
+// sidAnswer accepts a sid check that passed with a user name, or that
+// failed with an explicit authPassed=0.
+func sidAnswer(a AuthAnswer) error {
+	if a["authPassed"] == "0" || a.Passed() && a.User() != "" {
+		return nil
+	}
+	return ErrNoAnswer
 }
 
 // PasswordLogin signs in with a user name and password (V4 Misc/Login only;

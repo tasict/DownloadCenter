@@ -111,6 +111,7 @@
 		clearTimeout(S.polling); clearTimeout(S.statTimer);
 		if(S.es){ try{ S.es.close(); }catch(e){} S.es = null; }
 		DC.login.stopKeepAlive();
+		DC.login.stopInput();
 	}
 	DC.onSignedOut = function(){
 		if(!S.live && S.me) return;
@@ -134,6 +135,7 @@
 			S.live = true;
 			poll(); pollStats(); stream();
 			DC.login.keepAlive();
+			DC.login.trackInput();
 			loadPortrait();
 			DC.track('session'); DC.track('lang_' + DC.lang); DC.track('theme_' + (S.theme || 'auto'));
 			DC.track(DC.embedded ? 'layout_embedded' : DC.phone() ? 'layout_phone' : 'layout_desktop');
