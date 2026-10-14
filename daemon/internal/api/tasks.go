@@ -267,8 +267,8 @@ type addBody struct {
 	Proxy     string   `json:"proxy"` // URL tasks: "" or "auto", "none" or a proxy profile id
 }
 
-func (b *addBody) options(p *auth.Principal) core.AddOptions {
-	o := core.AddOptions{Owner: p.User, Admin: p.Admin, AutoRemove: "default", Caller: callerOf(p), ContentOf: b.ContentOf, Proxy: b.Proxy}
+func (b *addBody) options(p *auth.Principal, r *http.Request) core.AddOptions {
+	o := core.AddOptions{Owner: p.User, Admin: p.Admin, AutoRemove: "default", Caller: callerOf(p, r), ContentOf: b.ContentOf, Proxy: b.Proxy}
 	if b.Folder != nil {
 		o.TempDir = *b.Folder
 	}
@@ -307,12 +307,18 @@ func sanitizeName(n string) string {
 	return n
 }
 
-func callerOf(p *auth.Principal) string {
+// callerOf is the program a task is added from, as the task details show
+// it: the web UI, a token, a chat, or a Deskpane widget (a session request
+// marked X-DC-Via: widget, which a token cannot claim).
+func callerOf(p *auth.Principal, r *http.Request) string {
 	switch p.Via {
 	case "token":
 		return "API: " + p.Token.Name
 	case "chat":
 		return "Chat"
+	}
+	if r != nil && r.Header.Get("X-DC-Via") == "widget" {
+		return "Deskpane"
 	}
 	return "Download Center"
 }
@@ -404,7 +410,7 @@ func (s *Server) addTasks(w http.ResponseWriter, r *http.Request, p *auth.Princi
 		Error(w, 400, "bad_request", "Up to 500 links at a time")
 		return
 	}
-	o := b.options(p)
+	o := b.options(p, r)
 	if !s.checkFolders(p, &o) {
 		Error(w, 403, "folder_not_allowed", "The token may not use this folder")
 		return
@@ -467,7 +473,7 @@ func (s *Server) addTorrentUpload(w http.ResponseWriter, r *http.Request, p *aut
 	if v, ok := f["content_of"]; ok {
 		b.ContentOf = v[0]
 	}
-	o := b.options(p)
+	o := b.options(p, r)
 	if !s.checkFolders(p, &o) {
 		Error(w, 403, "folder_not_allowed", "The token may not use this folder")
 		return

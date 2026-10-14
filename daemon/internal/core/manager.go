@@ -68,6 +68,7 @@ type Manager struct {
 	inMinute   atomic.Bool     // housekeeping pass running
 	busy       bool            // something is downloading (for queue.idle)
 	schedMode  string          // schedule mode at the last tick (for schedule.changed)
+	rates      rateHistory     // download rates of the last 15 minutes (own lock)
 	lastTick   time.Time
 	lastMin    time.Time
 	lastDay    time.Time
@@ -320,6 +321,7 @@ func (m *Manager) tick() {
 		m.applyStatus(t, st, e, elapsed)
 	}
 	m.schedule(now)
+	m.recordRates(now)
 	nowU := now.Unix()
 	for h, t := range m.live {
 		if m.dirty[h] || nowU-m.lastSave[h] >= 15 && (t.State == StDownloading || t.State == StSeeding || t.State == StChecking || t.State == StMetadata) {

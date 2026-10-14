@@ -32,11 +32,11 @@ func TestShippedDictionaries(t *testing.T) {
 	}
 }
 
-// Every UI string and backend message (source.json, written by
+// Every UI string, backend message and widget text (source.json, written by
 // `go run ./cmd/mklang keys ..`) is translated into every language, with
 // the same placeholders.
 func TestDictionariesComplete(t *testing.T) {
-	var src struct{ UI, Backend []string }
+	var src struct{ UI, Backend, Widget []string }
 	b, err := os.ReadFile("source.json")
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestDictionariesComplete(t *testing.T) {
 	if err := json.Unmarshal(b, &src); err != nil {
 		t.Fatal(err)
 	}
-	keys := append(src.UI, src.Backend...)
+	keys := append(append(src.UI, src.Backend...), src.Widget...)
 	langs, _ := files.ReadDir("lang")
 	if len(langs) < 12 {
 		t.Fatalf("%d dictionaries", len(langs))

@@ -19,6 +19,7 @@ Download Center is not affiliated with, endorsed by or supported by QNAP Systems
 - **Works with existing clients.** Qget, Qfile and browser extensions keep working through a compatible `/downloadstation/V4/` endpoint once Download Station is removed or disabled.
 - **Import from Download Station.** Settings, unfinished tasks, history and site accounts. The import only reads the official data and can be run again.
 - **Runs anywhere you open it.** Inside the QTS desktop, in its own browser tab, or on a phone; light and dark themes; 13 languages.
+- **Deskpane widgets.** With Deskpane installed, a download queue widget shows the speed, what is in progress and anything that needs a look, and an Add download widget takes links and `.torrent` files dropped on it, on the desktop and on the phone home screen.
 
 ## Requirements
 
@@ -52,7 +53,7 @@ GO=/path/to/go sh build.sh [arch] # vet, build dcd, lint, package with qbuild in
 |---|---|
 | `daemon/` | Go module: `cmd/dcd` (the daemon), `internal/` (core, engines, REST API, V4 compatibility, importer, notifications) |
 | `dcbt/`, `dcdl/` | Engine sources and their protocol with `dcd` |
-| `shared/` | Service script and the web interface (ES5, no build step) |
+| `shared/` | Service script, the web interface (ES5, no build step) and the Deskpane widgets (`deskpane/widgets.json`, `web/widgets/`) |
 | `tools/` | Engine build scripts |
 | `docs/` | Integration API, AI agent guide and skill, interface design notes and a clickable prototype |
 

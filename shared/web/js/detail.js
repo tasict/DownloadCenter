@@ -13,7 +13,9 @@
 		dropSubs();
 		if(D.el){ DC.remove(D.el); DC.remove(D.scrim); D.el = null; }
 		document.documentElement.classList.remove('dr-dock');
+		var was = D.id;
 		D.id = null;
+		if(was && DC.onDetailClosed) DC.onDetailClosed();
 	}
 	/* Wide windows keep the inspector beside the list (no dimming, other rows stay clickable); narrower ones overlay it.
 	   1320 keeps the list wider than the 860px sidebar breakpoint once the 440px for the inspector is taken off. */

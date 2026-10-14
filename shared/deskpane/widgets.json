@@ -1,0 +1,174 @@
+{
+	"v": 1,
+	"widgets": [
+		{
+			"id": "queue",
+			"kind": "data",
+			"title": {
+				"DUT": "Downloadwachtrij",
+				"FRE": "File de téléchargement",
+				"GER": "Download-Warteschlange",
+				"ITA": "Coda di download",
+				"JPN": "ダウンロードキュー",
+				"KOR": "다운로드 대기열",
+				"POR": "Fila de downloads",
+				"RUS": "Очередь загрузок",
+				"SCH": "下载队列",
+				"SPA": "Cola de descargas",
+				"TCH": "下載佇列",
+				"THA": "คิวดาวน์โหลด",
+				"en": "Download queue"
+			},
+			"description": {
+				"DUT": "Downloadsnelheid en lopende downloads.",
+				"FRE": "Vitesse de téléchargement et téléchargements en cours.",
+				"GER": "Downloadgeschwindigkeit und laufende Downloads.",
+				"ITA": "Velocità di download e download in corso.",
+				"JPN": "ダウンロード速度と進行中のダウンロード。",
+				"KOR": "다운로드 속도와 진행 중인 다운로드.",
+				"POR": "Velocidade de download e downloads em andamento.",
+				"RUS": "Скорость загрузки и текущие загрузки.",
+				"SCH": "下载速度与进行中的下载。",
+				"SPA": "Velocidad de descarga y descargas en curso.",
+				"TCH": "下載速度與進行中的下載。",
+				"THA": "ความเร็วดาวน์โหลดและรายการที่กำลังดำเนินอยู่",
+				"en": "Download speed and the downloads in progress."
+			},
+			"sizes": {
+				"desktop": [
+					"s",
+					"m",
+					"l"
+				],
+				"phone": [
+					"s",
+					"m"
+				]
+			},
+			"url": "api/v1/widget/queue",
+			"refresh": 15,
+			"options": [
+				{
+					"id": "show",
+					"type": "choice",
+					"label": {
+						"DUT": "Weergeven",
+						"FRE": "Afficher",
+						"GER": "Anzeigen",
+						"ITA": "Mostra",
+						"JPN": "表示",
+						"KOR": "표시",
+						"POR": "Mostrar",
+						"RUS": "Показывать",
+						"SCH": "显示",
+						"SPA": "Mostrar",
+						"TCH": "顯示",
+						"THA": "แสดง",
+						"en": "Show"
+					},
+					"choices": [
+						{
+							"value": "active",
+							"label": {
+								"DUT": "Bezig",
+								"FRE": "En cours",
+								"GER": "Laufend",
+								"ITA": "In corso",
+								"JPN": "進行中",
+								"KOR": "진행 중",
+								"POR": "Em andamento",
+								"RUS": "Текущие",
+								"SCH": "进行中",
+								"SPA": "En curso",
+								"TCH": "進行中",
+								"THA": "กำลังดำเนินการ",
+								"en": "In progress"
+							}
+						},
+						{
+							"value": "all",
+							"label": {
+								"DUT": "Alle downloads",
+								"FRE": "Tous les téléchargements",
+								"GER": "Alle Downloads",
+								"ITA": "Tutti i download",
+								"JPN": "すべてのダウンロード",
+								"KOR": "모든 다운로드",
+								"POR": "Todos os downloads",
+								"RUS": "Все загрузки",
+								"SCH": "所有下载",
+								"SPA": "Todas las descargas",
+								"TCH": "所有下載",
+								"THA": "ดาวน์โหลดทั้งหมด",
+								"en": "All downloads"
+							}
+						}
+					],
+					"default": "active"
+				}
+			]
+		},
+		{
+			"id": "add",
+			"kind": "module",
+			"element": "downloadcenter-add",
+			"title": {
+				"DUT": "Download toevoegen",
+				"FRE": "Ajouter un téléchargement",
+				"GER": "Download hinzufügen",
+				"ITA": "Aggiungere download",
+				"JPN": "ダウンロードを追加",
+				"KOR": "다운로드 추가",
+				"POR": "Adicionar download",
+				"RUS": "Добавить загрузку",
+				"SCH": "添加下载",
+				"SPA": "Añadir descarga",
+				"TCH": "加入下載",
+				"THA": "เพิ่มดาวน์โหลด",
+				"en": "Add download"
+			},
+			"description": {
+				"DUT": "Sleep of plak URL's, magnetlinks en .torrent-bestanden.",
+				"FRE": "Déposez ou collez des URL, liens magnet et fichiers .torrent.",
+				"GER": "URLs, Magnet-Links und .torrent-Dateien ablegen oder einfügen.",
+				"ITA": "Trascinare o incollare URL, link magnet e file .torrent.",
+				"JPN": "URL、マグネットリンク、.torrent ファイルをドロップまたは貼り付けます。",
+				"KOR": "URL, 마그넷 링크, .torrent 파일을 놓거나 붙여 넣습니다.",
+				"POR": "Solte ou cole URLs, links magnet e arquivos .torrent.",
+				"RUS": "Перетащите или вставьте URL, magnet-ссылки и файлы .torrent.",
+				"SCH": "拖放或粘贴网址、磁力链接和 .torrent 文件。",
+				"SPA": "Suelta o pega URL, enlaces magnet y archivos .torrent.",
+				"TCH": "拖放或貼上網址、磁力連結與 .torrent 檔。",
+				"THA": "ลากมาวางหรือวาง URL ลิงก์แม็กเน็ต และไฟล์ .torrent",
+				"en": "Drop or paste URLs, magnet links and .torrent files."
+			},
+			"sizes": [
+				"s",
+				"m"
+			],
+			"url": "widgets/add.js",
+			"options": [
+				{
+					"id": "start",
+					"type": "switch",
+					"label": {
+						"DUT": "Meteen starten",
+						"FRE": "Démarrer tout de suite",
+						"GER": "Sofort starten",
+						"ITA": "Avvia subito",
+						"JPN": "すぐに開始",
+						"KOR": "바로 시작",
+						"POR": "Iniciar imediatamente",
+						"RUS": "Начинать сразу",
+						"SCH": "立即开始",
+						"SPA": "Empezar enseguida",
+						"TCH": "立即開始",
+						"THA": "เริ่มทันที",
+						"en": "Start right away"
+					},
+					"default": true
+				}
+			]
+		}
+	]
+}

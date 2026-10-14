@@ -208,8 +208,9 @@
 			t._order = old ? old._order : pieceOrder(t.id);
 			by[t.id] = t;
 		}
-		S.tasks = list; S.byId = by;
+		S.tasks = list; S.byId = by; S.haveTasks = true;
 		for(i in S.sel) if(S.sel.hasOwnProperty(i) && !by[i]) delete S.sel[i];
+		if(S.openTask) openLinked();
 	}
 	/* The fragment bar of a torrent lights cells in a stable pseudo-random order per task. */
 	function pieceOrder(id){
@@ -397,17 +398,40 @@
 		saveRoute();
 	}
 	DC.renderView = function(){ renderView(); };
+	/* The linked task's details stay in the address while they are open (a reload comes back to them) */
+	function openLinked(){
+		var id = S.openTask;
+		S.openTask = null;
+		if(S.byId[id]){ DC.detail.open(id); S.linkTask = id; }
+		else DC.toast(DC.t('This task is no longer in the list'));
+		saveRoute();
+	}
+	DC.onDetailClosed = function(){ if(S.linkTask){ S.linkTask = null; saveRoute(); } };
+	/* Another page of the app in the address while it is open: a Deskpane widget opening a task or a filter in the window
+	   that already shows Download Center changes only the part after #. The address written by saveRoute (replaceState)
+	   does not come here. */
+	window.addEventListener('hashchange', function(){
+		if(!S.live) return;
+		DC.leave(function(){
+			readRoute();
+			go(S.view);
+			if(S.openTask && S.haveTasks) openLinked();
+		});
+	});
 	/* The page shown is kept in the address (#tasks/down, #settings/notify) so a reload or Open in new tab stays on it. It is
 	   replaced, never pushed: Back inside the QTS desktop must not walk through the app's pages. Written after the view has
 	   rendered, because settings fall back to Downloads when the tab is not available to this account. */
 	function readRoute(){
-		var m = /^#(tasks|settings)(?:\/([a-z]+))?$/.exec(location.hash) || [];
+		var link = /^#task\/([0-9a-f]{40,64})$/.exec(location.hash), m = /^#(tasks|settings)(?:\/([a-z]+))?$/.exec(location.hash) || [];
+		/* #task/<id> (a link from a Deskpane widget): the task list, then that task's details once the list has arrived */
+		if(link){ S.view = 'tasks'; S.filter = 'all'; S.openTask = link[1]; return; }
 		S.view = m[1] || 'tasks'; S.filter = 'all';
 		if(m[1] === 'tasks' && m[2]) S.filter = filterById(m[2]).id;
 		if(m[1] === 'settings'){ S.setOpen = !!m[2]; if(m[2]) S.setTab = m[2]; }
 	}
 	function saveRoute(){
 		var r = S.view === 'settings' ? '#settings' + (S.setOpen || !DC.phone() ? '/' + S.setTab : '') : S.filter !== 'all' ? '#tasks/' + S.filter : '';
+		if(S.view === 'tasks' && S.linkTask && DC.detail.current() === S.linkTask) r = '#task/' + S.linkTask;
 		if(location.hash === r) return;
 		try{ history.replaceState(history.state, '', location.pathname + location.search + r); }catch(e){}
 	}

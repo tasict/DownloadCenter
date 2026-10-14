@@ -89,9 +89,10 @@ var uiLangs = set("TCH", "SCH", "ENG", "JPN", "KOR", "GER", "FRE", "SPA", "ITA",
 
 var schemes = set("http", "https", "ftp", "ftps", "sftp", "scp")
 
-// Counter groups a report carries: task adds and results, the web UI, and
-// the uses of tokens, the REST API, the V4 API and chat commands.
-var groups = set("add", "res", "ui", "tok", "api", "v4", "chat")
+// Counter groups a report carries: task adds and results, the web UI, the
+// uses of tokens, the REST API, the V4 API and chat commands, and the
+// Deskpane widgets.
+var groups = set("add", "res", "ui", "tok", "api", "v4", "chat", "wdg")
 
 func set(v ...string) map[string]bool {
 	m := make(map[string]bool, len(v))
@@ -177,7 +178,7 @@ func (s *Service) add(key string, n int64) {
 }
 
 // hooked are the groups other packages count through api.Count.
-var hooked = set("tok", "api", "v4", "chat")
+var hooked = set("tok", "api", "v4", "chat", "wdg")
 
 // count is api.Counter: one use of a token, API endpoint or chat command.
 func (s *Service) count(key string) {
@@ -291,6 +292,8 @@ func via(caller string) string {
 		return "api"
 	case caller == "Chat":
 		return "chat"
+	case caller == "Deskpane":
+		return "widget"
 	}
 	return "v4"
 }

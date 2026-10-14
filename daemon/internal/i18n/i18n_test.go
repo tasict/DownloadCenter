@@ -12,6 +12,7 @@ func withDicts(t *testing.T, m map[string]map[string]string) {
 		mu.Lock()
 		for lang := range m {
 			delete(dicts, lang)
+			delete(exact, lang)
 		}
 		legacy, legacySrc = nil, nil
 		mu.Unlock()
@@ -74,5 +75,38 @@ func TestT(t *testing.T) {
 	}
 	if Norm("esm") != "SPA" || Norm(" eng ") != "ENG" || Norm("") != "ENG" || Norm("tch") != "TCH" || Norm("XYZ") != "ENG" {
 		t.Error("Norm")
+	}
+}
+
+func TestF(t *testing.T) {
+	withDicts(t, map[string]map[string]string{
+		"ZZZ": {
+			"{0} downloading, {1} waiting": "{1} en attente, {0} en cours",
+			"No downloads yet":             "Aucun téléchargement",
+		},
+	})
+	cases := []struct {
+		lang, key, want string
+		args            []string
+	}{
+		{"ZZZ", "{0} downloading, {1} waiting", "2 en attente, 3 en cours", []string{"3", "2"}},
+		{"ZZZ", "No downloads yet", "Aucun téléchargement", nil},
+		{"ENG", "{0} downloading, {1} waiting", "3 downloading, 2 waiting", []string{"3", "2"}},
+		{"ZZZ", "Not translated {0}", "Not translated x", []string{"x"}},
+		{"ZZZ", "{0} and {1}", "a and {1}", []string{"a"}},
+	}
+	for _, c := range cases {
+		if got := F(c.lang, c.key, c.args...); got != c.want {
+			t.Errorf("F(%s, %q) = %q, want %q", c.lang, c.key, got, c.want)
+		}
+	}
+}
+
+func TestFromTag(t *testing.T) {
+	for tag, want := range map[string]string{"zh-TW": "TCH", "zh-Hant-HK": "TCH", "zh-CN": "SCH", "zh": "SCH", "de-DE": "GER", "es-MX": "ESM", "es": "SPA",
+		"en-US": "", "ja": "JPN", "pt-BR": "POR", "nb-NO": "NOR", "": "", "dee": ""} {
+		if got := FromTag(tag); got != want {
+			t.Errorf("FromTag(%q) = %q, want %q", tag, got, want)
+		}
 	}
 }

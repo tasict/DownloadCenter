@@ -409,4 +409,5 @@ func (s *Server) routes() {
 	s.settingsRoutes()
 	s.eventRoutes()
 	s.previewRoutes()
+	s.widgetRoutes()
 }

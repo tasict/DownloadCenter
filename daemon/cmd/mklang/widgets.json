@@ -1,0 +1,38 @@
+{
+	"v": 1,
+	"widgets": [
+		{
+			"id": "queue",
+			"kind": "data",
+			"title": "Download queue",
+			"description": "Download speed and the downloads in progress.",
+			"sizes": {"desktop": ["s", "m", "l"], "phone": ["s", "m"]},
+			"url": "api/v1/widget/queue",
+			"refresh": 15,
+			"options": [
+				{
+					"id": "show",
+					"type": "choice",
+					"label": "Show",
+					"choices": [
+						{"value": "active", "label": "In progress"},
+						{"value": "all", "label": "All downloads"}
+					],
+					"default": "active"
+				}
+			]
+		},
+		{
+			"id": "add",
+			"kind": "module",
+			"element": "downloadcenter-add",
+			"title": "Add download",
+			"description": "Drop or paste URLs, magnet links and .torrent files.",
+			"sizes": ["s", "m"],
+			"url": "widgets/add.js",
+			"options": [
+				{"id": "start", "type": "switch", "label": "Start right away", "default": true}
+			]
+		}
+	]
+}

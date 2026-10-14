@@ -12,7 +12,9 @@
 //
 // Only the backend's own messages (backend-keys.json) are looked up: the
 // UI strings in the same dictionaries are for the browser, and their short
-// templates could match unrelated messages.
+// templates could match unrelated messages. The texts of the Deskpane widget
+// (widget-keys.json) are built from their keys with F and never matched as
+// templates, for the same reason.
 package i18n
 
 import (
@@ -20,12 +22,13 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
 )
 
-//go:embed lang/*.json backend-keys.json
+//go:embed lang/*.json backend-keys.json widget-keys.json
 var files embed.FS
 
 // Source is the language the messages are written in.
@@ -88,6 +91,20 @@ func readDict(lang string) map[string]string {
 	return m
 }
 
+var exact = map[string]map[string]string{}
+
+// exactDict is a whole shipped dictionary, for lookups by key.
+func exactDict(lang string) map[string]string {
+	mu.Lock()
+	defer mu.Unlock()
+	m, ok := exact[lang]
+	if !ok {
+		m = rawDict(lang)
+		exact[lang] = m
+	}
+	return m
+}
+
 func load(lang string) *dict {
 	mu.Lock()
 	defer mu.Unlock()
@@ -145,6 +162,7 @@ func build(m map[string]string) *dict {
 func setDict(lang string, m map[string]string) {
 	mu.Lock()
 	dicts[lang] = build(m)
+	exact[lang] = m
 	if lang == legacyLang {
 		legacy, legacySrc = nil, m
 	}
@@ -222,6 +240,27 @@ func T(lang, msg string) string {
 	return out
 }
 
+// F translates a message given by its key, a template with {0}, {1}...
+// for the parts that vary (backend-keys.json, widget-keys.json), and fills
+// in args. Without a translation the English key is filled in.
+func F(lang, key string, args ...string) string {
+	out := key
+	if lang = Norm(lang); lang != Source {
+		if v := exactDict(lang)[key]; v != "" {
+			out = v
+		}
+	}
+	if len(args) == 0 {
+		return out
+	}
+	return phRe.ReplaceAllStringFunc(out, func(ph string) string {
+		if n, err := strconv.Atoi(ph[1 : len(ph)-1]); err == nil && n >= 0 && n < len(args) {
+			return args[n]
+		}
+		return ph
+	})
+}
+
 // tr looks msg up in d; ok is false when nothing matched (msg is returned).
 // A template whose fixed text is punctuation only is used only when one of
 // its parts translates, so that raw errors such as "dial tcp: lookup x"
@@ -259,4 +298,26 @@ func hasHan(s string) bool {
 		}
 	}
 	return false
+}
+
+// QTS's browser-language table (qos-core-login.js, also in the UI's
+// i18n.js): a language tag such as "zh-TW" or "de-DE" -> QTS code.
+var tagTable = []struct{ prefix, code string }{
+	{"zh-tw", "TCH"}, {"zh-hk", "TCH"}, {"zh-mo", "TCH"}, {"zh-hant", "TCH"}, {"zh", "SCH"},
+	{"cs", "CZE"}, {"da", "DAN"}, {"de", "GER"}, {"es-mx", "ESM"}, {"es", "SPA"}, {"fr", "FRE"},
+	{"it", "ITA"}, {"ja", "JPN"}, {"ko", "KOR"}, {"nb", "NOR"}, {"no", "NOR"}, {"nn", "NOR"},
+	{"pl", "POL"}, {"ru", "RUS"}, {"fi", "FIN"}, {"sv", "SWE"}, {"nl", "DUT"}, {"tr", "TUR"},
+	{"th", "THA"}, {"hu", "HUN"}, {"pt", "POR"}, {"el", "GRK"}, {"ro", "ROM"},
+}
+
+// FromTag maps a language tag (BCP 47, as browsers send it) to a QTS code
+// the way QTS's sign-in page does; "" when the table has no entry.
+func FromTag(tag string) string {
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	for _, e := range tagTable {
+		if tag == e.prefix || strings.HasPrefix(tag, e.prefix+"-") {
+			return e.code
+		}
+	}
+	return ""
 }

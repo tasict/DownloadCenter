@@ -109,7 +109,7 @@ func TestEventsCountWithoutContent(t *testing.T) {
 	if s.counts["res_failed"] != 2 || s.counts["res_err_dl_6"] != 1 || s.counts["res_done_bt"] != 1 || s.counts["res_mb"] != 3 {
 		t.Fatalf("counts %v", s.counts)
 	}
-	if via("API: my secret token") != "api" || via("Qget 2.0") != "v4" || via("Download Center") != "ui" {
+	if via("API: my secret token") != "api" || via("Qget 2.0") != "v4" || via("Download Center") != "ui" || via("Deskpane") != "widget" {
 		t.Fatal("via")
 	}
 }

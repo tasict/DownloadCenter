@@ -83,11 +83,16 @@ fi
 
 if command -v node >/dev/null 2>&1; then
 	echo "Checking JavaScript syntax..."
-	for f in shared/web/js/*.js shared/web/js/lang/*.js; do
+	for f in shared/web/js/*.js shared/web/js/lang/*.js shared/web/widgets/*.js; do
 		[ -f "$f" ] || continue
 		node --check "$f"
 		echo "  OK: $f"
 	done
+	# The Deskpane widget manifest and dictionaries are read as JSON
+	for f in shared/deskpane/widgets.json shared/web/widgets/lang/*.json; do
+		node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$f" || { echo "Invalid JSON: $f. Aborting build."; exit 1; }
+	done
+	echo "  OK: shared/deskpane/widgets.json and the widget dictionaries"
 	echo ""
 fi
 
