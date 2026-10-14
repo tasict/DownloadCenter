@@ -270,6 +270,7 @@ Features the current engine cannot do get no switch and no "not supported" text.
 - Create: name → permission preset (read only / add downloads / full control (without deleting files) / custom, which expands to per-permission checkboxes) → which tasks it may act on (mine / everyone's, the latter for administrators only) → allowed folders → allowed IPs → expiry.
 - After creation the full token is shown once, with a "Copy" button. Once closed, the full token cannot be seen again.
 - "For developers" at the bottom: API address, authentication, where the documentation is.
+- **AI Agent** section: the three steps for a token and the skill file, then the switch "Offer tools to AI agents in this browser (WebMCP)" with one line on whether this browser offers WebMCP (or that it needs HTTPS, or how to turn it on in Chrome). With it on, the page registers eight tools with the browser (`js/webmcp.js`): read the overview, list and inspect downloads, add, pause/resume/retry/reorder, choose a torrent's files, delete, and show something in the page. The agent acts as the signed-in user; deleting (and adding more than 10 links) asks in the page first with the task names, never over another open dialog; every change shows a toast such as "AI agent paused 3 downloads".
 
 ### Notifications and integration
 

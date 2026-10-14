@@ -112,6 +112,7 @@
 		if(S.es){ try{ S.es.close(); }catch(e){} S.es = null; }
 		DC.login.stopKeepAlive();
 		DC.login.stopInput();
+		DC.webmcp.stop();
 	}
 	DC.onSignedOut = function(){
 		if(!S.live && S.me) return;
@@ -136,6 +137,7 @@
 			poll(); pollStats(); stream();
 			DC.login.keepAlive();
 			DC.login.trackInput();
+			DC.webmcp.start();
 			loadPortrait();
 			DC.track('session'); DC.track('lang_' + DC.lang); DC.track('theme_' + (S.theme || 'auto'));
 			DC.track(DC.embedded ? 'layout_embedded' : DC.phone() ? 'layout_phone' : 'layout_desktop');

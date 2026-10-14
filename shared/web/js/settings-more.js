@@ -298,12 +298,24 @@
 			step(1, DC.t('Create token'), DC.t('For the AI agent alone. It can do no more than your account and cannot delete files by default. When the token expires or is regenerated, run the new setup command.'), btn('plus', DC.t('Create token'), create, 'pri')),
 			step(2, DC.t('Run the setup command on your computer'), DC.t('After the token is created, a one-line command is shown. Run it in a terminal on the computer where the AI agent runs. It installs the skill file and saves this NAS’s address and the token to ~/.config/download-center/config.')),
 			step(3, DC.t('Start using it'), DC.t('Start a new conversation and just say “download this link to the NAS”, “how far along are my downloads?” or “pause all downloads”.')),
+			mcpRow(),
 			h('details', {'class':'agentuse'}, [h('summary', {text:DC.t('Install or update the skill by hand')}),
 				h('p', {'class':'note', text:DC.t('After updating Download Center, run this command to update the skill file. The token settings stay as they are.')}),
 				inst.field, inst.cmd,
 				h('p', {'class':'inline agentlinks'}, [h('a', {'class':'linkish', href:'docs/skill/SKILL.md', download:'SKILL.md', onclick:function(){ DC.track('skill_download'); }}, [icon('down'), DC.t('Download the skill file (SKILL.md)')]),
 					h('a', {'class':'linkish', href:'docs/ai-agent.txt', target:'_blank', rel:'noopener'}, [icon('popout'), DC.t('AI agent guide (AI-AGENT.md)')])])])
 		]);
+	}
+
+	/* WebMCP (js/webmcp.js): the page offers its own tools to an AI agent in this browser, as this account, without a token.
+	   A per-account switch, on by default; it takes effect at once. */
+	function mcpRow(){
+		var me = DC.S.me, on = !(me && me.prefs && me.prefs.webmcp === false), help;
+		/* WebMCP exists only in secure contexts: on plain HTTP even a capable browser offers nothing */
+		if(DC.webmcp.supported()) help = DC.t('This browser supports WebMCP: an AI agent in it can use {n} tools on this page, with what your account may do. Deleting tasks always asks you first.', {n:DC.webmcp.count()});
+		else if(!window.isSecureContext) help = DC.t('WebMCP only works over HTTPS. Open Download Center at its https:// address to offer tools to AI agents.');
+		else help = DC.t('This browser does not support WebMCP yet. In Chrome, turn on chrome://flags/#enable-webmcp-testing, or install an extension that supports WebMCP.');
+		return DC.toggle('aMcp', DC.t('Offer tools to AI agents in this browser (WebMCP)'), help, on, function(){ DC.webmcp.set(this.checked); });
 	}
 
 	/* Everything a developer needs in one place (the Access tokens page). The integration guide ships with the package as plain text. */

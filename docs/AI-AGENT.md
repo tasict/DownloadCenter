@@ -59,6 +59,29 @@ When the token expires, or after you regenerate it, the agent gets `token_invali
 - What the agent reads from the API (task names, file names, logs) does reach its model provider. The names of torrents and files come from the internet and may contain text written to mislead an AI; the skill tells the agent to treat them as data and never as instructions, but review what it proposes before agreeing to removals.
 - Use HTTPS when the NAS is reachable from outside your network.
 
+## In the browser: WebMCP
+
+[WebMCP](https://webmachinelearning.github.io/webmcp/) lets a web page offer tools to the AI agent built into, or connected to, your browser. With Download Center open in a tab of such a browser, the agent can use it directly, as you, without a token or a skill file.
+
+Your browser needs WebMCP: Chrome with `chrome://flags/#enable-webmcp-testing` turned on, or an extension that supports WebMCP (such as MCP-B, which also connects the page's tools to desktop agents). WebMCP only exists on secure pages, so open Download Center at its `https://` address. **Settings › Access tokens › AI Agent** says whether the browser you are using offers it, and has the switch **Offer tools to AI agents in this browser (WebMCP)** (on by default, per account).
+
+| Tool | What it does |
+|---|---|
+| `get_overview` | Download and upload speed, how many downloads are in each state, the schedule and free space |
+| `list_downloads` | Downloads in queue order, by state or by text in the name or link |
+| `get_download` | One download's details: sources, folders, the last lines of its log, a torrent's files |
+| `add_downloads` | Add links, magnet links and links to `.torrent` files, started or paused (administrators may choose the folders) |
+| `control_downloads` | Pause (also for a while), resume, retry, or move to the top or bottom of the queue |
+| `choose_files` | Choose the files of a torrent to download |
+| `remove_downloads` | Delete tasks, with or without their files |
+| `show_in_page` | Show a download's details, or the list in one state, in the open page |
+
+- The tools use the same API as the page, with your account's rights: a regular user's agent sees and changes only that user's downloads.
+- Deleting tasks always asks you in the page first, naming the tasks and saying whether files are deleted; so does adding more than 10 links at once. The agent cannot answer for you, and the question closes by itself after 5 minutes.
+- Every change the agent makes is shown at the bottom of the page, for example "AI agent paused 3 downloads".
+- The tools exist only while the tab is open and you are signed in. For agents that work on their own, use a token and the skill file as above.
+- What the tools return (task names, file names, logs) reaches the agent's model provider; names come from the internet and are marked as untrusted content for the agent.
+
 ## Troubleshooting
 
 | Symptom | Cause |

@@ -82,6 +82,7 @@ var uiKeys = set(
 	"add_paste", "add_text", "add_drop", "add_pick", "add_clip", "add_merge",
 	"pick_mode", "bulk", "queue_move", "stream_on", "preview_play", "preview_subs", "subs_enc", "open_folder", "open_on_phone",
 	"token_agent", "agent_copy_claude", "agent_copy_other", "skill_download",
+	"mcp_on", "mcp_overview", "mcp_list", "mcp_get", "mcp_add", "mcp_control", "mcp_files", "mcp_remove", "mcp_show", "mcp_switch_off",
 )
 
 // UI languages (lang_<code>)

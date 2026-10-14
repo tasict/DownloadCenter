@@ -663,6 +663,10 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 /* The number sits level with the step's title, however long the text under it */
 .lrow > .stepno{align-self:start;margin-top:-5px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:14px;color:#FFFFFF;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 75%,#FFFFFF),var(--accent))}
 .agentuse{padding:11px 0}
+/* The page asking the user before an AI agent removes or adds many downloads (js/webmcp.js) */
+.mcplist{margin:2px 0 0;padding:0 0 0 18px;font-size:13.5px;color:var(--label2)}
+.mcplist li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mcplist li.more{list-style:none;margin-left:-18px}
 .agentuse summary{width:fit-content;color:var(--accent);cursor:pointer;font-size:13.5px}
 .agentuse .note{padding:8px 0 4px}
 .agentuse .mform{margin:4px 0 0}
