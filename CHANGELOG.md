@@ -2,6 +2,16 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.2.0
+
+- Download Center brings two widgets to Deskpane's desktop and phone home screen. Download queue shows how fast it is downloading, what is in progress and anything that needs a look, such as a failed download, low disk space or the schedule pausing downloads; the large size adds the download speed of the last 15 minutes, and a click on a task opens it in Download Center. Add download takes URLs, magnet links and .torrent files dropped on it, or a URL pasted into it, and adds them with your usual settings; on a phone, Paste adds what is on the clipboard.
+- AI agents in your browser can use Download Center directly through WebMCP, without a token. With Download Center open over HTTPS in a browser that offers WebMCP (Chrome with chrome://flags/#enable-webmcp-testing turned on, or an extension that supports WebMCP), the agent can see how your downloads are doing, add links, pause, resume, retry and reorder downloads, choose the files of a torrent and show a task in the page. It acts as you, with what your account may do. Deleting tasks always asks you in the page first, and the page tells you about every change the agent makes. Settings › Access tokens › AI Agent says whether your browser offers WebMCP and has a switch to turn this off.
+- A link to a task's details, such as one opened from a widget, opens the task in Download Center, also when Download Center is already open.
+- Tasks added from a Deskpane widget show Deskpane as where they came from, next to the owner in the task details.
+- While you work in Download Center, an open QTS desktop tab in the same browser no longer signs you out when its idle time runs out, and neither does the QTS desktop around Download Center's window. Your idle logout setting in QTS still applies when you stop working.
+- A busy QTS no longer signs you out: only QTS saying that the sign-in has ended does.
+- The daily usage statistics also count how the widgets are used: which widget at which size, and how many downloads were added from them.
+
 ## 1.1.3
 
 - Google Drive links to files shared with “Anyone with the link” download the file itself, without an account. Before, such a task finished with Google's preview page or virus-scan warning saved in place of the file. The file's name and size are known before the task is added, and the add window labels these links Google Drive. When Google hands out no file, adding says why: the file does not exist, is not shared publicly, or has been downloaded too often for now. Folder links are not supported yet; open the folder and add the links of its files.
