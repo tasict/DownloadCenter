@@ -25,8 +25,9 @@
 		{id:'error', label:DC.t('Error'), icon:'error', match:function(t){ return DC.uiState(t) === 'error'; }}
 	];
 	var KIND_LABEL = DC.KIND_LABEL = {url:DC.t('URL'), torrent:DC.t('Torrent'), magnet:DC.t('Magnet link')};
-	var SORTS = [['queue', DC.t('Queue order')], ['status', DC.t('Status')], ['progress', DC.t('Download progress')], ['eta', DC.t('Time left')], ['elapsed', DC.t('Download time')]];
-	var SORT_DIR = {status:1, progress:-1, eta:1, elapsed:-1};
+	var SORTS = [['queue', DC.t('Queue order')], ['status', DC.t('Status')], ['progress', DC.t('Download progress')], ['eta', DC.t('Time left')], ['elapsed', DC.t('Download time')],
+		['added', DC.t('Date added')], ['finished', DC.t('Date finished')]];
+	var SORT_DIR = {status:1, progress:-1, eta:1, elapsed:-1, added:-1, finished:-1};
 	var STATUS_RANK = {error:0, down:1, check:2, move:3, seed:4, wait:5, pause:6, done:7};
 
 	DC.isAdmin = function(){ return !!(S.me && S.me.admin); };
@@ -131,7 +132,7 @@
 			sv = String(p.sort || DC.ls('dc-sort') || 'queue:').split(':');
 			S.sort = sv[0] || 'queue'; S.dir = sv[1] ? +sv[1] : null;
 			if(!SORT_DIR[S.sort] && S.sort !== 'queue') S.sort = 'queue';
-			readRoute(); S.sel = {};
+			readRoute(); resetSel();
 			build(); renderNav(); renderView();
 			S.live = true;
 			poll(); pollStats(); stream();
@@ -273,7 +274,7 @@
 		/* Phone: the two destinations and the add button float at the bottom, where the thumb is. */
 		R.tabTasks = h('button', {'class':'ib tb', type:'button', onclick:function(){
 			if(S.view === 'tasks'){ window.scrollTo(0, 0); return; }
-			DC.leave(function(){ S.sel = {}; S.picking = false; go('tasks'); });
+			DC.leave(function(){ resetSel(); go('tasks'); });
 		}}, [icon('down', 'still'), h('span', {text:DC.t('Tasks')})]);
 		R.tabSet = h('button', {'class':'ib tb', type:'button', onclick:function(){ DC.leave(function(){ S.setOpen = false; go('settings'); }); }}, [icon('gear'), h('span', {text:DC.t('Settings')})]);
 		app.appendChild(h('nav', {'class':'tabbar', 'aria-label':DC.t('Main')}, [
@@ -367,7 +368,7 @@
 			c = h('span', {'class':'cnt num'});
 			R.counts[f.id] = c;
 			R.navBtn[f.id] = h('button', {'class':'ib nv st-' + f.id + (S.view === 'tasks' && S.filter === f.id ? ' on' : ''), type:'button',
-				onclick:(function(id){ return function(){ DC.leave(function(){ S.filter = id; S.sel = {}; S.picking = false; go('tasks'); }); }; })(f.id)}, [icon(f.icon, 'still'), h('span', {text:f.label}), c]);
+				onclick:(function(id){ return function(){ DC.leave(function(){ S.filter = id; resetSel(); go('tasks'); }); }; })(f.id)}, [icon(f.icon, 'still'), h('span', {text:f.label}), c]);
 			R.nav.appendChild(R.navBtn[f.id]);
 		}
 		R.nav.appendChild(h('div', {'class':'gap'}));
@@ -415,7 +416,7 @@
 	window.addEventListener('hashchange', function(){
 		if(!S.live) return;
 		DC.leave(function(){
-			readRoute();
+			readRoute(); resetSel();
 			go(S.view);
 			if(S.openTask && S.haveTasks) openLinked();
 		});
@@ -459,6 +460,9 @@
 		if(S.sort === 'status') return STATUS_RANK[s];
 		if(S.sort === 'progress') return t.progress;
 		if(S.sort === 'eta') return s === 'down' && t.eta > 0 ? t.eta : Infinity;
+		if(S.sort === 'added') return t.created_at || 0;
+		/* Tasks still downloading have no finish time and stay last either way */
+		if(S.sort === 'finished') return t.finished_at || Infinity;
 		return t.active_secs || 0;
 	}
 	/* Live values change every second, so a sorted list is re-ordered at most every 10 s to keep rows from jumping under the pointer. */
@@ -495,11 +499,47 @@
 		DC.savePref('sort', v);
 		renderList();
 	}
+	function dirTip(dir){
+		if(S.sort === 'status') return dir > 0 ? DC.t('Needs attention first; click to reverse') : DC.t('Completed first; click to reverse');
+		if(S.sort === 'added' || S.sort === 'finished') return dir > 0 ? DC.t('Oldest first; click for newest first') : DC.t('Newest first; click for oldest first');
+		return dir > 0 ? DC.t('Smallest first; click for largest first') : DC.t('Largest first; click for smallest first');
+	}
 	function selIds(){ var out = [], k; for(k in S.sel) if(S.sel.hasOwnProperty(k) && S.sel[k]) out.push(k); return out; }
-	function keyOf(v){ var a = [], i; for(i = 0; i < v.length; i++) a.push(v[i].id); return a.join(','); }
-	function endPick(){ S.sel = {}; S.picking = false; renderList(); }
-	/* Selecting: wide screens show checkboxes on hover and a bar in place of the title. Phones enter it with Select or a long press;
-	   the bar moves to the bottom with labelled buttons, and the title row offers Select all and Done. */
+	function idsOf(v){ var a = [], i; for(i = 0; i < v.length; i++) a.push(v[i].id); return a; }
+	function keyOf(v){ return idsOf(v).join(','); }
+	/* S.anchor is the task clicked last: where a Shift-click range starts */
+	function resetSel(){ S.sel = {}; S.picking = false; S.anchor = null; }
+	function endPick(){ resetSel(); renderList(); }
+	/* Checks or clears one task; with range, every task shown between the one clicked last and this one, in the order on screen
+	   (the list may be due for re-sorting, so not the order visible() would give now) */
+	function pick(id, on, range){
+		var ids = [], rows = R.list ? R.list.children : [], a = -1, b = -1, i, k, r;
+		if(range && S.anchor && S.anchor !== id){
+			for(i = 0; i < rows.length; i++){
+				k = rows[i].getAttribute('data-id');
+				if(!k) continue;
+				if(k === S.anchor) a = ids.length;
+				if(k === id) b = ids.length;
+				ids.push(k);
+			}
+		}
+		if(a >= 0 && b >= 0){
+			if(a > b){ i = a; a = b; b = i; }
+			for(i = a; i <= b; i++) S.sel[ids[i]] = on;
+			DC.track('pick_range');
+		}else S.sel[id] = on;
+		S.anchor = id;
+		for(k in R.rows) if(R.rows.hasOwnProperty(k)){ r = R.rows[k]; r.cb.checked = !!S.sel[k]; r.el.classList.toggle('sel', r.cb.checked); }
+		renderHead();
+	}
+	function pickAll(v, all){
+		S.sel = {};
+		if(!all){ for(var k = 0; k < v.length; k++) S.sel[v[k].id] = true; DC.track('pick_all'); }
+		S.picking = true; renderList();
+	}
+	/* Selecting: Select beside the sort menu, a checkbox (shown on hover on wide screens), a long press, or Ctrl/⌘-click enters it, and
+	   a click on a row then checks it. Wide screens show a bar with Select all in place of the title; on phones the bar moves to the
+	   bottom with labelled buttons, and the title row offers Select all and Done. */
 	function renderHead(){
 		clear(R.lhead);
 		var ids = selIds(), f = filterById(S.filter), v = visible(), picking = ids.length > 0 || !!S.picking, none = !ids.length, all, i, sel, dir;
@@ -510,11 +550,12 @@
 		if(picking){
 			all = v.length > 0 && ids.length === v.length;
 			R.lhead.appendChild(h('div', {'class':'selhead'}, [
-				h('button', {'class':'ib linkish', type:'button', onclick:function(){ S.sel = {}; if(!all) for(var k = 0; k < v.length; k++) S.sel[v[k].id] = true; S.picking = true; renderList(); }}, all ? DC.t('Select none') : DC.t('Select all')),
+				h('button', {'class':'ib linkish', type:'button', onclick:function(){ pickAll(v, all); }}, all ? DC.t('Select none') : DC.t('Select all')),
 				h('b', {'class':'num', text:none ? DC.t('Select tasks') : DC.t('{n} selected', {n:ids.length})}),
 				h('button', {'class':'ib linkish done-b', type:'button', onclick:endPick}, DC.t('Done'))
 			]));
 			R.lhead.appendChild(h('div', {'class':'bulk', role:'toolbar', 'aria-label':DC.t('Batch actions')}, [
+				h('button', {'class':'ib linkish selall', type:'button', onclick:function(){ pickAll(v, all); }}, all ? DC.t('Select none') : DC.t('Select all')),
 				h('b', {text:DC.t('{n} selected', {n:ids.length})}),
 				DC.can('tasks:control') ? bb('play', DC.t('Start'), function(){ bulk('resume'); }) : null,
 				DC.can('tasks:control') ? bb('hold', DC.t('Pause'), function(){ bulk('pause'); }) : null,
@@ -535,8 +576,14 @@
 		sel.value = S.sort;
 		add(R.lhead, [h('h1', {text:f.label}), h('span', {'class':'sub num', text:DC.t('{n} tasks', {n:v.length})}),
 			h('div', {'class':'sorter'}, [h('label', {'for':'sortKey', text:DC.t('Sort')}), sel,
-				S.sort === 'queue' ? null : ibtn(dir > 0 ? 'up' : 'dn', dir > 0 ? (S.sort === 'status' ? DC.t('Needs attention first; click to reverse') : DC.t('Smallest first; click for largest first')) : (S.sort === 'status' ? DC.t('Completed first; click to reverse') : DC.t('Largest first; click for smallest first')), function(){ setSort(S.sort, -dir); }),
-				v.length ? h('button', {'class':'ib pickbtn', type:'button', onclick:function(){ S.picking = true; DC.track('pick_mode'); renderList(); }}, DC.t('Select')) : null]),
+				S.sort === 'queue' ? null : ibtn(dir > 0 ? 'up' : 'dn', dirTip(dir), function(){ setSort(S.sort, -dir); }),
+				v.length ? h('button', {'class':'ib pickbtn', type:'button', onclick:function(){ S.picking = true; DC.track('pick_mode'); renderList(); }}, DC.t('Select')) : null,
+				/* Every completed task shown, through the usual delete dialog (files kept unless asked, Undo) */
+				S.filter === 'done' && v.length && DC.can('tasks:remove') ? h('button', {'class':'ib pickbtn clrbtn', type:'button', onclick:function(){
+					var ids = idsOf(visible());
+					DC.track('clear_done');
+					if(ids.length) askDelete(ids);
+				}}, DC.t('Clear completed')) : null]),
 			R.launch]);
 	}
 	/* Keeps existing row nodes so state icons only replay when the state really changes. */
@@ -573,8 +620,8 @@
 	DC.renderList = function(){ renderList(); };
 	function buildRow(t){
 		var r = {id:t.id}, i, press;
-		function toggleSel(on){ S.sel[r.id] = on; r.cb.checked = on; r.el.classList.toggle('sel', on); renderHead(); }
-		r.cb = h('input', {type:'checkbox', 'aria-label':DC.t('Select {name}', {name:t.name}), checked:!!S.sel[t.id], onclick:function(e){ e.stopPropagation(); }, onchange:function(){ toggleSel(this.checked); }});
+		/* A checkbox's click comes after it changed, also from the keyboard */
+		r.cb = h('input', {type:'checkbox', 'aria-label':DC.t('Select {name}', {name:t.name}), checked:!!S.sel[t.id], onclick:function(e){ e.stopPropagation(); pick(r.id, this.checked, e.shiftKey && !DC.phone()); }});
 		r.ic = h('span', {'class':'sicon'});
 		r.bar = h('div', {'class':'bar'});
 		r.nameEl = h('b', {text:t.name || t.source});
@@ -582,13 +629,27 @@
 		r.act = h('div', {'class':'ract'});
 		r.el = h('div', {'class':'row', role:'listitem', tabindex:'0', 'data-id':t.id,
 			onpointerdown:function(e){ DC.reorder.rowDown(r.id, e); },
-			onclick:function(){ if(DC.reorder.justDragged()) return; if(r.long){ r.long = false; return; } if((S.picking || selIds().length) && DC.phone()){ toggleSel(!r.cb.checked); return; } DC.detail.open(r.id); },
+			/* With a mouse, Ctrl (⌘ on a Mac, where Ctrl-click is the context menu) checks one more and Shift checks a range */
+			onclick:function(e){
+				var wide = !DC.phone();
+				if(DC.reorder.justDragged()) return;
+				if(r.long){ r.long = false; return; }
+				if(wide && (e.ctrlKey || e.metaKey || e.shiftKey)){
+					if(!S.picking && !selIds().length) DC.track('pick_mode');
+					S.picking = true; pick(r.id, !r.cb.checked, e.shiftKey);
+					return;
+				}
+				if(S.picking || selIds().length){ pick(r.id, !r.cb.checked); return; }
+				DC.detail.open(r.id);
+			},
+			/* Shift-click would otherwise highlight the text between the two clicks */
+			onmousedown:function(e){ if(e.shiftKey && !DC.phone()) e.preventDefault(); },
 			onkeydown:function(e){
 				if(e.target !== r.el) return;
 				if(e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')){ if(DC.reorder.step(r.id, e.key === 'ArrowUp' ? -1 : 1)) e.preventDefault(); return; }
-				if(e.key === 'Enter') DC.detail.open(r.id); if(e.key === ' '){ e.preventDefault(); toggleSel(!r.cb.checked); } },
+				if(e.key === 'Enter') DC.detail.open(r.id); if(e.key === ' '){ e.preventDefault(); pick(r.id, !r.cb.checked); } },
 			oncontextmenu:function(e){ if(DC.phone()) e.preventDefault(); },
-			ontouchstart:function(){ press = setTimeout(function(){ r.long = true; if(DC.phone()){ S.picking = true; DC.track('pick_mode'); } toggleSel(!r.cb.checked); }, 500); },
+			ontouchstart:function(){ press = setTimeout(function(){ r.long = true; if(DC.phone()){ S.picking = true; DC.track('pick_mode'); } pick(r.id, !r.cb.checked); }, 500); },
 			ontouchend:function(){ clearTimeout(press); }, ontouchmove:function(){ clearTimeout(press); }},
 			[r.cb, r.ic, h('div', {'class':'rmain'}, [
 				h('div', {'class':'rname'}, [r.nameEl, DC.isAdmin() && t.owner !== DC.me() ? h('span', {'class':'owner', text:t.owner}) : null]),
@@ -679,6 +740,8 @@
 		else if(s === 'move') meta([DC.t('Move to {folder}…', {folder:t.move_to || t.folder}), DC.fsize(t.size)]);
 		else meta([h('span', {'class':'err', text:(t.error && t.error.message) || DC.t('An error occurred')})]);
 		if(S.sort === 'elapsed') r.meta.appendChild(h('span', {text:DC.t('Downloaded for {time}', {time:DC.fdur(t.active_secs)})}));
+		if(S.sort === 'added' && t.created_at) r.meta.appendChild(h('span', {text:DC.t('Added {time}', {time:DC.ftime(t.created_at)})}));
+		if(S.sort === 'finished' && t.finished_at) r.meta.appendChild(h('span', {text:DC.t('Finished {time}', {time:DC.ftime(t.finished_at)})}));
 	}
 	function refresh(){
 		renderTop();
@@ -725,7 +788,7 @@
 				DC.busy(b, true);
 				DC.api.post('tasks/bulk', {ids:ids, action:'remove', delete_files:files}).then(function(r){
 					close(); DC.detail.close();
-					S.sel = {}; S.picking = false;
+					resetSel();
 					var i;
 					for(i = 0; i < ids.length; i++) delete S.byId[ids[i]];
 					S.tasks = S.tasks.filter(function(t){ return ids.indexOf(t.id) < 0; });
@@ -766,7 +829,12 @@
 	document.addEventListener('pointerup', function(){ if(R.paintEnd) R.paintEnd(); });
 	document.addEventListener('keydown', function(e){
 		var tag = (e.target.tagName || '').toLowerCase();
-		if(e.key === 'Escape' && !DC.reorder.active()){ if(R.dismissModal) R.dismissModal(); else if(R.closeModal) R.closeModal(); else DC.detail.close(); }
+		if(e.key === 'Escape' && !DC.reorder.active()){
+			if(R.dismissModal) R.dismissModal();
+			else if(R.closeModal) R.closeModal();
+			else if(DC.detail.current()) DC.detail.close();
+			else if(S.view === 'tasks' && (S.picking || selIds().length)) endPick();
+		}
 		if(S.me && e.key === '/' && tag !== 'input' && tag !== 'textarea' && tag !== 'select' && DC.can('tasks:add')){
 			e.preventDefault();
 			if(S.view !== 'tasks') go('tasks');
