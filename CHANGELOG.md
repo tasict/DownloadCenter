@@ -2,6 +2,13 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.2.1
+
+- On computers, Select next to the sort menu turns on selection mode, as on phones: every task shows its checkbox, clicking a task checks it, and the bar of batch actions starts with Select all, which checks every task in the current filter. Shift-click checks or unchecks every task between the one you clicked last and this one, Ctrl-click (⌘-click on a Mac) adds a task to the selection, and Esc leaves selection mode.
+- The Completed list has Clear completed, which removes all completed tasks from the list after you confirm. Their files are kept unless you choose to delete them too, and you can undo it.
+- Tasks can be sorted by the date they were added or the date they finished, newest first. Sorted by date finished, tasks that are still downloading come last.
+- When the sort menu and its buttons do not fit beside the list title, for example in German on a phone, they continue on the next line instead of running off the screen.
+
 ## 1.2.0
 
 - Download Center brings two widgets to Deskpane's desktop and phone home screen. Download queue shows how fast it is downloading, what is in progress and anything that needs a look, such as a failed download, low disk space or the schedule pausing downloads; the large size adds the download speed of the last 15 minutes, and a click on a task opens it in Download Center. Add download takes URLs, magnet links and .torrent files dropped on it, or a URL pasted into it, and adds them with your usual settings; on a phone, Paste adds what is on the clipboard.
