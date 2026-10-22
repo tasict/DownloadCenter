@@ -2,6 +2,11 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.2.2
+
+- When a torrent or magnet link has several files to download, the largest video among them gets high priority, so the movie itself finishes first and can be previewed sooner. The other files are set to medium, and the task log names the video that was chosen; you can change any of them in the task's Files tab.
+- File priorities set for a torrent now always reach the download: they are kept when Download Center restarts, and setting a file back to a plain download, also from Qget, clears its earlier priority.
+
 ## 1.2.1
 
 - On computers, Select next to the sort menu turns on selection mode, as on phones: every task shows its checkbox, clicking a task checks it, and the bar of batch actions starts with Select all, which checks every task in the current filter. Shift-click checks or unchecks every task between the one you clicked last and this one, Ctrl-click (⌘-click on a Mac) adds a task to the selection, and Esc leaves selection mode.
