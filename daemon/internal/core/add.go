@@ -438,6 +438,7 @@ func (m *Manager) AddMagnet(link string, o AddOptions) (*AddResult, error) {
 	}
 	t.Options.Trackers = o.Trackers
 	t.Options.Select = o.Select
+	t.Options.AutoPrio = true
 	t.Options.Magnet = strings.TrimSpace(link)
 	t.State = StMetadata
 	m.stageTorrent(t, "")
@@ -513,6 +514,15 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 		}
 		files = append(files, FileRow{Index: f.Index, Path: f.Path, Size: f.Size, Priority: prio})
 	}
+	pr, main := autoPriorities(metaPrioFiles(meta, t.Options.Select))
+	if pr != nil {
+		t.Options.Priorities = pr
+		for i := range files {
+			if p, ok := pr[fmt.Sprint(files[i].Index)]; ok {
+				files[i].Priority = p
+			}
+		}
+	}
 	t.FilesTotal = len(files)
 	t.FilesChosen = len(files)
 	if t.Options.Select != nil {
@@ -525,6 +535,9 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	m.db.Tx(func(tx *sqlTx) error { return m.storeFiles(tx, t.Hash, files) })
 	m.live[t.Hash] = t
 	m.Log(t.Hash, "Added (torrent)")
+	if pr != nil {
+		m.logMainVideo(t.Hash, main)
+	}
 	kind := "torrent"
 	if magnet != "" {
 		kind = "magnet"

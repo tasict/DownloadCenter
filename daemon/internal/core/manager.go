@@ -475,6 +475,7 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 			return req, errors.New("The .torrent file of this task cannot be found")
 		}
 		req.Select = t.Options.Select
+		req.Priorities = intKeys(t.Options.Priorities)
 		req.Trackers = t.Options.Trackers
 		req.SeedRatio, req.SeedTime = s.Torrent.SeedRatio, s.Torrent.SeedTime
 		req.MaxPeers = s.Torrent.TorrentMaxConn
@@ -735,6 +736,10 @@ func (m *Manager) applyStatus(t *Task, st *engine.Status, e engine.Engine, elaps
 		}
 		if len(st.Files) > 0 && (m.dirty[t.Hash] || time.Now().Unix()%5 == 0 || t.FilesTotal == 0) {
 			m.syncFiles(t, st.Files)
+		}
+		// A magnet's file list has just arrived: pick its main video, once
+		if t.Options.AutoPrio && len(st.Files) > 0 {
+			m.autoPrioritize(t, st.Files, e)
 		}
 	}
 	if up := t.UpBase + st.Uploaded; up > t.UpTotal {

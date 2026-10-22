@@ -9,10 +9,12 @@ import (
 	"downloadcenter/internal/engine"
 )
 
-// fakeBT is a torrent engine that records the moves and forgets asked of it.
+// fakeBT is a torrent engine that records the file priorities, moves and
+// forgets asked of it.
 type fakeBT struct {
 	moves  [][3]string // ref, dir, root
 	forgot []string
+	prios  []map[int]int
 	noMove bool
 }
 
@@ -31,7 +33,6 @@ func (f *fakeBT) Restart(engine.Global) error                          { return 
 func (f *fakeBT) Pause(string) error                                   { return nil }
 func (f *fakeBT) Resume(string) error                                  { return nil }
 func (f *fakeBT) Remove(string) error                                  { return nil }
-func (f *fakeBT) SetFiles(string, []int, map[int]int) error            { return nil }
 func (f *fakeBT) SetLimits(string, int64, int64) error                 { return nil }
 func (f *fakeBT) SetSequential(string, bool) error                     { return nil }
 func (f *fakeBT) AddTrackers(string, []string) error                   { return nil }
@@ -42,6 +43,10 @@ func (f *fakeBT) Status(string) (*engine.Status, error)                { return 
 func (f *fakeBT) Peers(string) ([]engine.Peer, error)                  { return nil, nil }
 func (f *fakeBT) Trackers(string) ([]string, error)                    { return nil, nil }
 func (f *fakeBT) SaveState() error                                     { return nil }
+func (f *fakeBT) SetFiles(ref string, sel []int, prio map[int]int) error {
+	f.prios = append(f.prios, prio)
+	return nil
+}
 func (f *fakeBT) MoveStorage(ref, dir, root string) error {
 	f.moves = append(f.moves, [3]string{ref, dir, root})
 	return nil

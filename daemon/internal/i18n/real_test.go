@@ -18,6 +18,8 @@ func TestShippedDictionaries(t *testing.T) {
 		{"TCH", "Task not found", "找不到這個任務"},
 		{"TCH", "Error: Task not found", "錯誤：找不到這個任務"},
 		{"CZE", "Task not found", "Task not found"},
+		{"TCH", "Set the largest video to high priority: Movie/movie.mkv", "已將最大的影片檔設為高優先度：Movie/movie.mkv"},
+		{"GER", "Set the largest video to high priority: Show: Part 1/e01.mkv", "Größtes Video auf hohe Priorität gesetzt: Show: Part 1/e01.mkv"},
 		// written by 1.0.x
 		{"", "找不到這個任務", "Task not found"},
 		{"ENG", "錯誤：找不到這個任務", "Error: Task not found"},

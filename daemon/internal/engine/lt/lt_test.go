@@ -61,7 +61,8 @@ func TestAdapter(t *testing.T) {
 		"state": "seeding", "paused": false, "complete": false, "has_metadata": true, "error": "",
 		"total_wanted": 1000, "total_wanted_done": 1000, "all_time_upload": 500, "all_time_download": 1000,
 		"down_rate": 0, "up_rate": 20, "peers": 3, "seeds": 1, "pieces": "f0", "num_pieces": 4, "piece_length": 256,
-		"files": []any{map[string]any{"index": 0, "path": "Sintel/a.mp4", "size": 1000, "done": 1000, "priority": 4}},
+		"files": []any{map[string]any{"index": 0, "path": "Sintel/a.mp4", "size": 1000, "done": 1000, "priority": 4},
+			map[string]any{"index": 1, "path": "Sintel/.pad/24", "size": 24, "done": 0, "priority": 0, "pad": true}},
 	}
 	dcbt := "1.0"
 	f := newFake(t, dir, func(req map[string]any) (any, string) {
@@ -117,13 +118,27 @@ func TestAdapter(t *testing.T) {
 	if r["torrent_b64"] == nil || r["paused"] != true || len(r["select"].([]any)) != 2 || r["seed_time"].(float64) != -1 || r["root"] != "x (1)" {
 		t.Fatalf("add %v", r)
 	}
+	if _, ok := r["priorities"]; ok {
+		t.Fatalf("add without levels sent priorities: %v", r)
+	}
+	// Saved levels go with the add; plain "download" (1) alone does not
+	e.Add(ref, engine.AddRequest{Torrent: []byte("d4:infod4:name1:xee"), Dir: "/x", Priorities: map[int]int{0: 7, 2: 4, 3: 0}})
+	r = <-f.reqs
+	if p, _ := r["priorities"].(map[string]any); len(p) != 2 || p["0"].(float64) != 7 || p["2"].(float64) != 4 {
+		t.Fatalf("add priorities %v", r)
+	}
+	e.Add(ref, engine.AddRequest{Torrent: []byte("d4:infod4:name1:xee"), Dir: "/x", Priorities: map[int]int{0: 1, 2: 1}})
+	r = <-f.reqs
+	if _, ok := r["priorities"]; ok {
+		t.Fatalf("add with plain downloads sent priorities: %v", r)
+	}
 	st, err := e.StatusAll()
 	if err != nil {
 		t.Fatal(err)
 	}
 	<-f.reqs
 	x := st[ref]
-	if x == nil || x.State != engine.Active || !x.Seeding || x.Total != 1000 || len(x.Files) != 1 || !x.Files[0].Selected {
+	if x == nil || x.State != engine.Active || !x.Seeding || x.Total != 1000 || len(x.Files) != 2 || !x.Files[0].Selected || x.Files[0].Pad || !x.Files[1].Pad || x.Files[1].Selected {
 		t.Fatalf("status %+v", x)
 	}
 	// Resumed add: upload carried in the resume data is not counted twice
@@ -153,11 +168,12 @@ func TestAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-f.reqs
-	// File priorities: plain selection sends no levels, levels are passed
+	// File priorities: plain selection sends an empty set (dc-bt forgets
+	// earlier levels), levels are passed
 	e.SetFiles(ref, []int{0}, map[int]int{0: 1})
 	r = <-f.reqs
-	if _, ok := r["priorities"]; ok {
-		t.Fatalf("plain selection sent priorities: %v", r)
+	if p, ok := r["priorities"].(map[string]any); !ok || len(p) != 0 {
+		t.Fatalf("plain selection must send empty priorities: %v", r)
 	}
 	e.SetFiles(ref, []int{0, 1}, map[int]int{0: 7, 1: 1})
 	r = <-f.reqs

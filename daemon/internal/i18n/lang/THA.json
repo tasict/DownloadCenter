@@ -875,6 +875,7 @@
 	"Server": "เซิร์ฟเวอร์",
 	"Session ids and tokens are not accepted in the query string": "ไม่รับรหัสเซสชันหรือโทเค็นในสตริงคิวรี",
 	"Set in QTS": "ตั้งค่าใน QTS",
+	"Set the largest video to high priority: {0}": "ตั้งวิดีโอที่ใหญ่ที่สุดเป็นลำดับความสำคัญสูง: {0}",
 	"Set up 2-step verification in the QTS desktop under “Options › Security” first, then come back here to sign in.": "โปรดตั้งค่าการยืนยันแบบ 2 ขั้นตอนที่ “การตั้งค่าส่วนตัว › ความปลอดภัย” ในเดสก์ท็อป QTS ก่อน แล้วกลับมาเข้าสู่ระบบที่นี่",
 	"Settings": "การตั้งค่า",
 	"Settings imported": "นำเข้าการตั้งค่าแล้ว",

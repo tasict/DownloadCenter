@@ -875,6 +875,7 @@
 	"Server": "伺服器",
 	"Session ids and tokens are not accepted in the query string": "不接受放在網址查詢字串中的工作階段 ID 或權杖",
 	"Set in QTS": "到 QTS 設定",
+	"Set the largest video to high priority: {0}": "已將最大的影片檔設為高優先度：{0}",
 	"Set up 2-step verification in the QTS desktop under “Options › Security” first, then come back here to sign in.": "請先到 QTS 桌面的「個人設定 › 安全性」設定兩步驟驗證，再回到這裡登入。",
 	"Settings": "設定",
 	"Settings imported": "設定已匯入",

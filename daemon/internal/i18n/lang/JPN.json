@@ -875,6 +875,7 @@
 	"Server": "サーバー",
 	"Session ids and tokens are not accepted in the query string": "セッション ID やトークンを URL のクエリに含めることはできません",
 	"Set in QTS": "QTS で設定",
+	"Set the largest video to high priority: {0}": "最大の動画ファイルの優先度を「高」にしました：{0}",
 	"Set up 2-step verification in the QTS desktop under “Options › Security” first, then come back here to sign in.": "まず QTS デスクトップの「個人設定 › セキュリティ」で 2段階認証を設定してから、ここに戻ってログインしてください。",
 	"Settings": "設定",
 	"Settings imported": "設定をインポートしました",

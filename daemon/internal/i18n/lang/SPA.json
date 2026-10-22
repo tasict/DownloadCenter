@@ -875,6 +875,7 @@
 	"Server": "Servidor",
 	"Session ids and tokens are not accepted in the query string": "No se aceptan identificadores de sesión ni tokens en la cadena de consulta",
 	"Set in QTS": "Configurar en QTS",
+	"Set the largest video to high priority: {0}": "Se dio prioridad alta al vídeo más grande: {0}",
 	"Set up 2-step verification in the QTS desktop under “Options › Security” first, then come back here to sign in.": "Configura primero la verificación en 2 pasos en \"Ajustes personales › Seguridad\" del escritorio de QTS y vuelve aquí para iniciar sesión.",
 	"Settings": "Ajustes",
 	"Settings imported": "Ajustes importados",

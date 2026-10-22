@@ -29,21 +29,22 @@ type Caps struct {
 
 // AddRequest describes a new engine task.
 type AddRequest struct {
-	URIs     []string // HTTP/FTP mirrors of one file
-	Magnet   string
-	Torrent  []byte
-	Dir      string // download directory
-	Out      string // file name for URL tasks (optional)
-	Headers  []string
-	User     string // HTTP/FTP credentials
-	Pass     string
-	Select   []int  // 0-based file indices to download (torrents); nil = all
-	Root     string // torrents: name of the top folder (or single file) when it is not the torrent's
-	Paused   bool
-	Check    bool // verify existing data before downloading
-	Trackers []string
-	MaxDown  int64 // bytes/s, 0 = unlimited
-	MaxUp    int64
+	URIs       []string // HTTP/FTP mirrors of one file
+	Magnet     string
+	Torrent    []byte
+	Dir        string // download directory
+	Out        string // file name for URL tasks (optional)
+	Headers    []string
+	User       string // HTTP/FTP credentials
+	Pass       string
+	Select     []int       // 0-based file indices to download (torrents); nil = all
+	Priorities map[int]int // torrents: file index -> priority 1..7 (nil = engine default)
+	Root       string      // torrents: name of the top folder (or single file) when it is not the torrent's
+	Paused     bool
+	Check      bool // verify existing data before downloading
+	Trackers   []string
+	MaxDown    int64 // bytes/s, 0 = unlimited
+	MaxUp      int64
 	// Seeding targets: SeedTime minutes (-1 = do not seed, 0 = forever).
 	SeedRatio    float64
 	SeedTime     int
@@ -75,6 +76,7 @@ type File struct {
 	Completed int64  `json:"completed"`
 	Selected  bool   `json:"selected"`
 	Priority  int    `json:"priority"`
+	Pad       bool   `json:"pad,omitempty"` // BEP 47 padding file
 }
 
 // Status is a polled snapshot of one engine task.

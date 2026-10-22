@@ -875,6 +875,7 @@
 	"Server": "服务器",
 	"Session ids and tokens are not accepted in the query string": "不接受放在网址查询字符串中的会话 ID 或令牌",
 	"Set in QTS": "到 QTS 设置",
+	"Set the largest video to high priority: {0}": "已将最大的视频文件设为高优先级：{0}",
 	"Set up 2-step verification in the QTS desktop under “Options › Security” first, then come back here to sign in.": "请先到 QTS 桌面的“个人设置 › 安全”设置两步验证，再回到这里登录。",
 	"Settings": "设置",
 	"Settings imported": "设置已导入",

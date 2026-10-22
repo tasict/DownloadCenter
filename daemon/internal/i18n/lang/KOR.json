@@ -875,6 +875,7 @@
 	"Server": "서버",
 	"Session ids and tokens are not accepted in the query string": "세션 ID나 토큰은 URL 쿼리 문자열로 받지 않습니다",
 	"Set in QTS": "QTS에서 설정",
+	"Set the largest video to high priority: {0}": "가장 큰 동영상 파일의 우선순위를 높음으로 설정했습니다: {0}",
 	"Set up 2-step verification in the QTS desktop under “Options › Security” first, then come back here to sign in.": "먼저 QTS 데스크톱의 '개인 설정 › 보안'에서 2단계 인증을 설정한 후 여기로 돌아와 로그인하세요.",
 	"Settings": "설정",
 	"Settings imported": "설정을 가져왔습니다",

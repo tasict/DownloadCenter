@@ -131,7 +131,7 @@ Choose files before adding a magnet: `POST /tasks/probe` with `{"magnet": "<link
 ### Details
 
 - `GET /tasks/{id}` → `{"task", "sources", "log", "trackers"}`; `log` explains failures.
-- `GET /tasks/{id}/files` → `{"files": [{"index", "path", "size", "done", "priority"}]}` (priority 0 = skipped).
+- `GET /tasks/{id}/files` → `{"files": [{"index", "path", "size", "done", "priority"}]}` (priority 0 = skipped; 1–7 = downloaded, higher first: the page's High, Medium and Low are 7, 4 and 1). When a torrent has several files to download, its largest video starts at 7 and the other files at 4.
 - `GET /tasks/{id}/folder` → `{"path", "file"}`: where the data is right now.
 - `GET /tasks/{id}/peers`, `GET /history?limit=50` (removed tasks).
 

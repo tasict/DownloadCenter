@@ -1129,6 +1129,7 @@
 		"Added another torrent with the same content as a backup source",
 		"Current source stalled; switched to another torrent with the same content (rechecking downloaded data)",
 		"Got the torrent's file list",
+		"Set the largest video to high priority: {0}",
 		"The download URL may have expired; getting a new one",
 		"Temporarily unable to download ({0}); retrying in {1} s",
 		"Error: {0}",

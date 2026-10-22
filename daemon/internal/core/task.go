@@ -31,6 +31,7 @@ const (
 type TaskOptions struct {
 	Select        []int          `json:"select,omitempty"`     // selected file indices (nil = all)
 	Priorities    map[string]int `json:"priorities,omitempty"` // file index -> 0..7
+	AutoPrio      bool           `json:"auto_prio,omitempty"`  // magnet: pick the main video when the file list arrives
 	Trackers      []string       `json:"trackers,omitempty"`
 	Headers       []string       `json:"headers,omitempty"`
 	Sequential    bool           `json:"sequential,omitempty"`

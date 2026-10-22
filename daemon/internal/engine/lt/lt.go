@@ -569,6 +569,9 @@ func (e *Engine) Add(hash string, r engine.AddRequest) (string, error) {
 	if r.Select != nil {
 		args["select"] = r.Select
 	}
+	if pm := levels(r.Priorities); pm != nil {
+		args["priorities"] = pm
+	}
 	if r.Root != "" {
 		args["root"] = r.Root
 	}
@@ -642,28 +645,38 @@ func (e *Engine) SetFiles(ref string, sel []int, prio map[int]int) error {
 	if len(sel) == 0 {
 		return errors.New("at least one file must be selected")
 	}
-	args := map[string]any{"select": sel}
-	// Levels only when the caller used them (high/normal/low = 7/4/1);
-	// plain "download" (1 everywhere) keeps libtorrent's default priority
-	levels := false
+	// Always sent: dc-bt keeps the levels it was given last until it gets
+	// another set, so going back to a plain download sends an empty one
+	pm := levels(prio)
+	if pm == nil {
+		pm = map[string]int{}
+	}
+	return e.simple("set_file_priorities", ref, map[string]any{"select": sel, "priorities": pm})
+}
+
+// levels turns file priorities into dc-bt's form, only when the caller used
+// levels (high/normal/low = 7/4/1): plain "download" (1 everywhere) keeps
+// libtorrent's default priority and gives nil.
+func levels(prio map[int]int) map[string]int {
+	used := false
 	for _, p := range prio {
 		if p > 1 {
-			levels = true
+			used = true
 		}
 	}
-	if levels {
-		pm := map[string]int{}
-		for i, p := range prio {
-			if p > 7 {
-				p = 7
-			}
-			if p > 0 {
-				pm[strconv.Itoa(i)] = p
-			}
-		}
-		args["priorities"] = pm
+	if !used {
+		return nil
 	}
-	return e.simple("set_file_priorities", ref, args)
+	pm := map[string]int{}
+	for i, p := range prio {
+		if p > 7 {
+			p = 7
+		}
+		if p > 0 {
+			pm[strconv.Itoa(i)] = p
+		}
+	}
+	return pm
 }
 
 func (e *Engine) SetLimits(ref string, down, up int64) error {
@@ -759,7 +772,7 @@ func (e *Engine) convert(r *rawStatus) *engine.Status {
 	for _, f := range r.Files {
 		st.Files = append(st.Files, engine.File{
 			Index: f.Index, Path: f.Path, Size: f.Size, Completed: f.Done,
-			Selected: f.Priority > 0, Priority: f.Priority,
+			Selected: f.Priority > 0, Priority: f.Priority, Pad: f.Pad,
 		})
 	}
 	return st
