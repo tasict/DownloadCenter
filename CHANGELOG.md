@@ -2,6 +2,23 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.3.0
+
+- Magnet links that stayed at “Getting file list” for hours, or torrents that stopped finding anyone, no longer need the package to be restarted. A torrent that has had no connection and no progress for 15 minutes forgets the peers it gave up on and asks DHT and its trackers again, then after 30 and 60 minutes and every 2 hours, until it connects. After Download Center starts, torrents also ask DHT again as soon as it is up, instead of up to 15 minutes later.
+- When DHT cannot start, for example because the network was not ready when the NAS booted, it now tries again by itself.
+- A torrent that has found no peers for 15 minutes no longer holds one of the places in Settings › Downloads › Concurrent downloads, so the next torrent in the queue can start. It keeps looking and takes its place again as soon as it connects.
+- A magnet link getting its file list shows how long it has been waiting.
+- The task details of a torrent or magnet link that finds no peers now start with its source status: whether it is still being looked for, nobody seems to be sharing it, or it has probably stopped being shared. A gauge shows how long it has waited and when that judgment changes, and the details list what it is based on: whether it ever connected, what the search for peers found, what each tracker reported and when anyone last had the whole download. The NAS itself, which the network hands back to it, no longer counts as a peer that was found. Look for peers again right away, add the public tracker list or add trackers from there; failed torrents offer the same.
+- Tasks that nobody seems to be sharing, or that have probably stopped being shared, are marked in the task list.
+- The Connections tab lists every tracker of a torrent with its state and the number of complete copies and downloaders it reports.
+- Settings › Downloads has a new section for torrents that find no peers: it holds the public tracker list settings and sets when a torrent counts as not shared (6 hours by default) and as probably no longer shared (3 days by default). Only the time a task runs counts. Download Center never deletes such a task by itself.
+- Notification channels and webhooks can be told when a task has probably stopped being shared.
+- Download Center keeps a list of public trackers, updated from its website, that you can add to a torrent, or to several selected torrents at once. Settings › Downloads can also add it to every new torrent; this is off by default. Private torrents never get other trackers: a magnet link that turns out to be a private torrent drops the trackers added to it.
+- Torrents added by users who are not administrators, and every torrent that gets the public tracker list, no longer contact trackers, web seeds or peers at the NAS's own or loopback addresses, whatever the magnet link or torrent file lists, also when torrents use a proxy. A task takes up to 200 trackers besides its own and the public list.
+- The add window no longer shows the file list of a torrent that another user is downloading; it says that someone else is downloading it, as adding it would.
+- Trackers added to a torrent are announced to right away, together with the others, instead of only after the others failed.
+- AI agents using WebMCP can add trackers or the public tracker list to torrents, and see whether a torrent has found any peers and whether anybody seems to share it; they are told to leave deleting to you. The REST API has the same, and the agent skill explains when to use it.
+
 ## 1.2.2
 
 - When a torrent or magnet link has several files to download, the largest video among them gets high priority, so the movie itself finishes first and can be previewed sooner. The other files are set to medium, and the task log names the video that was chosen; you can change any of them in the task's Files tab.
