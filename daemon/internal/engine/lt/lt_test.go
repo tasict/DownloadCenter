@@ -298,3 +298,101 @@ func TestNewIdentity(t *testing.T) {
 		t.Errorf("settings file: %s", b)
 	}
 }
+
+// TestPeerFinder covers what dc-bt 1.4 added: refresh_peers, set_trackers,
+// set_guard, guard and the peer counts.
+func TestPeerFinder(t *testing.T) {
+	dir := t.TempDir()
+	dcbt := "1.3"
+	f := newFake(t, dir, func(req map[string]any) (any, string) {
+		switch req["cmd"] {
+		case "version":
+			return map[string]any{"dcbt": dcbt, "libtorrent": "2.0.15"}, ""
+		case "add":
+			return map[string]any{"infohash": "08ada5a7a6183aae1e09d831df6748d566095a10"}, ""
+		case "refresh_peers":
+			return map[string]any{"refreshed": true}, ""
+		case "sources":
+			return map[string]any{"trackers": []any{map[string]any{
+				"url": "http://t.example/announce", "tier": 1, "contacted": true, "fails": 2,
+				"message": "unregistered torrent", "seeds": -1, "leechers": 4, "updating": false}}}, ""
+		case "status_all":
+			return map[string]any{"torrents": []any{map[string]any{
+				"infohash": "08ada5a7a6183aae1e09d831df6748d566095a10", "state": "downloading",
+				"has_metadata": true, "peers": 0, "known_peers": 7, "private": true,
+				"availability": 0.82, "last_seen_complete": 1790000000, "dht_up": true,
+				"dht_peers": 5, "dht_reply_at": 1790000100}, map[string]any{
+				"infohash": "18ada5a7a6183aae1e09d831df6748d566095a10", "state": "downloading_metadata"}}}, ""
+		}
+		return map[string]any{}, ""
+	})
+	defer f.ln.Close()
+	e := newEngine("/bin/true", dir)
+	if err := e.Start(); err != nil {
+		t.Fatal(err)
+	}
+	<-f.reqs
+	if e.Caps().PeerRefresh {
+		t.Fatal("dc-bt 1.3 cannot refresh peers")
+	}
+	if _, err := e.RefreshPeers("x"); err != engine.ErrUnsupported {
+		t.Fatalf("RefreshPeers on 1.3: %v", err)
+	}
+	if _, err := e.Sources("x"); err != engine.ErrUnsupported {
+		t.Fatalf("Sources on 1.3: %v", err)
+	}
+	if err := e.SetGuard("x", true); err != engine.ErrUnsupported {
+		t.Fatalf("SetGuard on 1.3: %v", err)
+	}
+	dcbt = "1.4"
+	e.Health()
+	<-f.reqs
+	if !e.Caps().PeerRefresh {
+		t.Fatal("dc-bt 1.4 refreshes peers")
+	}
+	ok, err := e.RefreshPeers("08ada5a7a6183aae1e09d831df6748d566095a10")
+	if r := <-f.reqs; err != nil || !ok || r["cmd"] != "refresh_peers" || r["infohash"] != "08ada5a7a6183aae1e09d831df6748d566095a10" {
+		t.Fatalf("refresh_peers %v %v %v", ok, err, r)
+	}
+	if err := e.SetTrackers("08ada5a7a6183aae1e09d831df6748d566095a10", nil); err != nil {
+		t.Fatal(err)
+	}
+	if r := <-f.reqs; r["cmd"] != "set_trackers" || r["trackers"] == nil || len(r["trackers"].([]any)) != 0 {
+		t.Fatalf("set_trackers %v", r)
+	}
+	if err := e.SetGuard("08ada5a7a6183aae1e09d831df6748d566095a10", true); err != nil {
+		t.Fatal(err)
+	}
+	if r := <-f.reqs; r["cmd"] != "set_guard" || r["on"] != true {
+		t.Fatalf("set_guard %v", r)
+	}
+	trs, err := e.Sources("08ada5a7a6183aae1e09d831df6748d566095a10")
+	if r := <-f.reqs; r["cmd"] != "sources" || r["infohash"] != "08ada5a7a6183aae1e09d831df6748d566095a10" {
+		t.Fatalf("sources %v", r)
+	}
+	want := engine.TrackerState{URL: "http://t.example/announce", Tier: 1, Contacted: true, Fails: 2, Message: "unregistered torrent", Seeds: -1, Leechers: 4}
+	if err != nil || len(trs) != 1 || trs[0] != want {
+		t.Fatalf("sources %+v %v", trs, err)
+	}
+	e.Add("", engine.AddRequest{Magnet: "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10", Dir: "/x", Guard: true, MetadataOnly: true})
+	if r := <-f.reqs; r["guard"] != true || r["metadata_only"] != true {
+		t.Fatalf("add with guard %v", r)
+	}
+	e.Add("", engine.AddRequest{Magnet: "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10", Dir: "/x"})
+	if r := <-f.reqs; r["guard"] != nil {
+		t.Fatalf("add without guard %v", r)
+	}
+	all, err := e.StatusAll()
+	<-f.reqs
+	st := all["08ada5a7a6183aae1e09d831df6748d566095a10"]
+	if err != nil || st == nil || st.KnownPeers != 7 || !st.Private || st.Connections != 0 {
+		t.Fatalf("status %+v %v", st, err)
+	}
+	if st.Availability != 0.82 || st.LastSeenComplete != 1790000000 || !st.DHTUp || st.DHTPeers != 5 || st.DHTReplyAt != 1790000100 {
+		t.Fatalf("source fields %+v", st)
+	}
+	// No availability reported: unknown, not "no copy"
+	if m := all["18ada5a7a6183aae1e09d831df6748d566095a10"]; m == nil || m.Availability != -1 || m.DHTUp {
+		t.Fatalf("magnet status %+v", m)
+	}
+}

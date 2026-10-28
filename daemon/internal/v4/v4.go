@@ -220,6 +220,7 @@ func Register(srv *api.Server, m *core.Manager, au *auth.Service, root, data str
 		"Task/GetFile":        {fn: s.getFile},
 		"Task/SetFile":        {fn: s.setFile},
 		"Task/GetTorrentFile": {fn: s.getTorrentFile},
+		"Task/AddTracker":     {fn: s.addTracker}, // Download Center's own
 		"Config/Get":          {admin: true, fn: s.configGet},
 		"Config/Set":          {admin: true, fn: s.configSet},
 		"Account/Query":       {fn: s.accountQuery},

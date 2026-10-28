@@ -421,6 +421,7 @@ func (m *Manager) AddMagnet(link string, o AddOptions) (*AddResult, error) {
 		return nil, err
 	}
 	private := m.TorrentPrivate(mg.InfoHash)
+	pub := m.autoPublic()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if ex, ok := m.live[mg.InfoHash]; ok {
@@ -437,6 +438,9 @@ func (m *Manager) AddMagnet(link string, o AddOptions) (*AddResult, error) {
 		t.Engine = e.Name()
 	}
 	t.Options.Trackers = o.Trackers
+	// Whether it is a private torrent shows once the metadata is there
+	// (metadataArrived takes the list away again then)
+	t.Options.PublicTrackers = missing(pub, union(mg.Trackers, o.Trackers))
 	t.Options.Select = o.Select
 	t.Options.AutoPrio = true
 	t.Options.Magnet = strings.TrimSpace(link)
@@ -473,6 +477,10 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	if err != nil {
 		return nil, err
 	}
+	var pub []string
+	if !meta.Private {
+		pub = m.autoPublic()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if ex, ok := m.live[meta.InfoHash]; ok {
@@ -500,6 +508,7 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	t.Comment = meta.Comment
 	t.IsFolder = meta.IsFolder
 	t.Options.Trackers = o.Trackers
+	t.Options.PublicTrackers = missing(pub, union(meta.Trackers, o.Trackers))
 	t.Options.Select = validSelection(o.Select, meta)
 	t.Size = selectedSize(meta, t.Options.Select)
 	if err := os.WriteFile(m.torrentPath(t.Hash), b, 0600); err != nil {
@@ -630,12 +639,12 @@ func (m *Manager) TorrentPrivate(hash string) bool {
 func (m *Manager) mergeTrackers(ex *Task, trackers []string, link string) (*AddResult, error) {
 	added := 0
 	seen := map[string]bool{}
-	for _, t := range ex.Options.Trackers {
+	for _, t := range union(ex.Options.Trackers, ex.Options.PublicTrackers) {
 		seen[t] = true
 	}
 	var add []string
 	for _, t := range trackers {
-		if t = strings.TrimSpace(t); t != "" && !seen[t] {
+		if t = strings.TrimSpace(t); t != "" && !seen[t] && len(ex.Options.Trackers)+len(add) < MaxAddedTrackers {
 			seen[t] = true
 			add = append(add, t)
 		}
@@ -819,14 +828,20 @@ func (m *Manager) probeTorrent(hash string) []byte {
 	return nil
 }
 
-// ProbeMagnet starts (or polls) fetching a magnet's metadata. It returns the
-// parsed torrent when ready, nil while pending.
-func (m *Manager) ProbeMagnet(link string) (*torrent.Meta, string, error) {
+// ProbeMagnet starts (or polls) fetching a magnet's metadata for owner (an
+// administrator when admin). It returns the parsed torrent when ready, nil
+// while pending. A regular user's probe is guarded (engine.AddRequest.Guard)
+// and never sees the file list of someone else's task.
+func (m *Manager) ProbeMagnet(link, owner string, admin bool) (*torrent.Meta, string, error) {
 	mg, err := torrent.ParseMagnet(link)
 	if err != nil {
 		return nil, "", ErrBadMagnet
 	}
 	if t := m.Live(mg.InfoHash); t != nil {
+		// Adding it would be refused the same way
+		if !admin && t.Owner != owner {
+			return nil, mg.InfoHash, ErrOtherOwner
+		}
 		if b, err := os.ReadFile(m.torrentPath(t.Hash)); err == nil {
 			meta, _ := torrent.Parse(b)
 			return meta, mg.InfoHash, nil
@@ -849,7 +864,7 @@ func (m *Manager) ProbeMagnet(link string) (*torrent.Meta, string, error) {
 		}
 		dir := m.probeDir(mg.InfoHash)
 		os.MkdirAll(dir, 0700)
-		ref, err := e.Add("", engine.AddRequest{Magnet: link, Dir: dir, MetadataOnly: true, SeedTime: -1})
+		ref, err := e.Add("", engine.AddRequest{Magnet: link, Dir: dir, MetadataOnly: true, SeedTime: -1, Guard: !admin})
 		if err != nil {
 			return nil, mg.InfoHash, err
 		}

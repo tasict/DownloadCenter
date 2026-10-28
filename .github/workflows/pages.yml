@@ -1,12 +1,16 @@
 # Deploys the product site (site/) to GitHub Pages together with updates.json,
-# the index of published releases that the site and the in-app updater read.
-# Runs when the site changes, after every release, and on demand.
+# the index of published releases that the site and the in-app updater read,
+# and trackers.json, the public tracker list Download Center offers for
+# torrents that find no peers. Runs when the site changes, after every
+# release, once a day (to refresh the tracker list) and on demand.
 name: Pages
 
 on:
   push:
     branches: [master]
     paths: ['site/**', '.github/workflows/pages.yml']
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
   workflow_run:
     workflows: [Release]
@@ -42,6 +46,8 @@ jobs:
           if [ -d site ]; then cp -R site/. _site/; fi
           rm -f _site/updates.sample.json
           (cd daemon && go run ./cmd/dcrelease feed -repo "$GITHUB_REPOSITORY" -pub ../tools/release-key.pub -out ../_site/updates.json)
+          # newTrackon's stable trackers; if that fails the published list stays
+          (cd daemon && go run ./cmd/dcrelease trackers -out ../_site/trackers.json -prev https://tasict.github.io/DownloadCenter/trackers.json)
 
       - uses: actions/configure-pages@v5
 

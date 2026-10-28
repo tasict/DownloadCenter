@@ -23,6 +23,7 @@ import (
 	"downloadcenter/internal/core"
 	"downloadcenter/internal/i18n"
 	"downloadcenter/internal/qts"
+	"downloadcenter/internal/trackers"
 )
 
 // Base is the URL prefix of the package.
@@ -43,7 +44,9 @@ type Server struct {
 	// not come through Apache as this user. Development only: the service
 	// script never sets it.
 	DevUser string
-	keys    map[string]string // route pattern -> name in the usage statistics
+	// Public is the public tracker list (nil in tests that do not need it)
+	Public *trackers.Service
+	keys   map[string]string // route pattern -> name in the usage statistics
 }
 
 // Handler is an authenticated API handler.
@@ -300,6 +303,10 @@ func coreError(err error) (status int, code, msg string) {
 	switch {
 	case errors.Is(err, core.ErrDuplicate):
 		return 409, "duplicate", "This task is already in the list"
+	case errors.Is(err, core.ErrTooManyTrackers):
+		return 400, "too_many_trackers", err.Error()
+	case errors.Is(err, core.ErrPrivateTrackers):
+		return 409, "private_torrent", err.Error()
 	case errors.Is(err, core.ErrPrivate):
 		return 409, "private_torrent", "Private torrents are not merged with other torrents"
 	case errors.Is(err, core.ErrFolder):
@@ -410,4 +417,5 @@ func (s *Server) routes() {
 	s.eventRoutes()
 	s.previewRoutes()
 	s.widgetRoutes()
+	s.trackerRoutes()
 }

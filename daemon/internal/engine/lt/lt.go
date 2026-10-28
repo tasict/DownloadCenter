@@ -57,6 +57,7 @@ type Engine struct {
 	version string
 	cmd     *exec.Cmd
 	oldBT   atomic.Bool  // dc-bt older than 1.1: cannot move data while seeding
+	finder  atomic.Bool  // dc-bt 1.4 or newer: refresh_peers, set_trackers
 	lib     atomic.Value // libtorrent version (string), for the default identity
 	// The client identity ([2]string: Global.PeerID, PeerAgent) the running
 	// dc-bt started with. Torrents keep the peer id they were added with, so
@@ -97,6 +98,7 @@ func (e *Engine) Caps() engine.Caps {
 		Webseeds:             true,
 		ResumeImportOfficial: true,
 		Torrents:             true,
+		PeerRefresh:          e.finder.Load(),
 	}
 }
 
@@ -449,6 +451,7 @@ func (e *Engine) getVersion() (string, error) {
 		return "", err
 	}
 	e.oldBT.Store(!versionAtLeast(v.Dcbt, 1, 1))
+	e.finder.Store(versionAtLeast(v.Dcbt, 1, 4))
 	e.lib.Store(v.Libtorrent)
 	return v.Libtorrent, nil
 }
@@ -581,6 +584,9 @@ func (e *Engine) Add(hash string, r engine.AddRequest) (string, error) {
 	if r.MetadataOnly {
 		args["metadata_only"] = true
 	}
+	if r.Guard {
+		args["guard"] = true
+	}
 	if hash != "" {
 		e.omu.Lock()
 		if p := e.resumeFor[strings.ToLower(hash)]; p != "" {
@@ -699,32 +705,89 @@ func (e *Engine) AddTrackers(ref string, trackers []string) error {
 	return e.simple("add_trackers", ref, map[string]any{"trackers": trackers})
 }
 
+// RefreshPeers makes a torrent with no connection forget its peers and look
+// for peers again (dc-bt 1.4).
+func (e *Engine) RefreshPeers(ref string) (bool, error) {
+	if !e.finder.Load() {
+		return false, engine.ErrUnsupported
+	}
+	var res struct {
+		Refreshed bool `json:"refreshed"`
+	}
+	if err := e.call("refresh_peers", map[string]any{"infohash": ref}, &res); err != nil {
+		return false, err
+	}
+	return res.Refreshed, nil
+}
+
+// SetGuard turns a torrent's address guard on or off (dc-bt 1.4).
+func (e *Engine) SetGuard(ref string, on bool) error {
+	if !e.finder.Load() {
+		return engine.ErrUnsupported
+	}
+	return e.simple("set_guard", ref, map[string]any{"on": on})
+}
+
+// SetTrackers replaces the trackers of a torrent (dc-bt 1.4).
+func (e *Engine) SetTrackers(ref string, trackers []string) error {
+	if !e.finder.Load() {
+		return engine.ErrUnsupported
+	}
+	if trackers == nil {
+		trackers = []string{}
+	}
+	return e.simple("set_trackers", ref, map[string]any{"trackers": trackers})
+}
+
+// Sources reports each tracker of a torrent as its announces left it
+// (dc-bt 1.4).
+func (e *Engine) Sources(ref string) ([]engine.TrackerState, error) {
+	if !e.finder.Load() {
+		return nil, engine.ErrUnsupported
+	}
+	var res struct {
+		Trackers []engine.TrackerState `json:"trackers"`
+	}
+	if err := e.call("sources", map[string]any{"infohash": ref}, &res); err != nil {
+		return nil, err
+	}
+	return res.Trackers, nil
+}
+
 func (e *Engine) ReplaceURIs(ref string, uris []string) error { return engine.ErrUnsupported }
 
 // rawStatus is one torrent of status_all.
 type rawStatus struct {
-	Infohash        string `json:"infohash"`
-	Name            string `json:"name"`
-	SavePath        string `json:"save_path"`
-	State           string `json:"state"`
-	Paused          bool   `json:"paused"`
-	Complete        bool   `json:"complete"`
-	Moving          bool   `json:"moving"`
-	MoveError       string `json:"move_error"`
-	HasMetadata     bool   `json:"has_metadata"`
-	Error           string `json:"error"`
-	TotalWanted     int64  `json:"total_wanted"`
-	TotalWantedDone int64  `json:"total_wanted_done"`
-	AllTimeUpload   int64  `json:"all_time_upload"`
-	AllTimeDownload int64  `json:"all_time_download"`
-	DownRate        int64  `json:"down_rate"`
-	UpRate          int64  `json:"up_rate"`
-	Peers           int    `json:"peers"`
-	Seeds           int    `json:"seeds"`
-	Pieces          string `json:"pieces"`
-	NumPieces       int    `json:"num_pieces"`
-	PieceLength     int64  `json:"piece_length"`
-	Comment         string `json:"comment"`
+	Infohash        string   `json:"infohash"`
+	Name            string   `json:"name"`
+	SavePath        string   `json:"save_path"`
+	State           string   `json:"state"`
+	Paused          bool     `json:"paused"`
+	Complete        bool     `json:"complete"`
+	Moving          bool     `json:"moving"`
+	MoveError       string   `json:"move_error"`
+	HasMetadata     bool     `json:"has_metadata"`
+	Error           string   `json:"error"`
+	TotalWanted     int64    `json:"total_wanted"`
+	TotalWantedDone int64    `json:"total_wanted_done"`
+	AllTimeUpload   int64    `json:"all_time_upload"`
+	AllTimeDownload int64    `json:"all_time_download"`
+	DownRate        int64    `json:"down_rate"`
+	UpRate          int64    `json:"up_rate"`
+	Peers           int      `json:"peers"`
+	Seeds           int      `json:"seeds"`
+	KnownPeers      int      `json:"known_peers"`
+	FoundPeers      *int     `json:"found_peers"`
+	Private         bool     `json:"private"`
+	Availability    *float64 `json:"availability"`
+	LastSeen        int64    `json:"last_seen_complete"`
+	DHTUp           bool     `json:"dht_up"`
+	DHTPeers        int      `json:"dht_peers"`
+	DHTReplyAt      int64    `json:"dht_reply_at"`
+	Pieces          string   `json:"pieces"`
+	NumPieces       int      `json:"num_pieces"`
+	PieceLength     int64    `json:"piece_length"`
+	Comment         string   `json:"comment"`
 	Files           []struct {
 		Index    int    `json:"index"`
 		Path     string `json:"path"`
@@ -739,11 +802,21 @@ func (e *Engine) convert(r *rawStatus) *engine.Status {
 	st := &engine.Status{
 		Ref: r.Infohash, Name: r.Name, Dir: r.SavePath, InfoHash: r.Infohash,
 		Total: r.TotalWanted, Completed: r.TotalWantedDone,
-		DownRate: r.DownRate, UpRate: r.UpRate, Connections: r.Peers, Seeders: r.Seeds,
+		DownRate: r.DownRate, UpRate: r.UpRate, Connections: r.Peers, Seeders: r.Seeds, KnownPeers: r.KnownPeers,
+		Private:   r.HasMetadata && r.Private,
 		NumPieces: r.NumPieces, PieceLength: r.PieceLength, Bitfield: r.Pieces, Comment: r.Comment,
 		IsMetadata: r.State == "downloading_metadata" || !r.HasMetadata,
 		Verifying:  r.State == "checking_files" || r.State == "checking_resume_data",
 		Moving:     r.Moving, MoveError: r.MoveError,
+		Availability: -1, LastSeenComplete: r.LastSeen,
+		DHTUp: r.DHTUp, DHTPeers: r.DHTPeers, DHTReplyAt: r.DHTReplyAt,
+	}
+	if r.Availability != nil {
+		st.Availability = *r.Availability
+	}
+	// Peers found without the NAS itself, which DHT and trackers hand back too
+	if r.FoundPeers != nil {
+		st.KnownPeers = *r.FoundPeers
 	}
 	e.omu.Lock()
 	if e.needOff[r.Infohash] {

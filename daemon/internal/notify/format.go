@@ -21,7 +21,7 @@ func zh(msg string) string { return i18n.T("TCH", msg) }
 // EventTypes lists every event type of INTEGRATION.md §3.
 var EventTypes = []string{
 	"task.added", "task.started", "task.paused", "task.resumed", "task.completed", "task.seeding_finished",
-	"task.moved", "task.failed", "task.removed", "task.merged", "task.source_switched", "account.expiring",
+	"task.moved", "task.failed", "task.likely_dead", "task.removed", "task.merged", "task.source_switched", "account.expiring",
 	"queue.idle", "disk.low", "schedule.changed", "engine.down", "engine.up",
 	"security.token_created", "security.token_rejected",
 }
@@ -66,6 +66,8 @@ func Title(e core.Event) string {
 		return "已搬移：" + name
 	case "task.failed":
 		return "下載失敗：" + name
+	case "task.likely_dead":
+		return "可能已失效：" + name
 	case "task.removed":
 		return "已刪除：" + name
 	case "task.merged":
@@ -127,6 +129,9 @@ func Body(e core.Event) string {
 				lines = append(lines, zh(msg))
 			}
 		}
+	}
+	if e.Type == "task.likely_dead" && e.Data != nil {
+		lines = append(lines, likelyDeadBody(e.Data)...)
 	}
 	if e.Type == "disk.low" && e.Data != nil {
 		if f, ok := toInt(e.Data["free"]); ok && f >= 0 {
@@ -298,4 +303,28 @@ func RenderJSON(body any, v Vars) any {
 		return out
 	}
 	return body
+}
+
+// likelyDeadBody explains why a torrent has probably stopped being shared.
+func likelyDeadBody(d map[string]any) []string {
+	var lines []string
+	if secs, ok := toInt(d["waiting_secs"]); ok && secs > 0 {
+		line := "已等待 " + DurationH(secs)
+		if ever, _ := d["ever_connected"].(bool); ever {
+			line += "，之前曾經連上過"
+		} else {
+			line += "，加入後從未連上任何使用者"
+		}
+		lines = append(lines, line)
+	}
+	switch d["reason"] {
+	case "unregistered":
+		lines = append(lines, "tracker 回報這個種子已經不存在")
+	case "no_seeders":
+		lines = append(lines, "沒有任何 tracker 回報有完整來源")
+	case "incomplete":
+		lines = append(lines, "連上的使用者合起來沒有完整的檔案")
+	}
+	lines = append(lines, "Download Center 不會自動刪除，請自行決定是否保留")
+	return lines
 }

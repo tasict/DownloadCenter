@@ -16,6 +16,7 @@ import (
 	"downloadcenter/internal/core"
 	"downloadcenter/internal/qts"
 	"downloadcenter/internal/torrent"
+	"downloadcenter/internal/trackers"
 )
 
 // stateCode maps a package state to the V4 integers (§5.2).
@@ -657,3 +658,45 @@ func disposition(name string) string {
 }
 
 var _ = auth.ErrNotOnList
+
+// addTracker is Download Center's own Task/AddTracker (the official package
+// has no tracker endpoint): url (repeatable) and public=1 add trackers, or
+// the public tracker list, to the caller's torrents, with the rules of the
+// REST API. Tasks that cannot take them (URL tasks, private torrents, an
+// address that is refused) are skipped; added counts the tasks that got a
+// tracker.
+func (s *service) addTracker(c *call) result {
+	var list []string
+	for _, u := range c.p.all("url") {
+		if strings.TrimSpace(u) != "" {
+			list = append(list, u)
+		}
+	}
+	public := c.p.get("public") == "1"
+	if len(list) == 0 && !public || len(list) > maxTrackers || len(c.p.all("hash")) > maxTrackers {
+		return fail(errParameter)
+	}
+	hs, code := c.hashes(false)
+	if code != errOK {
+		return fail(code)
+	}
+	clean, _, err := trackers.Check(list, c.who.Admin)
+	added, skipped := 0, 0
+	for _, h := range hs {
+		if err != nil {
+			skipped++
+			continue
+		}
+		res, err := s.m.AddTrackers(h, clean, public)
+		switch {
+		case err != nil:
+			skipped++
+		case res.Added > 0 || res.PublicAdded:
+			added++
+		}
+	}
+	return result{"added": added, "skipped": skipped}
+}
+
+// maxTrackers is how many trackers, and tasks, one Task/AddTracker takes.
+const maxTrackers = 200

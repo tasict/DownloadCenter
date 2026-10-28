@@ -100,13 +100,15 @@ func TestEventsCountWithoutContent(t *testing.T) {
 		Data: map[string]any{"error": map[string]any{"code": "/share/x y", "message": "secret"}}})
 	s.event(core.Event{Type: "task.failed", Task: &core.EventTask{ID: "x", Kind: "url"}, Data: map[string]any{"error": map[string]any{"code": "dl_6"}}})
 	s.event(core.Event{Type: "task.completed", Task: &core.EventTask{ID: "x", Kind: "torrent", Size: 3 << 20}})
+	s.event(core.Event{Type: "task.likely_dead", Task: &core.EventTask{ID: "x", Name: "secret.mkv", Kind: "magnet"},
+		Data: map[string]any{"waiting_secs": 259200, "ever_connected": false, "reason": "no_seeders"}})
 	b, _ := json.Marshal(s.build(s.counts, nil, time.Now()))
 	for _, bad := range []string{"secret", "/share"} {
 		if strings.Contains(string(b), bad) {
 			t.Fatalf("payload contains %q: %s", bad, b)
 		}
 	}
-	if s.counts["res_failed"] != 2 || s.counts["res_err_dl_6"] != 1 || s.counts["res_done_bt"] != 1 || s.counts["res_mb"] != 3 {
+	if s.counts["res_failed"] != 2 || s.counts["res_err_dl_6"] != 1 || s.counts["res_done_bt"] != 1 || s.counts["res_mb"] != 3 || s.counts["res_likely_dead"] != 1 {
 		t.Fatalf("counts %v", s.counts)
 	}
 	if via("API: my secret token") != "api" || via("Qget 2.0") != "v4" || via("Download Center") != "ui" || via("Deskpane") != "widget" {

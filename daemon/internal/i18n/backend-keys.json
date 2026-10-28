@@ -271,5 +271,17 @@
 	"QTS did not answer",
 	"The files of this task are being moved. Try again when the move has finished.",
 	"Invalid position",
-	"Private torrents are not merged with other torrents"
+	"Private torrents are not merged with other torrents",
+	"Private torrents only use their own trackers",
+	"Not a valid tracker address: {0}",
+	"This tracker address is not allowed: {0}",
+	"Up to 200 trackers at a time",
+	"No trackers to add",
+	"No peers for {0} minutes; looking for peers again",
+	"Added {0} trackers",
+	"Added the public tracker list ({0})",
+	"This is a private torrent; the trackers added to it were removed",
+	"A task can have up to 200 added trackers",
+	"Looked for peers again",
+	"No sources for {0} hours; this download has probably stopped being shared"
 ]

@@ -33,7 +33,7 @@
 		var t = DC.task(id), head, again = !!D.el && wide();
 		if(!t) return;
 		close();
-		D.id = id; D.tab = 'info'; D.extra = null; D.state = null;
+		D.id = id; D.tab = 'info'; D.extra = null; D.state = null; D.src = null; D.extraAt = 0; D.findUntil = 0; D.trkOpen = false;
 		D.scrim = h('div', {'class':'scrim', onclick:close});
 		D.tabs = h('div', {'class':'tabs', role:'tablist'});
 		D.body = h('div', {'class':'dr-body'});
@@ -59,12 +59,20 @@
 	}
 	function loadExtra(){
 		var id = D.id;
+		D.extraBusy = true;
 		DC.api.get('tasks/' + id, null, {quiet:true}).then(function(r){
 			if(D.id !== id) return;
-			D.extra = r;
+			D.extraBusy = false;
+			D.extra = r; D.extraAt = Date.now();
 			if(r.task) DC.upsertTask(r.task);
 			if(D.tab === 'info' || D.tab === 'log') renderBody();
-		}, function(){});
+		}, function(){ if(D.id === id){ D.extraBusy = false; D.extraAt = Date.now(); } });
+	}
+	/* What the source status is based on changes slowly: read again every 30 seconds while it is shown, sooner when the list says the level moved */
+	function freshExtra(t){
+		var hx = D.extra && D.extra.health, age = Date.now() - (D.extraAt || 0);
+		if(D.extraBusy || !D.extraAt) return;
+		if(age > 30000 || hx && hx.level && t.source_health && hx.level !== t.source_health && age > 3000) loadExtra();
 	}
 	function header(t){
 		var s = DC.uiState(t), key = s + '|' + (t.user_paused ? 1 : 0) + '|' + t.state;
@@ -148,7 +156,7 @@
 			else if(xt.proxy_name) pxText = t.proxy === 'auto' ? DC.t('{name} (automatic)', {name:xt.proxy_name}) : xt.proxy_name;
 			else pxText = DC.t('No proxy');
 		}
-		if(t.state === 'metadata') stateText = DC.t('Getting file list');
+		if(t.state === 'metadata') stateText = DC.waitText(t.metadata_since) ? DC.t('Getting file list ({time} so far)', {time:DC.fspan(DC.elapsed(t.metadata_since))}) : DC.t('Getting file list');
 		if(t.sched_paused) stateText += DC.t(' (paused by schedule)');
 		if(t.wake_time && s === 'pause') stateText += DC.t(', resumes at {time}', {time:DC.fclock(t.wake_time)});
 		if(t.error) stateText += DC.t(': {error}', {error:t.error.message});
@@ -181,14 +189,233 @@
 			pxText ? h('dd', {'class':'inline'}, [h('span', {text:pxText}), DC.can('tasks:control') && s !== 'done' ? ibtn('edit', DC.t('Change proxy'), function(){ changeProxy(t); }) : null]) : null,
 			admin && t.engine ? h('dt', {text:DC.t('Engine')}) : null, admin && t.engine ? h('dd', {text:t.engine}) : null
 		]);
-		clear(D.body);
+		/* Drawn again every second: the source status block stays in place so its animations run on */
+		var src = sourceBox(t, s), c = D.body.firstChild, nx;
+		while(c){ nx = c.nextSibling; if(c !== src) D.body.removeChild(c); c = nx; }
+		if(src && D.body.firstChild !== src) D.body.insertBefore(src, D.body.firstChild);
 		D.body.appendChild(kv);
 		if(t.proto === 'bt' && t.files_total > 0){
 			D.body.appendChild(h('div', {'class':'srcs'}, [h('a', {'class':'ib btn', href:DC.api.url('tasks/' + t.id + '/torrent'), download:(t.name || 'task') + '.torrent'}, [icon('torrent'), h('span', {text:DC.t('Download .torrent file')})])]));
 		}
 	}
 
-	var PRIO = [[7, DC.t('High')], [4, DC.t('Medium')], [1, DC.t('Low')], [0, DC.t('Don\'t download')]];
+	/* ---------- source status: whether anybody still shares a torrent that finds no peers ---------- */
+	var LEVELS = {
+		searching:{cls:'lv-search', icon:'waves', label:DC.t('Still looking for peers')},
+		no_sharing:{cls:'lv-none', icon:'waves', label:DC.t('Nobody seems to be sharing it')},
+		likely_dead:{cls:'lv-dead', icon:'waves-off', label:DC.t('Probably no longer shared')}
+	};
+	var ZONES = [34, 44, 22];
+	/* The time the gauge measures, moving on between reads while the task runs */
+	function srcWait(hx){
+		var base = hx.incomplete_secs > 0 ? hx.incomplete_secs : hx.waiting_secs || 0;
+		return base + (hx.running ? Math.max(0, Math.floor((Date.now() - D.extraAt) / 1000)) : 0);
+	}
+	function srcReason(t, hx, lvl, w){
+		if(hx.reason === 'unregistered') return DC.t('A tracker reports that this torrent no longer exists, and nobody is sharing it.');
+		if(hx.incomplete_secs > 0) return DC.t('Connected to {n} peers, but together they have only {pct}% of the download.', {n:t.peers || 0, pct:Math.floor(Math.max(0, hx.availability) * 100)});
+		if(lvl === 'searching') return t.peers_known ? DC.t('Found {n} peers, but none could be reached.', {n:t.peers_known}) : DC.t('No peers found yet; Download Center keeps looking.');
+		return DC.t('No peer for {time}, and nobody reports sharing it.', {time:DC.fspan(w)});
+	}
+	function srcNext(hx, lvl, w, s){
+		if(lvl === 'likely_dead') return DC.t('Download Center keeps looking and never deletes it by itself. If you no longer want it, use Delete below.');
+		if(!hx.running) return s === 'pause' ? DC.t('Paused; the time while paused does not count.') : DC.t('Waiting for its turn; this time does not count.');
+		if(lvl === 'searching' && w < hx.no_sharing_secs) return DC.t('If nothing turns up in {time}, it will count as not shared.', {time:DC.fspan(hx.no_sharing_secs - w)});
+		return DC.t('If nothing turns up in {time}, it will count as probably no longer shared.', {time:DC.fspan(Math.max(0, hx.likely_dead_secs - w))});
+	}
+	/* Where w sits on the gauge: the fill of each zone (0..1) and the dot's place along the zones */
+	function gaugeAt(w, ns, ld){
+		var starts = [0, ns, ld], spans = [Math.max(ns, 1), Math.max(ld - ns, 1), Math.max(ld, 1)], fills = [], z, at = 0, last = 0;
+		for(z = 0; z < 3; z++){
+			fills.push(Math.max(0, Math.min(1, (w - starts[z]) / spans[z])));
+			if(fills[z] > 0) last = z;
+		}
+		for(z = 0; z < last; z++) at += ZONES[z];
+		return {fills:fills, zone:last, at:(at + ZONES[last] * fills[last]) / 100};
+	}
+	/* What the level is based on, in plain words; the dot says what each line counts as (yes: someone shares it,
+	   some: found, but not sharing, bad: the tracker says it is gone, none: nothing found or unknown) */
+	function srcEvidence(t, hx, xt){
+		var rows = [], trs = hx.trackers || [], i, tr, gone = null, own = 0, pub = [], none = 0, ago, seeds;
+		function row(kind, label, text, go){
+			var el = h('div', {'class':'ev-row ' + kind + (go ? ' link' : '')}, [h('dt', {text:label}), h('dd', {text:text}), go ? icon('chev', 'go') : h('span')]);
+			if(go){
+				el.setAttribute('role', 'button'); el.setAttribute('tabindex', '0');
+				el.addEventListener('click', go);
+				el.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); go(); } });
+			}
+			rows.push(el);
+		}
+		if(t.peers > 0) row('some', DC.t('Connection'), DC.t('Connected to {n} peers', {n:t.peers}));
+		else if(hx.ever_connected && hx.last_connected_at) row('some', DC.t('Connection'), DC.t('Last connected {time} ago', {time:DC.fspan(DC.elapsed(hx.last_connected_at))}));
+		else row('none', DC.t('Connection'), DC.t('Never connected to a peer since it was added'));
+		if(hx.dht){
+			if(!hx.dht.available) row('none', DC.t('Peer search'), DC.t('Can\'t search for peers right now'));
+			else if(hx.dht.found > 0) row('some', DC.t('Peer search'), DC.t('The last search found {n} peers', {n:hx.dht.found}));
+			else if(hx.dht.searched_secs >= 60) row('none', DC.t('Peer search'), DC.t('Searched for {time}; nobody found', {time:DC.fspan(hx.dht.searched_secs)}));
+			else row('none', DC.t('Peer search'), DC.t('Searching; nobody found yet'));
+		}
+		for(i = 0; i < trs.length; i++){
+			tr = trs[i];
+			if(tr.state === 'unregistered' && !gone) gone = tr;
+			if(tr.state === 'working' && tr.seeds > 0){ if(tr.public) pub.push(tr); else own++; }
+			if(tr.state === 'working' && tr.seeds === 0) none++;
+		}
+		/* Some trackers of the public list report a seeder for any torrent: one of them alone is not taken at its word */
+		seeds = own || pub.length >= 2 ? own + pub.length : 0;
+		function toTrackers(){ DC.track('src_tracker'); D.tab = 'peers'; renderTabs(); renderBody(); setTimeout(function(){ var el = D.body.querySelector('.trk'); if(el) el.scrollIntoView({block:'start', behavior:'smooth'}); }, 50); }
+		if(!trs.length) row('none', DC.t('Trackers'), xt && xt.tracker_count > 0 ? DC.t('Not asked yet') : t.kind === 'magnet' ? DC.t('This magnet link has no tracker') : DC.t('This torrent has no tracker'));
+		else if(gone && !seeds) row('bad', DC.t('Trackers'), gone.message ? DC.t('{host} reports that this torrent does not exist ({message})', {host:gone.host, message:gone.message}) : DC.t('{host} reports that this torrent does not exist', {host:gone.host}), toTrackers);
+		else if(seeds) row('yes', DC.t('Trackers'), DC.t('{n} of {total} report complete copies', {n:seeds, total:trs.length}), toTrackers);
+		else if(pub.length) row('some', DC.t('Trackers'), DC.t('Only {host} reports a complete copy', {host:pub[0].host}), toTrackers);
+		else if(none) row('none', DC.t('Trackers'), none === trs.length ? DC.t('All {n} report no complete copies', {n:trs.length}) : DC.t('{n} of {total} report no complete copies; the others do not answer', {n:none, total:trs.length}), toTrackers);
+		else row('none', DC.t('Trackers'), DC.t('None of the {n} trackers has answered', {n:trs.length}), toTrackers);
+		if(hx.last_seen_complete > 0){
+			ago = DC.elapsed(hx.last_seen_complete);
+			row(ago < 86400 ? 'yes' : 'some', DC.t('Complete copies'), DC.t('Someone last had the whole download {time} ago', {time:DC.fspan(ago)}));
+		}else if(hx.availability >= 0) row('none', DC.t('Complete copies'), DC.t('No complete copy seen yet'));
+		return h('dl', {'class':'ev'}, rows);
+	}
+	/* Look for peers again now; afterwards the button rests for the minute the NAS needs between two searches */
+	function findPeers(t){
+		if(D.finding || Date.now() < D.findUntil) return;
+		DC.track('trk_find');
+		D.finding = true; D.src.actKey = '';
+		DC.api.post('tasks/' + t.id + '/find-peers', {}).then(function(r){
+			D.finding = false; D.src.actKey = '';
+			if(r.refreshed){ D.findUntil = Date.now() + 60000; DC.toast(DC.t('Looking for peers again')); loadExtra(); }
+			else if(r.reason === 'too_soon'){ D.findUntil = Date.now() + (r.retry_after || 60) * 1000; DC.toast(DC.t('Looked just now; try again in {s} s.', {s:r.retry_after || 60})); }
+			else if(r.reason === 'connected') DC.toast(DC.t('Already connected to peers; no need to look again.'));
+			else DC.toast(DC.t('The task is not running; resume it first.'));
+			live();
+		}, function(e){ D.finding = false; D.src.actKey = ''; DC.toast(DC.errText(e)); live(); });
+	}
+	function srcActions(t, hx, xt){
+		var priv = !!xt.private, miss = priv ? 0 : xt.public_missing || 0, cool = Date.now() < D.findUntil, find = null;
+		if(hx.running){
+			find = btn('retry', D.finding ? DC.t('Looking for peers…') : DC.t('Look for peers again'), function(){ findPeers(task() || t); }, miss > 0 ? null : 'pri');
+			find.disabled = D.finding || cool;
+		}
+		return [miss > 0 ? btn('link', DC.t('Add public tracker list ({n})', {n:miss}), function(){ addPublic(task() || t); }, 'pri') : null,
+			find, priv ? null : btn('plus', DC.t('Add tracker…'), function(){ trackerDialog(task() || t); })];
+	}
+	/* The block at the top of the overview, kept between the redraws of every second: only what changed is touched,
+	   so the dot's ripple and the icon's motion run on. Returns null when the block is not shown. */
+	function sourceBox(t, s){
+		var ex = D.extra || {}, hx = ex.health, xt = ex.task, lvl, L, w, g, k, kids, S = D.src, ns, ld, key, acts, now = Date.now();
+		if(t.proto !== 'bt' || s === 'done' || s === 'seed' || s === 'move'){ D.src = null; return null; }
+		lvl = s === 'error' ? '' : t.source_health || (hx && hx.level) || '';
+		if(!(lvl && lvl !== 'ok' || s === 'error') || !hx){ if(lvl && lvl !== 'ok') freshExtra(t); D.src = null; return null; }
+		freshExtra(t);
+		L = LEVELS[lvl];
+		ns = hx.no_sharing_secs; ld = hx.likely_dead_secs;
+		w = srcWait(hx);
+		/* Rebuilt when the level, the thresholds or what is shown changes */
+		key = [lvl, hx.reason, ns, ld, s === 'error'].join('|');
+		if(!S || S.key !== key){
+			S = D.src = {key:key, actKey:''};
+			kids = [];
+			if(L){
+				S.reason = h('p');
+				kids.push(h('div', {'class':'srcbox-head'}, [h('span', {'class':'sicon'}, icon(L.icon)), h('div', null, [h('b', {text:L.label}), S.reason])]));
+				S.next = h('p', {'class':'src-next'});
+				if(hx.reason === 'unregistered') kids.push(S.next);
+				else{
+					S.fills = []; S.dot = h('span', {'class':'gauge-dot'});
+					for(k = 0; k < 3; k++) S.fills.push(h('i'));
+					S.gauge = h('div', {'class':'gauge', role:'img'}, [
+						h('div', {'class':'gauge-track'}, [h('span', {'class':'gauge-zone z1'}, S.fills[0]), h('span', {'class':'gauge-zone z2'}, S.fills[1]), h('span', {'class':'gauge-zone z3'}, S.fills[2]), S.dot]),
+						h('div', {'class':'gauge-ticks', 'aria-hidden':'true'}, [h('span', {text:DC.fspan(ns)}), h('span', {text:DC.fspan(ld)}), h('span')]),
+						S.next]);
+					kids.push(S.gauge);
+				}
+			}
+			S.ev = h('div');
+			kids.push(S.ev);
+			S.box = h('section', {'class':'srcbox' + (L ? ' ' + L.cls : ''), 'aria-label':DC.t('Source status')}, kids);
+			S.acts = h('div', {'class':'srcacts'});
+			S.note = h('p', {'class':'note', role:'status'});
+			S.el = h('div', {'class':'srcwrap'}, [S.box, S.acts, S.note]);
+		}
+		if(L){
+			if(S.reason.textContent !== srcReason(t, hx, lvl, w)) S.reason.textContent = srcReason(t, hx, lvl, w);
+			S.next.textContent = srcNext(hx, lvl, w, s);
+			if(S.gauge){
+				g = gaugeAt(w, ns, ld);
+				for(k = 0; k < 3; k++) S.fills[k].style.width = (g.fills[k] * 100).toFixed(2) + '%';
+				S.dot.style.left = 'calc((100% - 6px) * ' + g.at.toFixed(4) + ' + ' + (3 * g.zone) + 'px)';
+				S.gauge.classList.toggle('still', !hx.running);
+				S.gauge.setAttribute('aria-label', DC.t('Waited {time}. After {first} it counts as not shared, after {second} as probably no longer shared.', {time:DC.fspan(w), first:DC.fspan(ns), second:DC.fspan(ld)}));
+			}
+		}
+		/* The evidence holds no motion and changes with every read: drawn again */
+		DC.clear(S.ev).appendChild(srcEvidence(t, hx, xt));
+		acts = DC.can('tasks:control') && xt;
+		key = [acts ? 1 : 0, xt && xt.private, xt && xt.public_missing, hx.running, D.finding, now < D.findUntil].join('|');
+		if(S.actKey !== key){
+			S.actKey = key;
+			DC.clear(S.acts);
+			if(acts) DC.add(S.acts, srcActions(t, hx, xt));
+			S.acts.hidden = !acts;
+		}
+		S.note.hidden = !(now < D.findUntil && hx.running);
+		if(!S.note.hidden) S.note.textContent = DC.t('Looked just now; try again in {s} s.', {s:Math.ceil((D.findUntil - now) / 1000)});
+		return S.el;
+	}
+	function trackersAdded(r){
+		if(r.added && r.public_added) return DC.t('Added {n} trackers and the public tracker list', {n:r.added});
+		if(r.added) return DC.t('Added {n} trackers', {n:r.added});
+		if(r.public_added) return DC.t('Public tracker list added');
+		return DC.t('The task already has these trackers');
+	}
+	/* The overview is drawn again every second: a flag, not the button, says a request is under way */
+	function addPublic(t){
+		if(D.trkBusy) return;
+		DC.track('trk_public');
+		D.trkBusy = true;
+		DC.api.post('tasks/' + t.id + '/trackers', {public:true}).then(function(r){
+			D.trkBusy = false;
+			DC.toast(trackersAdded(r));
+			loadExtra();
+		}, function(e){ D.trkBusy = false; DC.toast(DC.errText(e)); });
+	}
+	/* One tracker per line; blank lines and repeats are dropped before sending, and an address the NAS refuses keeps the dialog open */
+	function trackerDialog(t){
+		DC.track('trk_dialog');
+		var xt = (D.extra && D.extra.task) || {}, miss = xt.public_missing || 0;
+		var ta = h('textarea', {id:'trkList', rows:'6', 'class':'secretarea mono', 'aria-label':DC.t('Trackers'), placeholder:'udp://tracker.example.org:6969/announce',
+			autocapitalize:'off', autocomplete:'off', spellcheck:'false'});
+		var cb = miss > 0 ? h('input', {type:'checkbox', id:'trkPub'}) : null, err = h('p', {'class':'note warn', role:'alert', hidden:true});
+		function lines(){
+			var out = [], a = ta.value.split(/\r?\n/), i, l;
+			for(i = 0; i < a.length; i++){ l = a[i].trim(); if(l && out.indexOf(l) < 0) out.push(l); }
+			return out;
+		}
+		DC.modal(DC.t('Add trackers'), 'plus', [
+			h('p', {'class':'lead', text:DC.t('One tracker per line. Addresses start with http://, https:// or udp://.')}), ta,
+			cb ? h('label', {'class':'toggle', 'for':'trkPub'}, [cb, h('span', null, [DC.t('Also add the public tracker list ({n})', {n:miss})])]) : null,
+			err
+		], function(close){
+			var ok = btn(null, DC.t('Add'), function(){
+				DC.track('trk_add');
+				DC.busy(ok, true);
+				err.hidden = true;
+				DC.api.post('tasks/' + t.id + '/trackers', {trackers:lines(), public:!!(cb && cb.checked)}, {quiet:true}).then(function(r){
+					close();
+					DC.toast(trackersAdded(r));
+					loadExtra();
+				}, function(e){ DC.busy(ok, false); upd(); err.textContent = DC.errText(e); err.hidden = false; });
+			}, 'pri');
+			function upd(){ ok.disabled = !lines().length && !(cb && cb.checked); }
+			ta.addEventListener('input', upd);
+			if(cb) cb.addEventListener('change', upd);
+			upd();
+			return [btn(null, DC.t('Cancel'), close), ok];
+		}, {nofocus:true, wide:true, guard:function(){ return !!ta.value.trim(); }});
+		ta.focus();
+	}
+
+	var PRIO =[[7, DC.t('High')], [4, DC.t('Medium')], [1, DC.t('Low')], [0, DC.t('Don\'t download')]];
 	/* Imported tasks keep the official package's unfinished-file suffix on disk; it is not part of the name */
 	function shown(p){ return String(p || '').replace(/\.dsdownload$/i, ''); }
 	/* A multi-file torrent puts everything under one folder: list the files relative to it */
@@ -500,9 +727,9 @@
 
 	function peersTab(t){
 		var id = t.id, bt = t.proto === 'bt', gen = D.flowGen = (D.flowGen || 0) + 1, t0 = Date.now();
-		var chart = flowChart(bt), samples = [], kvBox = h('div'), list = null, note = null, rows = {}, order = [], sorted = false;
+		var chart = flowChart(bt), samples = [], kvBox = h('div'), trkBox = h('div'), trkKey = '', list = null, note = null, rows = {}, order = [], sorted = false, pubOpen = false;
 		clear(D.body);
-		add(D.body, [chart.el, kvBox]);
+		add(D.body, [chart.el, kvBox, trkBox]);
 		if(bt){
 			list = h('div', {'class':'items peers'}, h('div', {'class':'item phead', 'aria-hidden':'true'}, [h('span'), h('span', {text:DC.t('Peer and client')}),
 				h('em', null, [h('span', {text:'↓'}), h('span', {text:'↑'}), h('span', {text:DC.t('Progress')})])]));
@@ -565,15 +792,53 @@
 				plot(r.s, r.list, W, 24, 1, sd, su, now);
 			}
 		}
+		/* What each tracker reports, from the source status (read again every 30 seconds); the public list folds into one row */
+		function trkRow(tr){
+			var st = {working:['ok', DC.t('Working'), ''], unregistered:['bad', DC.t('Reports that this torrent does not exist'), 'bad'], not_contacted:['', DC.t('Not contacted yet'), '']}[tr.state];
+			if(!st) st = ['warn', tr.message ? DC.t('Cannot be reached: {error} (failed {n} times)', {error:tr.message, n:tr.fails}) : DC.t('Cannot be reached (failed {n} times)', {n:tr.fails}), 'warn'];
+			function count(n){ return n >= 0 ? h('em', {role:'cell', text:String(n)}) : h('em', {'class':'none', role:'cell', text:'—'}); }
+			return h('div', {'class':'trk-row', role:'row'}, [h('span', {'class':'trk-dot ' + st[0], role:'cell'}),
+				h('span', {role:'cell'}, [h('b', {text:tr.host || tr.url, title:tr.url}), h('small', {'class':st[2], text:st[1]})]), count(tr.seeds), count(tr.leechers)]);
+		}
+		function updTrk(){
+			var hx = D.extra && D.extra.health, trs = (hx && hx.trackers) || [], own = [], pub = [], seeding = 0, i, key, kids, more;
+			if(D.extraAt && !D.extraBusy && Date.now() - D.extraAt > 30000) loadExtra();
+			key = JSON.stringify(trs) + '|' + D.trkOpen;
+			if(key === trkKey) return;
+			trkKey = key;
+			clear(trkBox);
+			if(!trs.length) return;
+			for(i = 0; i < trs.length; i++){
+				(trs[i].public ? pub : own).push(trs[i]);
+				if(trs[i].public && trs[i].state === 'working' && trs[i].seeds > 0) seeding++;
+			}
+			kids = [h('div', {'class':'trk-head', role:'row'}, [h('span', {role:'columnheader'}), h('span', {role:'columnheader', text:DC.t('Tracker')}), h('span', {role:'columnheader', text:DC.t('Seeds')}), h('span', {role:'columnheader', text:DC.t('Downloading')})])];
+			for(i = 0; i < own.length; i++) kids.push(trkRow(own[i]));
+			if(pub.length){
+				more = h('button', {'class':'trk-more', type:'button', 'aria-expanded':D.trkOpen ? 'true' : 'false', onclick:function(){ D.trkOpen = !D.trkOpen; updTrk(); }},
+					[h('span', {text:DC.t('Public tracker list: {n} trackers, {m} report complete copies', {n:pub.length, m:seeding})}), icon('chev')]);
+				kids.push(h('div', {'class':'trk-fold', role:'row'}, h('span', {role:'cell'}, more)));
+				if(D.trkOpen) for(i = 0; i < pub.length; i++) kids.push(trkRow(pub[i]));
+			}
+			add(trkBox, [h('p', {'class':'trk-sub', text:DC.t('What the trackers report')}), h('div', {'class':'trk', role:'table', 'aria-label':DC.t('Trackers')}, kids),
+				h('p', {'class':'note trk-note', text:DC.t('Downloader counts include this NAS.')})]);
+		}
 		function updKv(n){
-			var x = task(), tk = (D.extra && D.extra.trackers) || [];
+			var x = task(), ex = D.extra || {}, tk = ex.trackers || [], pub = ex.public_trackers || [], xt = ex.task, det = null;
 			clear(kvBox);
 			if(!bt) return;
+			updTrk();
+			/* The table above lists every tracker; without it (a finished torrent) the added ones are listed here */
+			if(ex.health && (ex.health.trackers || []).length) tk = pub = [];
+			/* Drawn again on every poll: the public list stays open once opened */
+			if(pub.length) det = h('details', {open:pubOpen, ontoggle:function(){ pubOpen = det.open; }}, [h('summary', {text:DC.t('{n} trackers', {n:pub.length})}), h('div', {'class':'mono pre', text:pub.join('\n')})]);
 			kvBox.appendChild(h('dl', {'class':'kv num'}, [
 				h('dt', {text:DC.t('Connected')}), h('dd', {text:DC.t('{n} users', {n:n})}),
 				h('dt', {text:DC.t('Seeds')}), h('dd', {text:DC.t('{n}', {n:(x && x.seeds) || 0})}),
-				tk.length ? h('dt', {text:DC.t('Extra trackers')}) : null, tk.length ? h('dd', {'class':'mono pre', text:tk.join('\n')}) : null
+				tk.length ? h('dt', {text:DC.t('Extra trackers')}) : null, tk.length ? h('dd', {'class':'mono pre', text:tk.join('\n')}) : null,
+				det ? h('dt', {text:DC.t('Public tracker list')}) : null, det ? h('dd', null, det) : null
 			]));
+			if(xt && !xt.private && DC.can('tasks:control')) kvBox.appendChild(h('div', {'class':'srcs'}, btn('plus', DC.t('Add tracker…'), function(){ trackerDialog(task() || t); })));
 		}
 		function load(){
 			if(!current()) return;

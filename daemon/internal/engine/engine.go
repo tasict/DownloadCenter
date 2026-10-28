@@ -24,7 +24,8 @@ type Caps struct {
 	FTP                  bool `json:"ftp"` // ftp:// and ftps:// URLs
 	SFTP                 bool `json:"sftp"`
 	SCP                  bool `json:"scp"`
-	Socks5URLs           bool `json:"socks5_urls"` // URL downloads through a SOCKS5 proxy
+	Socks5URLs           bool `json:"socks5_urls"`  // URL downloads through a SOCKS5 proxy
+	PeerRefresh          bool `json:"peer_refresh"` // torrents: PeerFinder (look for peers again, replace trackers)
 }
 
 // AddRequest describes a new engine task.
@@ -52,7 +53,7 @@ type AddRequest struct {
 	Sequential   bool
 	Proxy        string // per-task proxy URL ("" = direct)
 	MetadataOnly bool   // magnet: fetch the metadata (.torrent) only
-	Guard        bool   // URLs: refuse loopback and the NAS's own addresses
+	Guard        bool   // refuse loopback and the NAS's own addresses (a regular user's task)
 	NoPages      bool   // URLs: a web page (text/html) in place of the file is an error
 }
 
@@ -91,21 +92,34 @@ type Status struct {
 	DownRate    int64
 	UpRate      int64
 	Connections int
-	Seeders     int
-	InfoHash    string
-	FollowedBy  string // a magnet's metadata task was replaced by this ref
-	IsMetadata  bool
-	Seeding     bool // all selected data present, uploading
-	Verifying   bool
-	Moving      bool   // the data is being moved to another folder (StorageMover)
-	MoveError   string // why the last move failed
-	ErrorCode   string // one of the Err* codes below, or engine specific
-	ErrorMsg    string
-	NumPieces   int
-	PieceLength int64
-	Bitfield    string // hex, most significant bit first
-	Files       []File
-	Comment     string
+	KnownPeers  int  // torrents: peers found, connected or not, without the NAS itself
+	Private     bool // torrents: the metadata says private (only once it is there)
+	// Torrents, for the source health: complete copies the connected peers
+	// have together (-1 unknown: no metadata, or complete), when a complete
+	// copy was last seen (Unix, 0 unknown), whether the torrent is being
+	// announced to DHT, how many peers DHT found since the engine started
+	// and when it last found one (Unix, 0 never; the NAS itself, which DHT
+	// hands back, does not count; a lookup that finds nobody leaves no trace).
+	Availability     float64
+	LastSeenComplete int64
+	DHTUp            bool
+	DHTPeers         int
+	DHTReplyAt       int64
+	Seeders          int
+	InfoHash         string
+	FollowedBy       string // a magnet's metadata task was replaced by this ref
+	IsMetadata       bool
+	Seeding          bool // all selected data present, uploading
+	Verifying        bool
+	Moving           bool   // the data is being moved to another folder (StorageMover)
+	MoveError        string // why the last move failed
+	ErrorCode        string // one of the Err* codes below, or engine specific
+	ErrorMsg         string
+	NumPieces        int
+	PieceLength      int64
+	Bitfield         string // hex, most significant bit first
+	Files            []File
+	Comment          string
 }
 
 // Peer is a connected peer.
@@ -229,3 +243,29 @@ const (
 
 var ErrNotFound = errors.New("engine: task not found")
 var ErrUnsupported = errors.New("engine: not supported")
+
+// PeerFinder is a torrent engine that can make a torrent look for peers
+// again (Caps.PeerRefresh): RefreshPeers forgets the peers of a torrent with
+// no connection and asks DHT and the trackers again (false when it has a
+// connection and nothing was done); SetTrackers replaces its trackers;
+// SetGuard turns the address guard of a torrent on or off (see
+// AddRequest.Guard); Sources reports what the engine knows of each tracker
+// from its announces (it contacts nobody).
+type PeerFinder interface {
+	RefreshPeers(ref string) (bool, error)
+	SetTrackers(ref string, trackers []string) error
+	SetGuard(ref string, on bool) error
+	Sources(ref string) ([]TrackerState, error)
+}
+
+// TrackerState is one tracker of a torrent as its announces left it.
+type TrackerState struct {
+	URL       string `json:"url"`
+	Tier      int    `json:"tier"`
+	Contacted bool   `json:"contacted"` // an announce was answered or failed
+	Fails     int    `json:"fails"`     // failures in a row; 0 answered the last time
+	Message   string `json:"message"`   // the failure reason, or a working tracker's warning
+	Seeds     int    `json:"seeds"`     // -1 unknown
+	Leechers  int    `json:"leechers"`  // -1 unknown
+	Updating  bool   `json:"updating"`  // an announce is under way
+}

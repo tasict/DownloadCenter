@@ -181,7 +181,7 @@
 		});
 	}
 	DC.pollStats = pollStats;
-	var EVENT_TYPES = ['task.added', 'task.started', 'task.paused', 'task.resumed', 'task.completed', 'task.seeding_finished', 'task.moved', 'task.failed',
+	var EVENT_TYPES = ['task.added', 'task.started', 'task.paused', 'task.resumed', 'task.completed', 'task.seeding_finished', 'task.moved', 'task.failed', 'task.likely_dead',
 		'task.removed', 'task.merged', 'task.source_switched', 'queue.idle', 'disk.low', 'schedule.changed', 'engine.down', 'engine.up'];
 	function stream(){
 		if(!window.EventSource || S.es) return;
@@ -561,6 +561,7 @@
 				DC.can('tasks:control') ? bb('hold', DC.t('Pause'), function(){ bulk('pause'); }) : null,
 				S.sort === 'queue' && DC.can('tasks:control') ? bb('up', DC.t('Move up'), function(){ bulk('up'); }) : null,
 				S.sort === 'queue' && DC.can('tasks:control') ? bb('dn', DC.t('Move down'), function(){ bulk('down'); }) : null,
+				DC.can('tasks:control') && anyTorrent(ids) ? bb('link', DC.t('Add public tracker list'), bulkPublic) : null,
 				DC.can('tasks:remove') ? bb('trash', DC.t('Delete'), function(){ askDelete(ids); }, 'dan') : null,
 				h('span', {'class':'bx'}, ibtn('close', DC.t('Deselect'), endPick))
 			]));
@@ -683,6 +684,12 @@
 			else window.open(url, '_blank', 'noopener');
 		}, function(){ if(w) w.close(); });
 	};
+	/* How long a magnet link has been getting its file list; nothing under a minute */
+	function waitText(since){
+		var s = DC.elapsed(since);
+		return s >= 60 ? DC.t('Waiting for {time}', {time:DC.fspan(s)}) : null;
+	}
+	DC.waitText = waitText;
 	function updateRow(t){
 		var r = R.rows[t.id], i, on, cells, frac, pct, s = DC.uiState(t), key;
 		if(!r) return;
@@ -726,10 +733,13 @@
 			r.primed = true;
 		}else r.fill.style.width = (frac * 100).toFixed(1) + '%';
 		clear(r.meta);
+		/* A torrent nobody seems to share says so first, in words as well as colour */
+		if(t.source_health === 'no_sharing' || t.source_health === 'likely_dead')
+			r.meta.appendChild(h('span', {'class':'tag ' + (t.source_health === 'likely_dead' ? 'lv-dead' : 'lv-none'), text:t.source_health === 'likely_dead' ? DC.t('Probably dead') : DC.t('Not shared')}));
 		/* Plain strings would merge into one text node; every piece gets its own span so the gap separates them */
 		function meta(kids){ for(var j = 0; j < kids.length; j++) if(kids[j] !== null && kids[j] !== undefined && kids[j] !== '') r.meta.appendChild(typeof kids[j] === 'string' ? h('span', {text:kids[j]}) : kids[j]); }
 		pct = Math.floor(t.progress || 0) + '%';
-		if(t.state === 'metadata') meta([DC.t('Getting file list…'), t.peers ? DC.t('{n} users', {n:t.peers}) : null]);
+		if(t.state === 'metadata') meta([DC.t('Getting file list…'), waitText(t.metadata_since), t.peers ? DC.t('{n} users', {n:t.peers}) : t.peers_known === 0 ? DC.t('No users found yet') : t.peers_known > 0 ? DC.t('Found {n}, none reachable', {n:t.peers_known}) : null]);
 		else if(s === 'down') meta([h('span', {'class':'em', text:pct}), h('span', {'class':'opt', text:DC.fsize(t.done) + ' / ' + DC.fsize(t.size)}), DC.fspeed(t.down_rate), DC.feta(t.eta)]);
 		else if(S.sort === 'progress' && s !== 'done' && s !== 'error') r.meta.appendChild(h('span', {'class':'em', text:pct}));
 		else if(s === 'wait') meta([t.sched_paused ? DC.t('Paused by schedule') : S.sort === 'queue' && t.queue_rank ? h('span', {'class':'qrank', text:DC.reorder.waitText(t.proto, t.queue_rank)}) : DC.t('Queued'), t.size ? DC.fsize(t.size) : null]);
@@ -772,6 +782,20 @@
 		DC.api.post('tasks/bulk', body).then(function(r){
 			if(what === 'up' || what === 'down'){ DC.pollNow(); return; }
 			DC.toast(what === 'resume' ? DC.t('{n} tasks started', {n:r.count || ids.length}) : DC.t('{n} tasks paused', {n:r.count || ids.length}));
+			DC.pollNow();
+		}, function(e){ DC.toast(DC.errText(e)); });
+	}
+	function anyTorrent(ids){
+		for(var i = 0; i < ids.length; i++) if(S.byId[ids[i]] && S.byId[ids[i]].proto === 'bt') return true;
+		return false;
+	}
+	/* The public tracker list for every selected torrent; URL tasks, private torrents and those that have it are skipped */
+	function bulkPublic(){
+		var ids = selIds();
+		if(!ids.length) return;
+		DC.track('trk_bulk');
+		DC.api.post('tasks/bulk', {ids:ids, action:'add_public_trackers'}).then(function(r){
+			DC.toast(r.skipped ? DC.t('Added the public tracker list to {n} tasks; {m} skipped', {n:r.count || 0, m:r.skipped}) : DC.t('Added the public tracker list to {n} tasks', {n:r.count || 0}));
 			DC.pollNow();
 		}, function(e){ DC.toast(DC.errText(e)); });
 	}

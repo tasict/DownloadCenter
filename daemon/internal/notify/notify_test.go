@@ -703,3 +703,29 @@ func TestCommandCounts(t *testing.T) {
 		}
 	}
 }
+
+func TestLikelyDeadNotification(t *testing.T) {
+	e := core.Event{Type: "task.likely_dead", Owner: "alice", Task: &core.EventTask{ID: "x", Name: "Sintel"},
+		Data: map[string]any{"waiting_secs": float64(3*86400 + 2*3600), "ever_connected": false, "reason": "unregistered"}}
+	if got := Title(e); got != "可能已失效：Sintel" {
+		t.Errorf("title %q", got)
+	}
+	body := Body(e)
+	for _, want := range []string{"已等待 3 天 2 小時，加入後從未連上任何使用者", "tracker 回報這個種子已經不存在", "不會自動刪除", "擁有者：alice"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body %q lacks %q", body, want)
+		}
+	}
+	found := false
+	for _, typ := range EventTypes {
+		found = found || typ == "task.likely_dead"
+	}
+	for _, typ := range DefaultEvents {
+		if typ == "task.likely_dead" {
+			t.Error("new channels get task.likely_dead")
+		}
+	}
+	if !found {
+		t.Error("task.likely_dead is not an event type")
+	}
+}

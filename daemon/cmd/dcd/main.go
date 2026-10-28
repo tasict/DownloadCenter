@@ -24,6 +24,7 @@ import (
 	"downloadcenter/internal/engine/dl"
 	"downloadcenter/internal/qts"
 	"downloadcenter/internal/store"
+	"downloadcenter/internal/trackers"
 )
 
 // Version is set at build time (-ldflags "-X main.Version=...").
@@ -130,6 +131,10 @@ func serve(args []string) {
 		log.Fatalf("database: %v", err)
 	}
 	m := core.New(db, data)
+	// The public tracker list, read through the notifications proxy
+	public := trackers.New(db, data, Version)
+	public.Proxy = func() string { return m.ProxyURL(m.Settings().Proxy.NotifyProfile) }
+	m.Public = public
 
 	// Engines: libcurl (dc-dl) for URLs, libtorrent (dc-bt) for torrents
 	removeAria2(*root, data)
@@ -152,6 +157,7 @@ func serve(args []string) {
 	srv := api.New(m, au, filepath.Join(*root, "web"), Version)
 	api.SetOfficialCheck(func() (bool, bool) { return qts.QPKGInstalled("DownloadStation") })
 	srv.DevUser = *devUser
+	srv.Public = public
 	if *devUser != "" {
 		log.Printf("WARNING: development mode, loopback requests act as %s", *devUser)
 	}

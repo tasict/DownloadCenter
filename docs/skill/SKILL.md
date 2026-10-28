@@ -125,17 +125,31 @@ Choose files before adding a magnet: `POST /tasks/probe` with `{"magnet": "<link
 ### Pause, resume, retry, order
 
 - `POST /tasks/{id}/pause` (body `{"minutes": 30}` pauses for a while), `POST /tasks/{id}/resume`, `POST /tasks/{id}/retry` (failed tasks).
-- `POST /tasks/bulk` with `{"ids": ["<id>", ...] | "all", "action": "pause" | "resume" | "retry" | "top" | "up" | "down" | "bottom"}` acts on several tasks; it answers how many changed (`count`). `"action": "move"` with `"before": "<id>"` or `"after": "<id>"` moves them together, in their queue order, next to that task.
+- `POST /tasks/bulk` with `{"ids": ["<id>", ...] | "all", "action": "pause" | "resume" | "retry" | "top" | "up" | "down" | "bottom" | "add_public_trackers"}` acts on several tasks; it answers how many changed (`count`). `"action": "move"` with `"before": "<id>"` or `"after": "<id>"` moves them together, in their queue order, next to that task.
 - `PATCH /tasks/{id}` with any of: `"position": "top" | "up" | "down" | "bottom" | <n> | {"before": "<id>"} | {"after": "<id>"}` (next to another task is the safe way to reorder: `<n>` also counts tasks of other users that this token does not see), `"files": [indices]` (the files of a torrent to keep downloading), `"max_download"` / `"max_upload"` in **bytes per second** (`0` = no limit of its own), `"sequential": true` (download a torrent in order, for previewing), `"auto_remove"`.
 
 ### Details
 
-- `GET /tasks/{id}` → `{"task", "sources", "log", "trackers"}`; `log` explains failures.
+- `GET /tasks/{id}` → `{"task", "sources", "log", "trackers", "public_trackers"}`; `log` explains failures. `trackers` were added by hand or merged from another link, `public_trackers` is the public tracker list the task got.
 - `GET /tasks/{id}/files` → `{"files": [{"index", "path", "size", "done", "priority"}]}` (priority 0 = skipped; 1–7 = downloaded, higher first: the page's High, Medium and Low are 7, 4 and 1). When a torrent has several files to download, its largest video starts at 7 and the other files at 4.
 - `GET /tasks/{id}/folder` → `{"path", "file"}`: where the data is right now.
 - `GET /tasks/{id}/peers`, `GET /history?limit=50` (removed tasks).
 
 Moving a task next to another one answers `started` and `stopped`: the tasks that got or lost a download slot because of the move. Tell the user, for example "Echo started downloading; Charlie is waiting now". Only a limited number of tasks of each type (torrents, URLs, FTP) download at once; the others wait in queue order.
+
+### A torrent that finds no peers
+
+A torrent or magnet link with `no_peers_since` set has had no connection and no progress since then. `peers_known` says whether any peers were found at all (0: none; more: found, but none could be reached), `metadata_since` how long a magnet link has been getting its file list, and `GET /tasks/{id}` adds `tracker_count` (0: only DHT can find peers) and `public_missing`. Download Center looks for peers again by itself after 15 minutes (then 30, 60 and every 120; `peer_searches` counts them) and meanwhile lets the next torrent start. More trackers may help:
+
+- `POST /tasks/{id}/trackers` with `{"public": true}` adds the public tracker list Download Center keeps (`public_missing` of its trackers are new to the task), `{"trackers": ["udp://tracker.example.org:6969/announce"]}` adds trackers you were given (`http`, `https` or `udp` URLs, up to 200). It answers `added` and `public_added`. Private torrents only use their own trackers (`409 private_torrent`): do not try to work around that.
+- `POST /tasks/bulk` with `{"ids": [...], "action": "add_public_trackers"}` does the same for several torrents; it answers `count` and `skipped` (URL tasks, private torrents, torrents that have the whole list).
+- `GET /trackers/public` shows the public tracker list (`count`, `source`, `updated_at`).
+
+- `POST /tasks/{id}/find-peers` makes it look for peers again now instead of at its next automatic search. It answers `refreshed`, or why not: `connected`, `not_running` (paused or waiting), `too_soon` with `retry_after` seconds (once a minute).
+
+Whether anybody still shares it: every torrent that is not complete has `source_health`: `ok`, `searching` (no source for 10 minutes or more), `no_sharing` (nobody seems to share it: no source for 6 hours by default while no tracker reports seeders (one tracker of the public list alone does not count: some report a seeder for any torrent) and DHT found nobody, or the connected peers have lacked pieces that long) or `likely_dead` (it has probably stopped being shared: 3 days by default without any tracker reporting seeders, or a tracker says the torrent does not exist). `GET /tasks/{id}` explains it in `health` (`reason`, `waiting_secs`, `ever_connected`, `last_connected_at`, `availability`, `dht.found`, and `trackers` with each one's `state`, `seeds`, `leechers` and `message`). Tell the user what it is based on in plain words. These levels are judgments ("probably"), not facts: never remove a `likely_dead` task yourself; ask, and tell the user that removing an unfinished download also discards what it downloaded so far.
+
+A swarm with nobody in it cannot be helped: say so rather than adding trackers again and again.
 
 ### Remove
 
@@ -174,6 +188,9 @@ Poll `GET /tasks/{id}` until `state` is `done` or `seeding` (finished) or `error
 | `position` | Place in the queue |
 | `private` | `GET /tasks/{id}` only: `true` for a private torrent, which finds peers only through its own tracker |
 | `queue_rank` | Waiting tasks only: place among the waiting tasks of the same type (1 = next to start) |
+| `peers_known`, `no_peers_since`, `peer_searches`, `metadata_since` | Torrents only: peers found (connected or not); running with no connection and no progress since (Unix time, 0 = not now); how often it looked for peers again since then; a magnet getting its file list since (0 = has it) |
+| `tracker_count`, `public_missing` | `GET /tasks/{id}` of a torrent only: all its trackers; trackers of the public list it does not have |
+| `source_health` | Torrents that are not complete: `ok`, `searching`, `no_sharing` or `likely_dead` (see A torrent that finds no peers) |
 | `folder`, `move_to`, `location`, `in_temp` | Where it downloads, where it goes when finished, where the data is now, whether that is still the temporary folder |
 | `owner`, `created_at`, `finished_at` | Owner and Unix times |
 
@@ -196,7 +213,9 @@ Errors are an HTTP status plus `{"error": {"code", "message"}}`.
 | 403 `session_required` | That part is only available in the web page |
 | 404 `not_found` | No such task, or not one this token may see |
 | 409 `duplicate`, `duplicate_other_owner` | Already in the list (yours: `id` is given), or another user is downloading the same torrent |
-| 409 `private_torrent` | A private torrent cannot be another source of a task (`content_of`); add it as a task of its own |
+| 409 `private_torrent` | A private torrent cannot be another source of a task (`content_of`), nor get other trackers; add it as a task of its own |
+| 400 `tracker_invalid`, `tracker_not_allowed` | The message names the address: not an `http`, `https` or `udp` tracker URL, or one on the NAS itself |
+| 400 `too_many_trackers` | The task already has 200 added trackers; adding more will not help it find peers |
 | 400 `url_not_supported`, `magnet_invalid`, `torrent_invalid` | The source is not usable |
 | 400 `url_unavailable`, `bt_unavailable` | The NAS cannot download this kind of source right now |
 | 429 `rate_limited` | Wait a minute |

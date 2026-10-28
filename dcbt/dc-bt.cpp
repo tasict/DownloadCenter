@@ -26,12 +26,20 @@
 #include <libtorrent/extensions/ut_metadata.hpp>
 #include <libtorrent/extensions/ut_pex.hpp>
 #include <libtorrent/extensions/smart_ban.hpp>
+#include <libtorrent/ip_filter.hpp>
+#include <libtorrent/parse_url.hpp>
+#include <libtorrent/session_stats.hpp>
+#include <libtorrent/extensions.hpp>
 
 #include "json.hpp"
 
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <poll.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -46,8 +54,10 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <sstream>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -55,7 +65,7 @@ namespace lt = libtorrent;
 using json = nlohmann::json;
 using clk = std::chrono::steady_clock;
 
-static const char *DCBT_VERSION = "1.3";
+static const char *DCBT_VERSION = "1.4";
 
 static volatile sig_atomic_t g_stop = 0;
 static void on_signal(int) { g_stop = 1; }
@@ -189,12 +199,152 @@ struct Options
 	int seed_time = 0; // minutes; -1 no seeding, 0 no time limit
 	bool complete = false;
 	bool metadata_only = false;
+	bool guard = false;       // a regular user's torrent: see the address guard
+	bool guard_known = true;  // the saved options said (before 1.4 they did not; not saved)
 	bool has_select = false;
 	std::vector<int> select;
 	std::map<int, int> priorities;
 	std::string magnet_save; // metadata_only: where to write the .torrent
 	std::string move_error;  // why the last move failed (not saved)
 };
+
+// --- address guard ---
+//
+// Regular users' torrents must not reach the NAS itself: the same rule as
+// dc-dl's guard and netutil.Forbidden in dcd (loopback, link-local,
+// unspecified, multicast and the NAS's own addresses; LAN hosts are fine).
+// The session IP filter blocks these addresses and only torrents added with
+// guard apply it (torrent_flags::apply_ip_filter), so trackers, web seeds and
+// peers are checked after their names resolve. Through a proxy that resolves
+// names itself the target stays unknown, so literal addresses (and localhost)
+// are also removed from guarded torrents when they are added. An HTTP proxy
+// for trackers that runs on the NAS itself is let through the filter, or no
+// torrent could reach it.
+
+static bool forbidden_v4(lt::address_v4 const &a)
+{
+	auto b = a.to_bytes();
+	return b[0] == 127 || b[0] == 0 || (b[0] == 169 && b[1] == 254) || b[0] >= 224;
+}
+
+static bool forbidden_addr(lt::address const &a, std::vector<lt::address> const &own)
+{
+	if (a.is_v4())
+	{
+		if (forbidden_v4(a.to_v4()))
+			return true;
+	}
+	else
+	{
+		lt::address_v6 v6 = a.to_v6();
+		if (v6.is_loopback() || v6.is_unspecified() || v6.is_link_local() || v6.is_multicast())
+			return true;
+		if (v6.is_v4_mapped())
+			return forbidden_addr(lt::make_address_v4(lt::v4_mapped, v6), own);
+	}
+	return std::find(own.begin(), own.end(), a) != own.end();
+}
+
+// literal_address reads a host that names an address by itself: IPv6, or
+// IPv4 in any form the C library's resolver takes as one (2130706433,
+// 0x7f.1, 127.1 are all 127.0.0.1), so a name lookup cannot see it otherwise.
+static bool literal_address(std::string const &host, lt::address &out)
+{
+	lt::error_code ec;
+	out = lt::make_address(host, ec);
+	if (!ec)
+		return true;
+	struct in_addr in;
+	if (host.empty() || inet_aton(host.c_str(), &in) == 0)
+		return false;
+	lt::address_v4::bytes_type b;
+	std::memcpy(b.data(), &in, 4);
+	out = lt::address_v4(b);
+	return true;
+}
+
+// forbidden_url: a tracker or web seed whose host is a forbidden literal
+// address or localhost.
+static bool forbidden_url(std::string const &url, std::vector<lt::address> const &own)
+{
+	lt::error_code ec;
+	std::string host;
+	std::tie(std::ignore, std::ignore, host, std::ignore, std::ignore) = lt::parse_url_components(url, ec);
+	if (ec)
+		return false;
+	std::string lower = host;
+	std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+	while (!lower.empty() && lower.back() == '.')
+		lower.pop_back();
+	if (lower == "localhost" || (lower.size() > 10 && lower.compare(lower.size() - 10, 10, ".localhost") == 0))
+		return true;
+	lt::address a;
+	return literal_address(host, a) && forbidden_addr(a, own);
+}
+
+static std::vector<lt::address> own_addresses()
+{
+	std::vector<lt::address> out;
+	struct ifaddrs *ifa = nullptr;
+	if (getifaddrs(&ifa) != 0)
+		return out;
+	for (struct ifaddrs *i = ifa; i; i = i->ifa_next)
+	{
+		if (!i->ifa_addr)
+			continue;
+		if (i->ifa_addr->sa_family == AF_INET)
+		{
+			auto const *s = reinterpret_cast<struct sockaddr_in const *>(i->ifa_addr);
+			lt::address_v4::bytes_type b;
+			std::memcpy(b.data(), &s->sin_addr, 4);
+			out.push_back(lt::address_v4(b));
+		}
+		else if (i->ifa_addr->sa_family == AF_INET6)
+		{
+			auto const *s = reinterpret_cast<struct sockaddr_in6 const *>(i->ifa_addr);
+			lt::address_v6::bytes_type b;
+			std::memcpy(b.data(), &s->sin6_addr, 16);
+			out.push_back(lt::address_v6(b));
+		}
+	}
+	freeifaddrs(ifa);
+	std::sort(out.begin(), out.end());
+	out.erase(std::unique(out.begin(), out.end()), out.end());
+	return out;
+}
+
+// guard_filter blocks the forbidden ranges and the NAS's own addresses (also
+// as IPv4-mapped IPv6), except allow: the HTTP proxy trackers go through
+// when it runs on the NAS itself, which libtorrent checks against the filter.
+static lt::ip_filter guard_filter(std::vector<lt::address> const &own, std::vector<lt::address> const &allow)
+{
+	lt::ip_filter f;
+	auto block = [&](char const *a, char const *b) { f.add_rule(lt::make_address(a), lt::make_address(b), lt::ip_filter::blocked); };
+	block("0.0.0.0", "0.255.255.255");
+	block("127.0.0.0", "127.255.255.255");
+	block("169.254.0.0", "169.254.255.255");
+	block("224.0.0.0", "255.255.255.255");
+	block("::", "::1");
+	block("fe80::", "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+	block("ff00::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+	block("::ffff:0.0.0.0", "::ffff:0.255.255.255");
+	block("::ffff:127.0.0.0", "::ffff:127.255.255.255");
+	block("::ffff:169.254.0.0", "::ffff:169.254.255.255");
+	block("::ffff:224.0.0.0", "::ffff:255.255.255.255");
+	auto rule = [&](lt::address const &a, std::uint32_t flags) {
+		f.add_rule(a, a, flags);
+		if (a.is_v4())
+		{
+			lt::address m = lt::make_address_v6(lt::v4_mapped, a.to_v4());
+			f.add_rule(m, m, flags);
+		}
+	};
+	for (auto const &a : own)
+		rule(a, lt::ip_filter::blocked);
+	for (auto const &a : allow)
+		rule(a, 0);
+	return f;
+}
 
 // New paths for every file when the top folder (or the single file) of a
 // torrent is called root instead of the torrent's name.
@@ -218,6 +368,7 @@ static json opt_json(Options const &o)
 	j["seed_ratio"] = o.seed_ratio;
 	j["seed_time"] = o.seed_time;
 	j["complete"] = o.complete;
+	j["guard"] = o.guard;
 	if (o.has_select)
 		j["select"] = o.select;
 	json pr = json::object();
@@ -233,6 +384,8 @@ static Options opt_from(json const &j)
 	o.seed_ratio = j.value("seed_ratio", 0.0);
 	o.seed_time = j.value("seed_time", 0);
 	o.complete = j.value("complete", false);
+	o.guard = j.value("guard", false);
+	o.guard_known = j.contains("guard");
 	if (j.contains("select") && j["select"].is_array())
 	{
 		o.has_select = true;
@@ -321,6 +474,96 @@ static json hardware_json(Hardware const &h, Tuning const &t)
 
 // --- the engine ---
 
+// --- peers found, without the NAS itself ---
+//
+// libtorrent adds whatever DHT and trackers return to a torrent's peer list,
+// the NAS's own endpoints included: DHT hands our own announce back to us, and
+// trackers return the addresses we announced from (IPv4, IPv6, each
+// interface) to one another, and some DHT nodes return our announce under
+// another address, with our port. For the source health dc-bt counts the
+// distinct endpoints found without those, so a torrent nobody else shares
+// reads as such. Self is an address of the interfaces or one of the external
+// addresses libtorrent learnt, or our listen port at any address: another
+// client behind the same NAT, or one listening on the same port (Download
+// Center's default), is not counted either; only the count, not whether
+// libtorrent connects to it. The plugin runs in libtorrent's network thread: it never calls
+// a torrent_handle (those calls wait for that thread), it reaches its counts
+// through the torrent's userdata.
+
+struct Found
+{
+	std::mutex mu;
+	std::set<lt::tcp::endpoint> all, dht; // distinct endpoints, any source / from DHT
+	long long dht_at = 0;                 // the last DHT peer that is not us (Unix time)
+};
+static size_t const found_cap = 1000; // past this, nobody needs an exact count
+
+static std::mutex self_mu;
+static std::vector<lt::address> self_addrs; // interfaces and external addresses
+static std::set<int> self_ports;            // our listen ports
+
+static lt::address plain(lt::address const &a)
+{
+	if (a.is_v6() && a.to_v6().is_v4_mapped())
+		return lt::make_address_v4(lt::v4_mapped, a.to_v6());
+	return a;
+}
+
+static bool is_self(lt::tcp::endpoint const &ep)
+{
+	lt::address p = plain(ep.address());
+	std::lock_guard<std::mutex> l(self_mu);
+	if (self_ports.count(ep.port()))
+		return true;
+	for (auto const &x : self_addrs)
+		if (x == p)
+			return true;
+	return false;
+}
+
+// The counts of every torrent, by the pointer its userdata carries; a
+// plugin keeps its own reference, so forgetting a torrent never pulls the
+// counts from under it.
+static std::mutex found_mu;
+static std::map<Found *, std::shared_ptr<Found>> found_reg;
+
+struct FoundPlugin final : lt::torrent_plugin
+{
+	std::shared_ptr<Found> f;
+	explicit FoundPlugin(std::shared_ptr<Found> p) : f(std::move(p)) {}
+	void on_add_peer(lt::tcp::endpoint const &ep, lt::peer_source_flags_t src, lt::add_peer_flags_t flags) override
+	{
+		// Refused by the IP filter, or remembered from before: not found now
+		if ((flags & lt::torrent_plugin::filtered) || src == lt::peer_info::resume_data || is_self(ep))
+			return;
+		lt::tcp::endpoint e(plain(ep.address()), ep.port());
+		std::lock_guard<std::mutex> l(f->mu);
+		if (f->all.size() < found_cap)
+			f->all.insert(e);
+		if (src & lt::peer_info::dht)
+		{
+			if (f->dht.size() < found_cap)
+				f->dht.insert(e);
+			f->dht_at = (long long)std::time(nullptr);
+		}
+	}
+};
+
+struct FoundSession final : lt::plugin
+{
+	std::shared_ptr<lt::torrent_plugin> new_torrent(lt::torrent_handle const &, lt::client_data_t ud) override
+	{
+		Found *p = ud.get<Found>();
+		if (!p)
+			return nullptr;
+		std::lock_guard<std::mutex> l(found_mu);
+		auto it = found_reg.find(p);
+		if (it == found_reg.end())
+			return nullptr;
+		return std::make_shared<FoundPlugin>(it->second);
+	}
+};
+
 struct Engine
 {
 	std::unique_ptr<lt::session> ses;
@@ -333,6 +576,200 @@ struct Engine
 	json settings = json::object();
 	Hardware hw = detect_hardware();
 	Tuning tune = tuning_for(hw);
+	std::vector<lt::address> own;  // the NAS's addresses, for the guard
+	std::vector<lt::address> exempt; // the tracker proxy's addresses (see guard_filter)
+	bool filter_set = false;       // the guard filter is in the session
+	clk::time_point dht_next;      // next check for DHT nodes
+	int dht_tries = 0;             // bootstrap retries in a row
+	bool dht_asked = false;        // waiting for session_stats_alert
+	bool dht_up = false;           // DHT had nodes at the last check
+	bool dht_on = false;           // the settings turn DHT on (pack_from)
+
+	std::map<std::string, Found *> found;  // see FoundPlugin; userdata of each torrent
+	std::vector<lt::address> external;     // our external addresses, as libtorrent learnt them
+
+	// The tracker proxy's addresses, looked up away from the loop: a name
+	// may take long to resolve. Shared with the lookup thread.
+	struct ProxyAddrs
+	{
+		std::mutex mu;
+		std::string host;
+		std::vector<lt::address> addrs;
+		bool busy = false, fresh = false;
+		clk::time_point at;
+	};
+	std::shared_ptr<ProxyAddrs> pxa = std::make_shared<ProxyAddrs>();
+
+	// exempt_host is the HTTP proxy trackers go through: libtorrent checks
+	// its address against the filter. Other proxies are not checked (SOCKS5
+	// connections are checked by their target, or the proxy resolves it).
+	std::string exempt_host() const
+	{
+		json px = settings.value("proxy", json::object());
+		if (px.value("type", std::string("none")) != "http" || !px.value("trackers", true))
+			return "";
+		return px.value("host", std::string());
+	}
+
+	void resolve_proxy(bool force)
+	{
+		std::string host = exempt_host();
+		std::shared_ptr<ProxyAddrs> st = pxa;
+		lt::address a;
+		std::lock_guard<std::mutex> l(st->mu);
+		if (host.empty() || literal_address(host, a))
+		{
+			std::vector<lt::address> v;
+			if (!host.empty())
+				v.push_back(a);
+			st->fresh = st->fresh || v != st->addrs;
+			st->host = host;
+			st->addrs = v;
+			return;
+		}
+		if (st->busy || (!force && st->host == host && clk::now() - st->at < std::chrono::minutes(10)))
+			return;
+		st->busy = true;
+		st->at = clk::now();
+		std::thread([st, host]() {
+			std::vector<lt::address> v;
+			struct addrinfo hints, *res = nullptr;
+			std::memset(&hints, 0, sizeof hints);
+			hints.ai_socktype = SOCK_STREAM;
+			if (getaddrinfo(host.c_str(), nullptr, &hints, &res) == 0)
+			{
+				for (struct addrinfo *i = res; i; i = i->ai_next)
+				{
+					lt::error_code ec;
+					char buf[INET6_ADDRSTRLEN];
+					if (i->ai_family == AF_INET)
+						inet_ntop(AF_INET, &reinterpret_cast<struct sockaddr_in *>(i->ai_addr)->sin_addr, buf, sizeof buf);
+					else if (i->ai_family == AF_INET6)
+						inet_ntop(AF_INET6, &reinterpret_cast<struct sockaddr_in6 *>(i->ai_addr)->sin6_addr, buf, sizeof buf);
+					else
+						continue;
+					lt::address x = lt::make_address(buf, ec);
+					if (!ec)
+						v.push_back(x);
+				}
+				freeaddrinfo(res);
+			}
+			std::lock_guard<std::mutex> l(st->mu);
+			st->fresh = st->fresh || v != st->addrs || st->host != host;
+			st->host = host;
+			st->addrs = v;
+			st->busy = false;
+		}).detach();
+	}
+
+	// update_guard puts the guard filter into the session when the NAS's
+	// addresses or the tracker proxy's changed.
+	// found_for gives the counts a torrent's userdata points at, made once.
+	Found *found_for(std::string const &k)
+	{
+		auto it = found.find(k);
+		if (it != found.end())
+			return it->second;
+		auto f = std::make_shared<Found>();
+		{
+			std::lock_guard<std::mutex> l(found_mu);
+			found_reg[f.get()] = f;
+		}
+		found[k] = f.get();
+		return f.get();
+	}
+
+	void forget_found(std::string const &k)
+	{
+		auto fi = found.find(k);
+		if (fi == found.end())
+			return;
+		std::lock_guard<std::mutex> l(found_mu);
+		found_reg.erase(fi->second);
+		found.erase(fi);
+	}
+
+	// set_self tells the plugin which addresses are ours, and takes them out
+	// of the counts: trackers may hand our external address back before
+	// libtorrent learnt it.
+	void set_self()
+	{
+		std::vector<lt::address> all;
+		for (auto const &a : own)
+			all.push_back(plain(a));
+		for (auto const &a : external)
+			all.push_back(plain(a));
+		{
+			std::lock_guard<std::mutex> l(self_mu);
+			self_addrs = all;
+		}
+		for (auto &kv : found)
+		{
+			std::lock_guard<std::mutex> l(kv.second->mu);
+			for (auto *set : {&kv.second->all, &kv.second->dht})
+				for (auto it = set->begin(); it != set->end();)
+				{
+					if (is_self(*it))
+						it = set->erase(it);
+					else
+						++it;
+				}
+		}
+	}
+
+	void update_guard(bool force)
+	{
+		resolve_proxy(force);
+		std::vector<lt::address> now = own_addresses(), px;
+		{
+			std::lock_guard<std::mutex> l(pxa->mu);
+			px = pxa->addrs;
+			pxa->fresh = false;
+		}
+		if (!force && filter_set && now == own && px == exempt)
+			return;
+		own = now;
+		exempt = px;
+		set_self();
+		filter_set = true;
+		ses->set_ip_filter(guard_filter(own, exempt));
+	}
+
+	// proxy_resolved: a lookup of the tracker proxy ended since update_guard.
+	bool proxy_resolved()
+	{
+		std::lock_guard<std::mutex> l(pxa->mu);
+		return pxa->fresh;
+	}
+
+	// strip_forbidden removes the trackers and web seeds of a guarded
+	// torrent whose host is a forbidden literal address or localhost.
+	void strip_forbidden(lt::torrent_handle const &h)
+	{
+		std::vector<lt::announce_entry> tr = h.trackers(), keep;
+		for (auto &a : tr)
+			if (!forbidden_url(a.url, own))
+				keep.push_back(a);
+		if (keep.size() != tr.size())
+			h.replace_trackers(keep);
+		for (auto &u : h.url_seeds())
+			if (forbidden_url(u, own))
+				h.remove_url_seed(u);
+		for (auto &u : h.http_seeds())
+			if (forbidden_url(u, own))
+				h.remove_http_seed(u);
+	}
+
+	void set_guard(lt::torrent_handle const &h, bool on)
+	{
+		if (on)
+		{
+			h.set_flags(lt::torrent_flags::apply_ip_filter);
+			strip_forbidden(h);
+		}
+		else
+			h.unset_flags(lt::torrent_flags::apply_ip_filter);
+	}
 
 	std::string resume_path(std::string const &k) { return state_dir + "/" + k + ".resume"; }
 	std::string opts_path(std::string const &k) { return state_dir + "/" + k + ".json"; }
@@ -425,6 +862,7 @@ struct Engine
 			}
 		}
 		p.set_bool(lt::settings_pack::enable_dht, dht);
+		dht_on = dht;
 		p.set_bool(lt::settings_pack::enable_lsd, lsd);
 		p.set_bool(lt::settings_pack::enable_upnp, upnp);
 		p.set_bool(lt::settings_pack::enable_natpmp, upnp);
@@ -447,8 +885,12 @@ struct Engine
 			p.set_str(lt::settings_pack::peer_fingerprint, "-DC1000-");
 		std::string ua = s.value("user_agent", std::string());
 		p.set_str(lt::settings_pack::user_agent, ua.empty() ? std::string("libtorrent/") + LIBTORRENT_VERSION : ua);
-		p.set_str(lt::settings_pack::dht_bootstrap_nodes,
-			"dht.libtorrent.org:25401,router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881,router.bitcomet.com:6881");
+		p.set_str(lt::settings_pack::dht_bootstrap_nodes, s.value("dht_bootstrap_nodes",
+			std::string("dht.libtorrent.org:25401,router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881,router.bitcomet.com:6881")));
+		// Trackers added to a torrent (by hand, the public list, another
+		// link) are announced to together, not one after the other
+		p.set_bool(lt::settings_pack::announce_to_all_tiers, true);
+		p.set_bool(lt::settings_pack::announce_to_all_trackers, true);
 		// dcd does the queueing
 		p.set_int(lt::settings_pack::active_downloads, -1);
 		p.set_int(lt::settings_pack::active_seeds, -1);
@@ -489,8 +931,11 @@ struct Engine
 		ses.reset(new lt::session(std::move(sp)));
 		ses->add_extension(&lt::create_ut_metadata_plugin);
 		ses->add_extension(&lt::create_smart_ban_plugin);
+		ses->add_extension(std::make_shared<FoundSession>());
 		if (initial.value("pex", true))
 			ses->add_extension(&lt::create_ut_pex_plugin);
+		update_guard(true);
+		dht_next = clk::now() + std::chrono::minutes(2);
 		restore();
 	}
 
@@ -533,14 +978,24 @@ struct Engine
 				}
 			}
 			atp.flags &= ~lt::torrent_flags::auto_managed;
-			if (o.complete)
+			// Saved before 1.4, without guard: whose torrent it is shows when
+			// dcd adds it again, so it waits for that instead of running unguarded
+			if (o.complete || (!o.guard_known && !o.metadata_only))
 				atp.flags |= lt::torrent_flags::paused;
+			// Resume data keeps the flag; the options say what it must be
+			if (o.guard)
+				atp.flags |= lt::torrent_flags::apply_ip_filter;
+			else
+				atp.flags &= ~lt::torrent_flags::apply_ip_filter;
+			atp.userdata = lt::client_data_t(found_for(k));
 			lt::torrent_handle h = ses->add_torrent(std::move(atp), ec);
 			if (ec)
 			{
 				dlog("restore %s: %s", k.c_str(), ec.message().c_str());
 				continue;
 			}
+			if (o.guard)
+				strip_forbidden(h);
 			std::string key = key_of(h.info_hashes());
 			handles[key] = h;
 			opts[key] = o;
@@ -626,6 +1081,7 @@ struct Engine
 		o.seed_ratio = req.value("seed_ratio", 0.0);
 		o.seed_time = req.value("seed_time", 0);
 		o.metadata_only = req.value("metadata_only", false);
+		o.guard = req.value("guard", false);
 		read_select(req, o);
 
 		auto ex = handles.find(key);
@@ -642,6 +1098,15 @@ struct Engine
 			for (auto &t : req.value("trackers", json::array()))
 				if (t.is_string())
 					ex->second.add_tracker(lt::announce_entry(t.get<std::string>()));
+			// A probe never changes the guard of the task it found
+			Options &eo = opts[key];
+			if (!o.metadata_only && (eo.guard != o.guard || !eo.guard_known))
+			{
+				eo.guard = o.guard;
+				eo.guard_known = true;
+				save_opts(key);
+			}
+			set_guard(ex->second, eo.guard);
 			return json{{"infohash", key}, {"existed", true}, {"resumed", true}};
 		}
 
@@ -688,6 +1153,10 @@ struct Engine
 			atp.flags &= ~lt::torrent_flags::paused;
 		if (req.value("sequential", false))
 			atp.flags |= lt::torrent_flags::sequential_download;
+		if (o.guard)
+			atp.flags |= lt::torrent_flags::apply_ip_filter;
+		else
+			atp.flags &= ~lt::torrent_flags::apply_ip_filter;
 		if (o.metadata_only)
 		{
 			atp.flags &= ~lt::torrent_flags::paused;
@@ -717,9 +1186,16 @@ struct Engine
 				if (kv.first >= 0 && kv.first < n)
 					atp.file_priorities[size_t(kv.first)] = lt::download_priority_t(std::uint8_t(std::max(0, std::min(7, kv.second))));
 		}
+		atp.userdata = lt::client_data_t(found_for(key));
 		lt::torrent_handle h = ses->add_torrent(std::move(atp), ec);
 		if (ec)
+		{
+			if (!handles.count(key))
+				forget_found(key);
 			throw std::runtime_error(ec.message());
+		}
+		if (o.guard)
+			strip_forbidden(h);
 		if (check)
 			h.force_recheck();
 		if (resumed && (o.has_select || !o.priorities.empty()))
@@ -762,13 +1238,14 @@ struct Engine
 	{
 		handles.erase(k);
 		opts.erase(k);
+		forget_found(k);
 		::unlink(resume_path(k).c_str());
 		::unlink(opts_path(k).c_str());
 	}
 
 	json status_of(std::string const &k, lt::torrent_handle const &h, bool files)
 	{
-		lt::torrent_status s = h.status(lt::torrent_handle::query_pieces | lt::torrent_handle::query_name | lt::torrent_handle::query_save_path);
+		lt::torrent_status s = h.status(lt::torrent_handle::query_pieces | lt::torrent_handle::query_name | lt::torrent_handle::query_save_path | lt::torrent_handle::query_distributed_copies);
 		Options &o = opts[k];
 		json j;
 		j["infohash"] = k;
@@ -789,16 +1266,40 @@ struct Engine
 		j["up_rate"] = s.upload_payload_rate;
 		j["peers"] = s.num_peers;
 		j["seeds"] = s.num_seeds;
+		j["known_peers"] = s.list_peers;
+		j["connect_candidates"] = s.connect_candidates;
 		j["sequential"] = bool(s.flags & lt::torrent_flags::sequential_download);
 		j["seeding_secs"] = (long long)(s.seeding_duration.count());
 		j["finished_secs"] = (long long)(s.finished_duration.count());
+		// How many complete copies the connected peers have together
+		j["availability"] = s.has_metadata ? double(s.distributed_copies) : -1.0;
+		j["last_seen_complete"] = (long long)s.last_seen_complete;
 		auto ti = h.torrent_file();
+		// libtorrent announces a running torrent to DHT every 15 minutes
+		// while DHT has nodes; private torrents never use it
+		j["dht_up"] = dht_up && dht_on && !(ti && ti->priv());
+		// Peers found without the NAS itself (see FoundPlugin)
+		auto fi = found.find(k);
+		if (fi != found.end())
+		{
+			std::lock_guard<std::mutex> l(fi->second->mu);
+			j["found_peers"] = fi->second->all.size();
+			j["dht_peers"] = fi->second->dht.size();
+			j["dht_reply_at"] = fi->second->dht_at;
+		}
+		else
+		{
+			j["found_peers"] = 0;
+			j["dht_peers"] = 0;
+			j["dht_reply_at"] = 0LL;
+		}
 		if (ti)
 		{
 			j["pieces"] = bits_hex(s.pieces);
 			j["num_pieces"] = ti->num_pieces();
 			j["piece_length"] = ti->piece_length();
 			j["comment"] = ti->comment();
+			j["private"] = ti->priv();
 			if (files)
 			{
 				std::vector<std::int64_t> prog;
@@ -870,6 +1371,99 @@ struct Engine
 		return json{{"torrents", arr}};
 	}
 
+	// Replace every tracker of a torrent (a magnet that turned out to be a
+	// private torrent keeps only its own trackers).
+	json cmd_set_trackers(json const &req)
+	{
+		lt::torrent_handle h = find(req);
+		std::string k = req.value("infohash", std::string());
+		std::vector<lt::announce_entry> tr;
+		for (auto &t : req.value("trackers", json::array()))
+			if (t.is_string())
+			{
+				lt::announce_entry e(t.get<std::string>());
+				e.tier = std::uint8_t(std::min<size_t>(tr.size(), 255));
+				tr.push_back(e);
+			}
+		h.replace_trackers(tr);
+		if (opts[k].guard)
+			strip_forbidden(h);
+		if (h.torrent_file())
+		{
+			// The saved .torrent lists the trackers it was written with
+			::unlink((torrents_dir + "/" + k + ".torrent").c_str());
+			write_metadata(k, h, torrents_dir);
+			h.save_resume_data(lt::torrent_handle::save_info_dict);
+		}
+		if (!tr.empty())
+			h.force_reannounce(0, -1, lt::torrent_handle::ignore_min_interval);
+		return json::object();
+	}
+
+	// Forget the peers of a torrent that has no connection and look for
+	// peers again: peers that failed three times are never tried again
+	// otherwise (libtorrent's max_failcount), while the torrent runs.
+	json cmd_refresh_peers(json const &req)
+	{
+		lt::torrent_handle h = find(req);
+		lt::torrent_status s = h.status(lt::status_flags_t{});
+		if (s.num_peers > 0)
+			return json{{"refreshed", false}};
+		h.clear_peers();
+		auto ti = h.torrent_file();
+		if (!(ti && ti->priv()))
+			h.force_dht_announce();
+		h.force_reannounce(0, -1, lt::torrent_handle::ignore_min_interval);
+		return json{{"refreshed", true}};
+	}
+
+	// Every tracker of a torrent as libtorrent knows it from its announces,
+	// for dcd's source health; nothing is sent to the trackers. A tracker
+	// has an endpoint per listen socket and an entry per info hash (v1, v2):
+	// one that answered counts (fewest failures), counts are the largest
+	// known (-1 unknown) and the message is the failure reason of a failing
+	// tracker, or the warning of a working one.
+	json cmd_sources(json const &req)
+	{
+		lt::torrent_handle h = find(req);
+		json arr = json::array();
+		for (lt::announce_entry const &ae : h.trackers())
+		{
+			int seeds = -1, leechers = -1, fails = -1;
+			bool updating = false;
+			std::string warning, failure;
+			for (auto const &ep : ae.endpoints)
+				for (auto const &ih : ep.info_hashes)
+				{
+					seeds = std::max(seeds, ih.scrape_complete);
+					leechers = std::max(leechers, ih.scrape_incomplete);
+					updating = updating || ih.updating;
+					if (ih.fails == 0 && !ih.start_sent)
+						continue; // not tried yet
+					if (fails < 0 || int(ih.fails) < fails)
+						fails = int(ih.fails);
+					if (ih.fails == 0)
+					{
+						if (warning.empty())
+							warning = ih.message;
+					}
+					else if (failure.empty())
+						failure = !ih.message.empty() ? ih.message : ih.last_error ? ih.last_error.message() : std::string();
+				}
+			json t;
+			t["url"] = ae.url;
+			t["tier"] = int(ae.tier);
+			t["contacted"] = fails >= 0;
+			t["fails"] = std::max(fails, 0);
+			t["message"] = fails > 0 ? failure : warning;
+			t["seeds"] = seeds;
+			t["leechers"] = leechers;
+			t["updating"] = updating;
+			arr.push_back(t);
+		}
+		return json{{"trackers", arr}};
+	}
+
 	json cmd_peers(json const &req)
 	{
 		lt::torrent_handle h = find(req);
@@ -934,6 +1528,9 @@ struct Engine
 				throw std::runtime_error("restart required");
 			settings = next;
 			ses->apply_settings(pack_from(settings));
+			if (!dht_on)
+				dht_up = false;
+			update_guard(false);
 			return json::object();
 		}
 		if (cmd == "add")
@@ -1020,9 +1617,34 @@ struct Engine
 			for (auto &t : req.value("trackers", json::array()))
 				if (t.is_string())
 					h.add_tracker(lt::announce_entry(t.get<std::string>()));
+			Options const &o = opts[req.value("infohash", std::string())];
+			if (o.guard)
+				strip_forbidden(h);
 			h.force_reannounce();
+			// Saved now: a magnet without its file list is left out when
+			// dc-bt stops, and the periodic save may not come first
+			if (!o.metadata_only)
+				h.save_resume_data(lt::torrent_handle::save_info_dict);
 			return json::object();
 		}
+		if (cmd == "set_trackers")
+			return cmd_set_trackers(req);
+		if (cmd == "set_guard")
+		{
+			// The owner's role changed, or a torrent got the public tracker list
+			lt::torrent_handle h = find(req);
+			std::string k = req.value("infohash", std::string());
+			Options &o = opts[k];
+			o.guard = req.value("on", false);
+			o.guard_known = true;
+			save_opts(k);
+			set_guard(h, o.guard);
+			return json::object();
+		}
+		if (cmd == "refresh_peers")
+			return cmd_refresh_peers(req);
+		if (cmd == "sources")
+			return cmd_sources(req);
 		if (cmd == "trackers")
 		{
 			json arr = json::array();
@@ -1165,9 +1787,103 @@ struct Engine
 			}
 			else if (auto *ls = lt::alert_cast<lt::listen_succeeded_alert>(a))
 			{
+				bool fresh;
+				{
+					std::lock_guard<std::mutex> l(self_mu);
+					fresh = self_ports.insert(ls->port).second;
+				}
+				if (fresh)
+					set_self();
 				dlog("%s", ls->message().c_str());
 			}
+			else if (auto *x = lt::alert_cast<lt::external_ip_alert>(a))
+			{
+				lt::address ip = plain(x->external_address);
+				if (std::find(external.begin(), external.end(), ip) == external.end())
+				{
+					dlog("external address: %s", ip.to_string().c_str());
+					external.push_back(ip);
+					if (external.size() > 8)
+						external.erase(external.begin());
+					set_self();
+				}
+			}
+			else if (auto *ss = lt::alert_cast<lt::session_stats_alert>(a))
+			{
+				static int const idx = lt::find_metric_idx("dht.dht_nodes");
+				if (dht_asked && idx >= 0)
+					on_dht_nodes(ss->counters()[idx]);
+			}
 		}
+	}
+
+	// announce_dht runs when DHT has nodes for the first time, or again after
+	// bootstrap retries: a torrent added or resumed before that (dcd adds
+	// every task right after dc-bt starts) asked a DHT without nodes, found
+	// nobody, and libtorrent asks again only on its round, up to 15 minutes
+	// later. Running torrents without a connection ask now.
+	void announce_dht()
+	{
+		int n = 0;
+		for (auto &kv : handles)
+		{
+			if (!kv.second.is_valid())
+				continue;
+			lt::torrent_status s = kv.second.status(lt::status_flags_t{});
+			if ((s.flags & lt::torrent_flags::paused) || s.num_peers > 0 || s.is_seeding)
+				continue;
+			kv.second.force_dht_announce();
+			++n;
+		}
+		if (n > 0)
+			dlog("DHT is up: asking it for the peers of %d torrents", n);
+	}
+
+	// check_dht asks for the session counters to see whether DHT has nodes.
+	// libtorrent resolves the bootstrap nodes once, when DHT starts, and does
+	// not retry when that fails (no network yet when the NAS boots); turning
+	// DHT off and on again resolves them again.
+	void check_dht(clk::time_point now)
+	{
+		if (now < dht_next)
+			return;
+		if (!ses->get_settings().get_bool(lt::settings_pack::enable_dht))
+		{
+			dht_asked = false;
+			dht_up = false;
+			dht_tries = 0;
+			dht_next = now + std::chrono::minutes(5);
+			return;
+		}
+		// Asked again a minute later if the answer never comes
+		dht_asked = true;
+		dht_next = now + std::chrono::minutes(1);
+		ses->post_session_stats();
+	}
+
+	void on_dht_nodes(std::int64_t nodes)
+	{
+		dht_asked = false;
+		auto now = clk::now();
+		if (nodes > 0 || !ses->get_settings().get_bool(lt::settings_pack::enable_dht))
+		{
+			if (nodes > 0 && !dht_up)
+				announce_dht();
+			dht_up = nodes > 0;
+			dht_tries = 0;
+			dht_next = now + std::chrono::minutes(5);
+			return;
+		}
+		dht_up = false;
+		static const int waits[] = {5, 10, 20, 30};
+		dht_next = now + std::chrono::minutes(waits[std::min(dht_tries, 3)]);
+		++dht_tries;
+		dlog("DHT has no nodes: looking up the bootstrap nodes again (try %d)", dht_tries);
+		lt::settings_pack off, on;
+		off.set_bool(lt::settings_pack::enable_dht, false);
+		on.set_bool(lt::settings_pack::enable_dht, true);
+		ses->apply_settings(off);
+		ses->apply_settings(on);
 	}
 
 	void on_line(std::string const &line)
@@ -1220,7 +1936,7 @@ struct Engine
 
 	void run()
 	{
-		auto last_seed = clk::now(), last_save = clk::now();
+		auto last_seed = clk::now(), last_save = clk::now(), last_guard = clk::now();
 		while (!g_stop)
 		{
 			struct pollfd fds[2];
@@ -1274,6 +1990,12 @@ struct Engine
 			}
 			handle_alerts();
 			auto now = clk::now();
+			check_dht(now);
+			if (now - last_guard > std::chrono::seconds(60) || proxy_resolved())
+			{
+				update_guard(false);
+				last_guard = now;
+			}
 			if (now - last_seed > std::chrono::seconds(1))
 			{
 				check_seeding();

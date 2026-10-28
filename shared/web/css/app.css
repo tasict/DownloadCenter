@@ -579,6 +579,7 @@ html.dr-dock body{padding-right:440px}
 .sec{margin:22px 0 0}
 .sec h3{margin:0 0 8px 4px;font:600 15px/1.4 var(--f-display);display:flex;align-items:center;gap:10px}
 .sec h3 .ic{width:26px;height:26px;padding:5px;border-radius:7px;color:#FFFFFF;background:#007AFF}
+.sec.t1 h3 .ic{background:#FF9500}
 .set > div > .sec:nth-child(7n+2) h3 .ic{background:#FF9500}
 .set > div > .sec:nth-child(7n+3) h3 .ic{background:#34C759}
 .set > div > .sec:nth-child(7n+4) h3 .ic{background:#AF52DE}
@@ -734,6 +735,73 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 .ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .dr-act{display:contents}
 .srcs{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+
+/* ---------- source status: does anybody still share a torrent that finds no peers ---------- */
+.lv-search{--sc:var(--wait)} .lv-none{--sc:var(--hold)} .lv-dead{--sc:var(--fault)}
+.srcbox{background:var(--surface);border-radius:14px;margin-bottom:12px;padding-bottom:5px;overflow:hidden}
+.srcbox-head{display:grid;grid-template-columns:34px minmax(0,1fr);gap:12px;align-items:start;padding:14px 14px 0}
+.srcbox-head b{display:block;font:600 17px/1.3 var(--f-display);letter-spacing:-.01em}
+.srcbox-head p{margin:3px 0 0;color:var(--label2);font-size:13.5px}
+/* Still looking: the inner, then the outer wave fades and comes back */
+.lv-search .sicon .a-w1{animation:wave 2s ease-in-out infinite}
+.lv-search .sicon .a-w2{animation:wave 2s .35s ease-in-out infinite}
+@keyframes wave{0%,100%{opacity:1}50%{opacity:.2}}
+/* The waiting gauge: three rounded zones in the piece bar's vocabulary, each moving in proportion to its own stretch of time */
+.gauge{padding:14px 14px 0}
+.gauge-track{position:relative;display:grid;grid-template-columns:34fr 44fr 22fr;gap:3px;height:6px}
+.gauge-zone{border-radius:3px;background:var(--fill2);overflow:hidden}
+.gauge-zone i{display:block;width:0;height:100%;border-radius:3px}
+.gauge-zone.z1 i{background:var(--wait)} .gauge-zone.z2 i{background:var(--hold)} .gauge-zone.z3 i{background:var(--fault)}
+.gauge-dot{position:absolute;top:50%;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:var(--sc);box-shadow:0 0 0 2.5px var(--surface)}
+.gauge-dot::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:1.5px solid var(--sc);opacity:0;animation:gauge-pulse 2.6s ease-out infinite}
+.gauge.still .gauge-dot::after{animation:none}
+@keyframes gauge-pulse{0%{transform:scale(.6);opacity:.55}100%{transform:scale(1.5);opacity:0}}
+.gauge-ticks{display:grid;grid-template-columns:34fr 44fr 22fr;gap:3px;margin-top:5px;font:500 11px/1.2 var(--f-round);color:var(--label3);font-variant-numeric:tabular-nums}
+.gauge-ticks span{text-align:right;white-space:nowrap}
+.src-next{margin:9px 14px 0;font-size:12.5px;color:var(--label2)}
+.gauge .src-next{margin:9px 0 0}
+/* What it is based on: a quiet grouped list in the same card; the dot says what each line counts as */
+.ev{margin:12px 0 0;padding:0 14px;border-top:.5px solid var(--sep)}
+.srcbox > .ev:first-child{margin-top:0;border-top:0}
+.ev-row{display:grid;grid-template-columns:minmax(0,8.5em) minmax(0,1fr) 15px;gap:10px;align-items:baseline;padding:9px 0;font-size:13.5px}
+.ev-row + .ev-row{border-top:.5px solid var(--sep)}
+.ev-row dt{display:flex;align-items:baseline;gap:10px;color:var(--label2)}
+.ev-row dt::before{content:"";flex:none;align-self:center;width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--label3)}
+.ev-row.yes dt::before{background:var(--done);box-shadow:none}
+.ev-row.some dt::before{background:var(--label3);box-shadow:none}
+.ev-row.bad dt::before{background:var(--fault);box-shadow:none}
+.ev-row dd{margin:0;overflow-wrap:anywhere}
+.ev-row .go{width:15px;height:15px;color:var(--label3);align-self:center}
+.ev-row.link{cursor:pointer}
+.ev-row.link:hover dd{color:var(--accent)}
+.srcacts{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.srcacts + .note{margin:-8px 0 8px;padding:0}
+/* In the task list: a capsule before the other details */
+.tag{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;font:600 11.5px/1 var(--f);color:var(--sc);background:color-mix(in srgb,var(--sc) 15%,transparent);white-space:nowrap}
+/* Connections: what every tracker reports */
+.trk-sub{margin:14px 4px 6px;font:600 13px var(--f);color:var(--label2)}
+.trk{background:var(--surface);border-radius:14px;padding:0 14px;margin-bottom:12px}
+.trk-head,.trk-row{display:grid;grid-template-columns:10px minmax(0,1fr) 58px 58px;gap:10px;align-items:center}
+.trk-head{padding:9px 0 7px;font-size:12px;line-height:1.2;color:var(--label2);border-bottom:.5px solid var(--sep)}
+.trk-head span:nth-child(n+3){text-align:right}
+.trk-row{padding:9px 0;font-size:13.5px}
+.trk-row + .trk-row{border-top:.5px solid var(--sep)}
+.trk-row b{display:block;font:500 13px var(--f-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trk-row small{display:block;color:var(--label2);font-size:12px;overflow-wrap:anywhere}
+.trk-row small.bad{color:var(--fault)} .trk-row small.warn{color:var(--hold)}
+.trk-row em{font:500 13px var(--f-round);font-style:normal;text-align:right;font-variant-numeric:tabular-nums}
+.trk-row em.none{color:var(--label3)}
+.trk-dot{width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--label3)}
+.trk-dot.ok{background:var(--done);box-shadow:none} .trk-dot.warn{background:var(--hold);box-shadow:none} .trk-dot.bad{background:var(--fault);box-shadow:none}
+.trk-more{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:40px;padding:10px 0;border:0;border-top:.5px solid var(--sep);background:transparent;font:inherit;font-size:13.5px;color:var(--label2);text-align:left;cursor:pointer}
+.trk-more .ic{width:15px;height:15px;color:var(--label3);transition:transform .2s}
+.trk-more[aria-expanded=true] .ic{transform:rotate(90deg)}
+.trk-fold > span{display:block}
+.trk-head + .trk-fold .trk-more{border-top:0}
+.trk-fold + .trk-row{border-top:.5px solid var(--sep)}
+/* Settings: a threshold too short for the other one */
+.field .warn{color:var(--hold)}
+.secfoot{margin:8px 4px 0;font-size:12.5px;color:var(--label2);max-width:70ch}
 .add.add-sheet{grid-template-columns:34px minmax(0,1fr);align-items:start;background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;border-radius:18px;padding:10px 12px 10px 10px}
 .add.add-sheet:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}
 .add-sheet .addInput{min-height:78px}
@@ -868,6 +936,7 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 	.tab{padding:8px 12px}
 	.seg button{padding:8px 14px}
 	.btn{min-height:42px}
+	.srcacts .btn,.ev-row.link,.trk-more{min-height:44px}
 	.linkish{min-height:40px}
 	.fpitem{min-height:44px}
 	.fpgo{width:44px;height:44px}

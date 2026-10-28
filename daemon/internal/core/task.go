@@ -29,39 +29,42 @@ const (
 
 // TaskOptions are per-task options stored as JSON.
 type TaskOptions struct {
-	Select        []int          `json:"select,omitempty"`     // selected file indices (nil = all)
-	Priorities    map[string]int `json:"priorities,omitempty"` // file index -> 0..7
-	AutoPrio      bool           `json:"auto_prio,omitempty"`  // magnet: pick the main video when the file list arrives
-	Trackers      []string       `json:"trackers,omitempty"`
-	Headers       []string       `json:"headers,omitempty"`
-	Sequential    bool           `json:"sequential,omitempty"`
-	MaxDown       int64          `json:"max_down,omitempty"` // bytes/s, user-set per task
-	MaxUp         int64          `json:"max_up,omitempty"`
-	AccountMode   string         `json:"account_mode,omitempty"` // auto | none | id | manual
-	AccountID     string         `json:"account_id,omitempty"`
-	Hoster        string         `json:"hoster,omitempty"` // file-hosting service used to resolve
-	HosterAcct    string         `json:"hoster_account,omitempty"`
-	OrigURL       string         `json:"orig_url,omitempty"` // share link before resolving
-	ExpiresAt     int64          `json:"expires_at,omitempty"`
-	Direct        string         `json:"direct,omitempty"`         // resolved direct URL of a file-hosting link
-	DirectHeaders []string       `json:"direct_headers,omitempty"` // headers/cookies the direct URL needs
-	NoPages       bool           `json:"no_pages,omitempty"`       // a web page from the direct URL is an error
-	Retries       int            `json:"retries,omitempty"`
-	AutoRetries   int            `json:"auto_retries,omitempty"`
-	RetryAt       int64          `json:"retry_at,omitempty"`
-	MoveSrc       string         `json:"move_src,omitempty"`
-	MoveDst       string         `json:"move_dst,omitempty"`
-	MoveAt        int64          `json:"move_at,omitempty"` // torrents: when the engine was asked to move the data
-	Root          string         `json:"root,omitempty"`    // torrents: name of the data at its destination when not the torrent's
-	DataDeleted   bool           `json:"data_deleted,omitempty"`
-	Check         bool           `json:"check,omitempty"`    // verify data on the next engine add
-	OutName       string         `json:"out,omitempty"`      // file name for URL tasks
-	Official      bool           `json:"official,omitempty"` // imported, data in @DownloadStationTempFiles
-	UpBaseline    int64          `json:"-"`
-	Magnet        string         `json:"magnet,omitempty"`
-	ResumeFile    string         `json:"resume_file,omitempty"` // official .fastresume to try (libtorrent)
-	LastActive    int64          `json:"last_active,omitempty"` // last time data moved (stall detection)
-	Proxy         string         `json:"proxy,omitempty"`       // URL tasks: "" automatic, "none" or a proxy profile id
+	Select         []int          `json:"select,omitempty"`          // selected file indices (nil = all)
+	Priorities     map[string]int `json:"priorities,omitempty"`      // file index -> 0..7
+	AutoPrio       bool           `json:"auto_prio,omitempty"`       // magnet: pick the main video when the file list arrives
+	Trackers       []string       `json:"trackers,omitempty"`        // added by hand or merged from another link
+	PublicTrackers []string       `json:"public_trackers,omitempty"` // the public tracker list when it was added
+	MetaSince      int64          `json:"meta_since,omitempty"`      // magnet: getting the file list since (0: has it)
+	Health         *Health        `json:"health,omitempty"`          // torrents not complete: source health
+	Headers        []string       `json:"headers,omitempty"`
+	Sequential     bool           `json:"sequential,omitempty"`
+	MaxDown        int64          `json:"max_down,omitempty"` // bytes/s, user-set per task
+	MaxUp          int64          `json:"max_up,omitempty"`
+	AccountMode    string         `json:"account_mode,omitempty"` // auto | none | id | manual
+	AccountID      string         `json:"account_id,omitempty"`
+	Hoster         string         `json:"hoster,omitempty"` // file-hosting service used to resolve
+	HosterAcct     string         `json:"hoster_account,omitempty"`
+	OrigURL        string         `json:"orig_url,omitempty"` // share link before resolving
+	ExpiresAt      int64          `json:"expires_at,omitempty"`
+	Direct         string         `json:"direct,omitempty"`         // resolved direct URL of a file-hosting link
+	DirectHeaders  []string       `json:"direct_headers,omitempty"` // headers/cookies the direct URL needs
+	NoPages        bool           `json:"no_pages,omitempty"`       // a web page from the direct URL is an error
+	Retries        int            `json:"retries,omitempty"`
+	AutoRetries    int            `json:"auto_retries,omitempty"`
+	RetryAt        int64          `json:"retry_at,omitempty"`
+	MoveSrc        string         `json:"move_src,omitempty"`
+	MoveDst        string         `json:"move_dst,omitempty"`
+	MoveAt         int64          `json:"move_at,omitempty"` // torrents: when the engine was asked to move the data
+	Root           string         `json:"root,omitempty"`    // torrents: name of the data at its destination when not the torrent's
+	DataDeleted    bool           `json:"data_deleted,omitempty"`
+	Check          bool           `json:"check,omitempty"`    // verify data on the next engine add
+	OutName        string         `json:"out,omitempty"`      // file name for URL tasks
+	Official       bool           `json:"official,omitempty"` // imported, data in @DownloadStationTempFiles
+	UpBaseline     int64          `json:"-"`
+	Magnet         string         `json:"magnet,omitempty"`
+	ResumeFile     string         `json:"resume_file,omitempty"` // official .fastresume to try (libtorrent)
+	LastActive     int64          `json:"last_active,omitempty"` // last time data moved (stall detection)
+	Proxy          string         `json:"proxy,omitempty"`       // URL tasks: "" automatic, "none" or a proxy profile id
 }
 
 // Task is a row of the tasks table plus live engine figures.
@@ -106,16 +109,20 @@ type Task struct {
 	RemovedAt   int64       `json:"removed_at"`
 
 	// Live figures (not persisted)
-	DownRate    int64  `json:"down_rate"`
-	UpRate      int64  `json:"up_rate"`
-	Peers       int    `json:"peers"`
-	Seeds       int    `json:"seeds"`
-	Verifying   bool   `json:"-"`
-	SchedPaused bool   `json:"sched_paused"`
-	Bitfield    string `json:"-"`
-	NumPieces   int    `json:"-"`
-	ProxyUsed   string `json:"-"` // URL tasks: proxy URL the engine task was added with
-	PieceLen    int64  `json:"-"`
+	DownRate     int64  `json:"down_rate"`
+	UpRate       int64  `json:"up_rate"`
+	Peers        int    `json:"peers"`
+	Seeds        int    `json:"seeds"`
+	PeersKnown   int    `json:"-"` // torrents: peers known, connected or not
+	NoPeersSince int64  `json:"-"` // torrents: running with no connection and no progress since
+	PeerSearches int    `json:"-"` // torrents: looked for peers again since then
+	SourceHealth string `json:"-"` // torrents not complete: Health* level
+	Verifying    bool   `json:"-"`
+	SchedPaused  bool   `json:"sched_paused"`
+	Bitfield     string `json:"-"`
+	NumPieces    int    `json:"-"`
+	ProxyUsed    string `json:"-"` // URL tasks: proxy URL the engine task was added with
+	PieceLen     int64  `json:"-"`
 }
 
 const taskCols = `hash, owner, kind, source, name, engine, engine_ref, state, user_paused, wake_time, position,

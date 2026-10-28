@@ -61,8 +61,16 @@ type TaskJSON struct {
 	RemovedAt   int64          `json:"removed_at,omitempty"`
 	QueueRank   int            `json:"queue_rank,omitempty"` // place among the tasks of its kind waiting for a slot
 	Private     bool           `json:"private,omitempty"`    // detail only: a private torrent
-	Bitfield    string         `json:"bitfield,omitempty"`
-	Pieces      int            `json:"pieces,omitempty"`
+	// Torrents only: how the search for peers goes
+	PeersKnown    *int   `json:"peers_known,omitempty"`    // peers known, connected or not
+	NoPeersSince  *int64 `json:"no_peers_since,omitempty"` // running with no connection and no progress since (0: not now)
+	PeerSearches  *int   `json:"peer_searches,omitempty"`  // looked for peers again since then
+	MetaSince     *int64 `json:"metadata_since,omitempty"` // magnet: getting the file list since (0: has it)
+	TrackerCount  *int   `json:"tracker_count,omitempty"`  // detail only: its own, extra and public trackers
+	PublicMissing *int   `json:"public_missing,omitempty"` // detail only: trackers of the public list it does not have
+	SourceHealth  string `json:"source_health,omitempty"`  // not complete: ok, searching, no_sharing, likely_dead
+	Bitfield      string `json:"bitfield,omitempty"`
+	Pieces        int    `json:"pieces,omitempty"`
 }
 
 func (s *Server) taskJSON(p *auth.Principal, t *core.Task, withBits bool) TaskJSON {
@@ -99,6 +107,11 @@ func (s *Server) taskJSON(p *auth.Principal, t *core.Task, withBits bool) TaskJS
 		j.Location = s.M.DisplayPath(viewer, t.WorkDir)
 	}
 	j.InTemp = t.InTemp()
+	if t.Kind == core.KindBT {
+		known, since, searches, meta := t.PeersKnown, t.NoPeersSince, t.PeerSearches, t.Options.MetaSince
+		j.PeersKnown, j.NoPeersSince, j.PeerSearches, j.MetaSince = &known, &since, &searches, &meta
+		j.SourceHealth = t.SourceHealth
+	}
 	if t.State == core.StError {
 		j.Error = map[string]any{"code": t.ErrorCode, "message": t.ErrorMsg}
 	}
@@ -608,7 +621,7 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request, p *auth.Principal
 		OK(w, map[string]any{"ok": true})
 		return
 	}
-	meta, hash, err := s.M.ProbeMagnet(b.Magnet)
+	meta, hash, err := s.M.ProbeMagnet(b.Magnet, p.User, p.Admin)
 	if err != nil {
 		Fail(w, err)
 		return
@@ -660,8 +673,19 @@ func (s *Server) taskRoutes() {
 		j := s.taskJSON(p, t, true)
 		j.QueueRank = s.M.QueueRanks()[t.Hash]
 		j.Private = t.Kind == core.KindBT && s.M.TorrentPrivate(t.Hash)
-		OK(w, map[string]any{"task": j, "sources": s.M.Sources(t.Hash), "log": s.M.TaskLog(t.Hash, 50),
-			"trackers": t.Options.Trackers})
+		if t.Kind == core.KindBT {
+			in := s.M.TrackerInfo(t)
+			j.TrackerCount, j.PublicMissing = &in.Count, &in.PublicMissing
+		}
+		resp := map[string]any{"task": j, "sources": s.M.Sources(t.Hash), "log": s.M.TaskLog(t.Hash, 50),
+			"trackers": t.Options.Trackers, "public_trackers": t.Options.PublicTrackers}
+		// Torrents that are not complete: what their source health is based on
+		if t.Kind == core.KindBT {
+			if h, err := s.M.HealthOf(t.Hash); err == nil {
+				resp["health"] = h
+			}
+		}
+		OK(w, resp)
 	})
 	s.Route("GET /tasks/{id}/files", "tasks:read", 0, func(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 		t := s.visibleTask(w, p, r.PathValue("id"))
@@ -946,7 +970,7 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request, p *auth.Principal)
 		return
 	}
 	switch b.Action {
-	case "pause", "resume", "start", "retry", "remove", "top", "up", "down", "bottom", "move":
+	case "pause", "resume", "start", "retry", "remove", "top", "up", "down", "bottom", "move", "add_public_trackers":
 	default:
 		Error(w, 400, "bad_request", "unknown action")
 		return
@@ -998,6 +1022,20 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request, p *auth.Principal)
 		return
 	}
 	n := 0
+	// The public tracker list for every torrent that lacks some of it; URL
+	// tasks and private torrents are skipped, not a failure
+	if b.Action == "add_public_trackers" {
+		skipped := 0
+		for _, id := range ids {
+			if res, err := s.M.AddTrackers(id, nil, true); err == nil && res.PublicAdded {
+				n++
+			} else {
+				skipped++
+			}
+		}
+		OK(w, map[string]any{"ok": true, "count": n, "skipped": skipped})
+		return
+	}
 	// Moving several tasks keeps their relative order
 	if b.Action == "top" || b.Action == "down" || b.Action == "bottom" {
 		for i, j := 0, len(ids)-1; i < j; i, j = i+1, j-1 {

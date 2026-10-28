@@ -47,6 +47,9 @@ type BTSettings struct {
 	PeerAgent        string  `json:"peer_agent"`
 	PortCheckAllowed bool    `json:"port_check_allowed"` // unused: consent is asked per test
 	StallMinutes     int     `json:"stall_minutes"`      // content-merged tasks switch source after this
+	PublicTrackers   bool    `json:"public_trackers"`    // new torrents get the public tracker list
+	NoSharingHours   int     `json:"no_sharing_hours"`   // without sources this long: not shared (1-168)
+	LikelyDeadDays   int     `json:"likely_dead_days"`   // without sources this long: probably dead (1-30)
 }
 
 // ProxyProfile is one saved proxy. Its password is the secret
@@ -159,6 +162,7 @@ func DefaultSettings() Settings {
 			PortFrom: 16891, PortTo: 16899,
 			DHT: true, LSD: true, PEX: true, SeedRatio: 1.5, SeedTime: 0, MaxConn: 300,
 			PeerMode: 1, PeerID: "DC", PeerVersion: "1.0", StallMinutes: 30,
+			NoSharingHours: 6, LikelyDeadDays: 3,
 		},
 		Proxy:       ProxySettings{ApplyTrackers: true, ApplyPeers: true, Force: true},
 		HistoryDays: 90,
@@ -220,6 +224,9 @@ func (s *Settings) normalize() {
 	if s.Torrent.StallMinutes <= 0 {
 		s.Torrent.StallMinutes = 30
 	}
+	// Settings saved before these existed decode over the defaults
+	s.Torrent.NoSharingHours = min(max(s.Torrent.NoSharingHours, 1), 168)
+	s.Torrent.LikelyDeadDays = min(max(s.Torrent.LikelyDeadDays, 1), 30)
 	switch s.AutoRemove {
 	case "", "completed", "seeded":
 	default:

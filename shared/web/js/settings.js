@@ -109,6 +109,42 @@
 		el.insertBefore(h('div', {'class':'secintro'}, [h('p', {text:intro}), h('details', null, [h('summary', {text:DC.t('More details')}), h('p', {text:more})])]), el.children[1]);
 		return el;
 	}
+	/* The public tracker list: where it stands, and an update that does not wait for the daily one */
+	function publicList(pl){
+		var txt = h('span', {'class':'unit', role:'status'}), b;
+		function show(x){
+			txt.textContent = DC.sentences(x.source === 'feed' ? DC.t('{n} trackers, updated {time}.', {n:x.count, time:DC.ftime(x.updated_at)}) : DC.t('Using the built-in list ({n} trackers).', {n:x.count || 0}),
+				x.error ? DC.t('The last update failed: {error}', {error:x.error}) : '');
+		}
+		show(pl || {});
+		b = btn('retry', DC.t('Update now'), function(){
+			DC.busy(b, true);
+			DC.api.post('trackers/public/refresh', {}).then(function(x){ DC.busy(b, false); show(x); }, function(e){ DC.busy(b, false); DC.toast(DC.errText(e)); });
+		});
+		return DC.fieldDiv(DC.t('Public tracker list'), DC.t('Updated from the Download Center website once a day while it is in use'), [txt, b]);
+	}
+	/* Torrents that find no peers: more ways to find them, and when one counts as not shared or as probably dead.
+	   Days shorter than the hours count as the hours, which the field says while typing. */
+	function noPeersSec(tor, r){
+		var hint = h('small', {'class':'warn', role:'status', hidden:true}), el, hours, days;
+		el = sec('search', DC.t('Torrents that find no peers'), null, [
+			toggle('bPub', DC.t('Add the public tracker list to new torrents'), DC.t('More ways to find peers for torrents and magnet links without a tracker. Private torrents never get it'), !!tor.public_trackers),
+			publicList(r.public_tracker_list),
+			field(DC.t('Count as not shared after'), DC.t('No connection, and nobody reports sharing it'), num('bNoShare', tor.no_sharing_hours || 6, DC.t('hours'), {min:'1', max:'168', step:'1', inputmode:'numeric'}), 'bNoShare'),
+			h('label', {'class':'field', 'for':'bDead'}, [h('span', null, [DC.t('Count as probably no longer shared after'), h('small', {text:DC.t('Still no tracker reports a complete copy')}), hint]),
+				h('span', {'class':'inline'}, num('bDead', tor.likely_dead_days || 3, DC.t('days'), {min:'1', max:'30', step:'1', inputmode:'numeric'}))])
+		]);
+		el.className += ' t1';
+		el.appendChild(h('p', {'class':'secfoot', text:DC.t('Only time while the task runs without any connection or progress counts; paused time does not. Download Center never deletes these tasks by itself.')}));
+		function check(){
+			hours = DC.ival('bNoShare'); days = DC.ival('bDead');
+			hint.hidden = !(hours > 0 && days > 0 && days * 24 < hours);
+			if(!hint.hidden) hint.textContent = DC.t('{n} hours will be used', {n:hours});
+		}
+		el.addEventListener('input', check);
+		setTimeout(check, 0);
+		return el;
+	}
 	function setDownload(body){
 		loadingInto(body);
 		DC.api.get('settings').then(function(r){ clear(body); downloadForm(body, r); }, function(e){ errorInto(body, e); });
@@ -188,6 +224,7 @@
 				peerNote,
 				peerCustom,
 			]),
+			noPeersSec(tor, r),
 			proxySec(px, caps, ucaps),
 			sec('inbox', DC.t('When space runs low'), null, [field(DC.t('Free space below'), DC.t('0 means no check. Below this, tasks downloading to this volume are paused and you are notified'), num('sDisk', s.disk_low_mb ? Math.round(s.disk_low_mb / 1024) : 0, 'GB'), 'sDisk')]),
 			v4Sec(),
@@ -208,7 +245,8 @@
 				ftp:{max_num:DC.ival('ftpMax'), max_down:DC.ival('fDn'), limited_down:DC.ival('fLDn'), max_up:(s.ftp || {}).max_up || 0, limited_up:(s.ftp || {}).limited_up || 0},
 				bt:{max_num:DC.ival('btMax'), max_down:DC.ival('bDn'), max_up:DC.ival('bUp'), limited_down:DC.ival('bLDn'), limited_up:DC.ival('bLUp')},
 				torrent:{dht:DC.chk('bDht'), lsd:DC.chk('bLsd'), pex:DC.chk('bPex'), encrypt:DC.chk('bEnc'), seed_ratio:DC.fval('bRatio'), seed_time:parseInt(DC.val('bTime'), 10),
-					torrent_max_conn:DC.ival('bTConn'), torrent_max_up:DC.ival('bTUp'), peer_mode:DC.ival('bPeerMode')},
+					torrent_max_conn:DC.ival('bTConn'), torrent_max_up:DC.ival('bTUp'), peer_mode:DC.ival('bPeerMode'), public_trackers:DC.chk('bPub'),
+					no_sharing_hours:DC.ival('bNoShare'), likely_dead_days:DC.ival('bDead')},
 				disk_low_mb:DC.ival('sDisk') * 1024
 			};
 			if(document.getElementById('bUpnp')) o.torrent.upnp = DC.chk('bUpnp');

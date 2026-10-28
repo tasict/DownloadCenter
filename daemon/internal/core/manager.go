@@ -53,6 +53,7 @@ type Manager struct {
 	Engines map[string]engine.Engine // torrent engines by name ("libtorrent")
 
 	Hosters Resolver
+	Public  PublicTrackers // the public tracker list (nil: none)
 
 	mu         sync.Mutex
 	live       map[string]*Task
@@ -61,14 +62,17 @@ type Manager struct {
 	lastSave   map[string]int64
 	dirty      map[string]bool
 	moving     map[string]bool
-	down       map[string]bool // engines currently unreachable
-	restarting map[string]bool // engines restarted on purpose (no engine.down event)
-	resolving  map[string]bool // file-hosting links being resolved
-	health     sync.Map        // engine name -> down (bool), readable without mu
-	inMinute   atomic.Bool     // housekeeping pass running
-	busy       bool            // something is downloading (for queue.idle)
-	schedMode  string          // schedule mode at the last tick (for schedule.changed)
-	rates      rateHistory     // download rates of the last 15 minutes (own lock)
+	down       map[string]bool   // engines currently unreachable
+	restarting map[string]bool   // engines restarted on purpose (no engine.down event)
+	resolving  map[string]bool   // file-hosting links being resolved
+	stall      map[string]*stall // torrents without peers (watchPeers)
+	guards     map[string]bool   // torrents: the address guard the engine has (guardFor)
+	clock      func() time.Time
+	health     sync.Map    // engine name -> down (bool), readable without mu
+	inMinute   atomic.Bool // housekeeping pass running
+	busy       bool        // something is downloading (for queue.idle)
+	schedMode  string      // schedule mode at the last tick (for schedule.changed)
+	rates      rateHistory // download rates of the last 15 minutes (own lock)
 	lastTick   time.Time
 	lastMin    time.Time
 	lastDay    time.Time
@@ -92,6 +96,9 @@ func New(db *store.DB, dataDir string) *Manager {
 		down:       map[string]bool{},
 		restarting: map[string]bool{},
 		resolving:  map[string]bool{},
+		stall:      map[string]*stall{},
+		guards:     map[string]bool{},
+		clock:      time.Now,
 		kick:       make(chan struct{}, 1),
 		stopCh:     make(chan struct{}),
 	}
@@ -436,6 +443,9 @@ func (m *Manager) addToEngine(t *Task, e engine.Engine) {
 		return
 	}
 	t.EngineRef = ref
+	if t.Kind == KindBT {
+		m.guards[t.Hash] = req.Guard
+	}
 	t.Engine = e.Name()
 	t.UpBase = t.UpTotal
 	t.Options.Check = false
@@ -476,7 +486,10 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 		}
 		req.Select = t.Options.Select
 		req.Priorities = intKeys(t.Options.Priorities)
-		req.Trackers = t.Options.Trackers
+		req.Trackers = engineTrackers(t)
+		// Regular users cannot reach the NAS itself through a torrent either;
+		// nor can a public tracker list (see guardFor)
+		req.Guard = m.guardFor(t)
 		req.SeedRatio, req.SeedTime = s.Torrent.SeedRatio, s.Torrent.SeedTime
 		req.MaxPeers = s.Torrent.TorrentMaxConn
 		if s.Torrent.TorrentMaxUp > 0 && (req.MaxUp == 0 || req.MaxUp > int64(s.Torrent.TorrentMaxUp)*1024) {
@@ -710,6 +723,16 @@ func (m *Manager) applyStatus(t *Task, st *engine.Status, e engine.Engine, elaps
 	}
 	m.running[t.Hash] = st.State == engine.Active
 	t.DownRate, t.UpRate, t.Peers, t.Seeds = st.DownRate, st.UpRate, st.Connections, st.Seeders
+	t.PeersKnown = st.KnownPeers
+	if t.Kind == KindBT {
+		if st.IsMetadata && st.State == engine.Active && t.Options.MetaSince == 0 {
+			t.Options.MetaSince = m.clock().Unix()
+			m.markDirty(t)
+		} else if !st.IsMetadata {
+			m.metadataArrived(t, st, e)
+		}
+		m.watchPeers(t, st, e, elapsed)
+	}
 	if st.State != engine.Active {
 		// Engines may report a decaying speed for a while after a pause
 		t.DownRate, t.UpRate = 0, 0
@@ -1257,12 +1280,14 @@ func (m *Manager) kindLimits(kind string) TypeLimits {
 
 // slotHolders lists the tasks that get a download slot with the tasks in this
 // order: per kind, the first max_num that are in the engine and not paused,
-// finished, failed, moving or seeding. The scheduler and the queue moves use
-// the same rule, so what a move reports is what the next tick does.
-func (m *Manager) slotHolders(list []*Task, mode string) map[string]bool {
-	out := map[string]bool{}
+// finished, failed, moving or seeding. A torrent that has found no peers for
+// a while (yielded) keeps running without a slot: it is in free. The
+// scheduler and the queue moves use the same rule, so what a move reports is
+// what the next tick does.
+func (m *Manager) slotHolders(list []*Task, mode string) (holders, free map[string]bool) {
+	holders, free = map[string]bool{}, map[string]bool{}
 	if mode == "off" {
-		return out
+		return
 	}
 	count := map[string]int{}
 	for _, t := range list {
@@ -1277,12 +1302,16 @@ func (m *Manager) slotHolders(list []*Task, mode string) map[string]bool {
 		if t.State == StPaused && t.Kind == KindBT && t.FinishedAt > 0 && t.Size > 0 && t.DoneBytes >= t.Size {
 			continue
 		}
+		if m.yielded(t) {
+			free[t.Hash] = true
+			continue
+		}
 		if count[t.Kind] < m.kindLimits(t.Kind).MaxNum {
 			count[t.Kind]++
-			out[t.Hash] = true
+			holders[t.Hash] = true
 		}
 	}
-	return out
+	return
 }
 
 // queueOrder is every live task in queue order. Caller holds m.mu.
@@ -1335,7 +1364,7 @@ func (m *Manager) schedule(now time.Time) {
 			m.TaskEvent("task.resumed", t, map[string]any{"by": "timer"})
 		}
 	}
-	holders := m.slotHolders(list, mode)
+	holders, free := m.slotHolders(list, mode)
 	for _, t := range list {
 		switch t.State {
 		case StDone, StError, StMoving:
@@ -1375,6 +1404,10 @@ func (m *Manager) schedule(now time.Time) {
 		}
 		if holders[t.Hash] {
 			count[t.Kind]++
+			want[t.Hash] = true
+			anyDown = true
+		} else if free[t.Hash] {
+			// No peers for a while: it keeps looking, without a slot
 			want[t.Hash] = true
 			anyDown = true
 		} else {
@@ -1475,6 +1508,18 @@ func (m *Manager) minute() {
 		m.checkDisk(int64(s.DiskLowMB) << 20)
 	}
 	m.switchStalledSources()
+	if m.Public != nil {
+		m.Public.Tick(s.Torrent.PublicTrackers)
+	}
+	m.mu.Lock()
+	for h := range m.stall {
+		if m.live[h] == nil {
+			delete(m.stall, h)
+		}
+	}
+	m.mu.Unlock()
+	m.syncGuards()
+	m.askTrackers()
 	if now.Sub(m.lastDay) >= 24*time.Hour {
 		m.lastDay = now
 		cut := now.Unix() - int64(s.HistoryDays)*86400

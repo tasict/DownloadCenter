@@ -83,6 +83,7 @@ var uiKeys = set(
 	"pick_mode", "pick_all", "pick_range", "clear_done", "bulk", "queue_move", "stream_on", "preview_play", "preview_subs", "subs_enc", "open_folder", "open_on_phone",
 	"token_agent", "agent_copy_claude", "agent_copy_other", "skill_download",
 	"mcp_on", "mcp_overview", "mcp_list", "mcp_get", "mcp_add", "mcp_control", "mcp_files", "mcp_remove", "mcp_show", "mcp_switch_off",
+	"mcp_trackers", "trk_dialog", "trk_add", "trk_public", "trk_bulk", "trk_find", "src_tracker",
 )
 
 // UI languages (lang_<code>)
@@ -280,6 +281,8 @@ func (s *Service) event(e core.Event) {
 		}
 	case "task.seeding_finished":
 		s.add("res_seeded", 1)
+	case "task.likely_dead":
+		s.add("res_likely_dead", 1)
 	}
 }
 
@@ -547,6 +550,7 @@ func (s *Service) snapshot() map[string]int64 {
 	b("st_encrypt", st.Torrent.Encrypt)
 	b("st_dht", st.Torrent.DHT)
 	b("st_upnp", st.Torrent.UPnP)
+	b("st_public_trackers", st.Torrent.PublicTrackers)
 	out["st_peer_mode"] = int64(st.Torrent.PeerMode)
 	b("st_bt_engine", s.m.Engines["libtorrent"] != nil)
 	if s.m.URL != nil {

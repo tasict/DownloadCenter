@@ -348,7 +348,7 @@ func (m *Manager) MoveNear(ids []string, anchor string, after bool, visible func
 	}
 	mode := m.scheduleMode()
 	list := m.queueOrder()
-	before := m.slotHolders(list, mode)
+	before, _ := m.slotHolders(list, mode)
 	var block, rest []*Task
 	for _, t := range list {
 		if moving[t.Hash] {
@@ -373,7 +373,7 @@ func (m *Manager) MoveNear(ids []string, anchor string, after bool, visible func
 			m.markDirty(o)
 		}
 	}
-	now := m.slotHolders(list, mode)
+	now, _ := m.slotHolders(list, mode)
 	for _, t := range list {
 		if visible != nil && !visible(t) {
 			continue

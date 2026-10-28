@@ -113,7 +113,7 @@ func (s *Service) send(ch *Channel, msg *Message) (int, error) {
 		switch msg.Type {
 		case "task.completed", "task.seeding_finished", "task.moved":
 			color = 0x34C759
-		case "task.failed", "disk.low", "engine.down", "notify.disabled":
+		case "task.failed", "task.likely_dead", "disk.low", "engine.down", "notify.disabled":
 			color = 0xFF3B30
 		}
 		embed := map[string]any{"title": truncate(msg.Title, 250), "description": truncate(msg.Body, 4000), "color": color}
@@ -266,7 +266,7 @@ func (s *Service) sendWebhook(cl *http.Client, ch *Channel, cfg map[string]strin
 func qtsLog(msg *Message) error {
 	sev := "0"
 	switch msg.Type {
-	case "task.failed", "disk.low", "engine.down", "notify.disabled", "security.token_rejected":
+	case "task.failed", "task.likely_dead", "disk.low", "engine.down", "notify.disabled", "security.token_rejected":
 		sev = "1"
 	}
 	text := msg.Title

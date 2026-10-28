@@ -332,11 +332,13 @@
 
 	/* ---------- Notifications & integrations ---------- */
 	var EVENT_LABEL = {
-		'task.added':DC.t('Add'), 'task.started':DC.t('Start'), 'task.completed':DC.t('Done'), 'task.seeding_finished':DC.t('Seeding finished'), 'task.moved':DC.t('Moved'), 'task.failed':DC.t('Failed'),
+		'task.added':DC.t('Add'), 'task.started':DC.t('Start'), 'task.completed':DC.t('Done'), 'task.seeding_finished':DC.t('Seeding finished'), 'task.moved':DC.t('Moved'), 'task.failed':DC.t('Failed'), 'task.likely_dead':DC.t('Probably no longer shared'),
 		'task.removed':DC.t('Removed'), 'task.paused':DC.t('Pause'), 'task.resumed':DC.t('Resume'), 'task.merged':DC.t('Merge sources'), 'task.source_switched':DC.t('Switch source'), 'queue.idle':DC.t('All downloads finished'),
 		'disk.low':DC.t('Not enough space'), 'schedule.changed':DC.t('Schedule change'), 'account.expiring':DC.t('File-hosting account expiring'), 'engine.down':DC.t('Engine stopped'), 'engine.up':DC.t('Engine recovered'),
 		'security.token_created':DC.t('Create token'), 'security.token_rejected':DC.t('Token rejected')
 	};
+	/* Events whose name alone does not say when they come */
+	var EVENT_HINT = {'task.likely_dead':DC.t('Once, when a torrent has probably stopped being shared')};
 	function opsHelp(s){
 		if(s.ops === 'yes') return DC.t('People who have linked their accounts can check, add and pause downloads with commands in the channel');
 		if(s.ops === 'https') return DC.t('The NAS must be reachable from outside over HTTPS for messages to come in');
@@ -484,7 +486,8 @@
 				for(m = 0; m < evList.length; m++){
 					if(!admin && /^(engine|security)\./.test(evList[m])) continue;
 					evWrap.appendChild(h('label', {'class':'toggle', 'for':'ev' + m}, [h('input', {type:'checkbox', id:'ev' + m, 'data-ev':evList[m],
-						checked:c ? (c.events || []).indexOf(evList[m]) >= 0 : (evList[m] === 'task.completed' || evList[m] === 'task.failed' || evList[m] === 'disk.low')}), h('span', {text:EVENT_LABEL[evList[m]] || evList[m]})]));
+						checked:c ? (c.events || []).indexOf(evList[m]) >= 0 : (evList[m] === 'task.completed' || evList[m] === 'task.failed' || evList[m] === 'disk.low')}),
+						h('span', {title:EVENT_HINT[evList[m]] || null}, [EVENT_LABEL[evList[m]] || evList[m], EVENT_HINT[evList[m]] ? h('small', {text:EVENT_HINT[evList[m]]}) : null])]));
 				}
 				var conn = [];
 				for(m = 0; m < (sv.fields || []).length; m++){

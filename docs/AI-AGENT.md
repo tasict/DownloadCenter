@@ -68,11 +68,12 @@ Your browser needs WebMCP: Chrome with `chrome://flags/#enable-webmcp-testing` t
 | Tool | What it does |
 |---|---|
 | `get_overview` | Download and upload speed, how many downloads are in each state, the schedule and free space |
-| `list_downloads` | Downloads in queue order, by state or by text in the name or link |
-| `get_download` | One download's details: sources, folders, the last lines of its log, a torrent's files |
+| `list_downloads` | Downloads in queue order, by state or by text in the name or link; a torrent that is not complete says whether anybody seems to share it (`source_health`) |
+| `get_download` | One download's details: sources, folders, the last lines of its log, a torrent's files, whether it has found any peers and what its source status is based on (how long it waited, what DHT and each tracker found). The agent is told that "probably no longer shared" is a judgment and to leave deleting to you |
 | `add_downloads` | Add links, magnet links and links to `.torrent` files, started or paused (administrators may choose the folders) |
 | `control_downloads` | Pause (also for a while), resume, retry, or move to the top or bottom of the queue |
 | `choose_files` | Choose the files of a torrent to download |
+| `add_trackers` | Add trackers, or the public tracker list, to torrents that find no peers (private torrents are skipped) |
 | `remove_downloads` | Delete tasks, with or without their files |
 | `show_in_page` | Show a download's details, or the list in one state, in the open page |
 

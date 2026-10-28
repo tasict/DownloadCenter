@@ -534,7 +534,8 @@
 				probeTimer = setTimeout(function(){ probeMagnet(my); }, 2000);
 			}, function(e){
 				if(closed || my !== gen) return;
-				clear(body); body.appendChild(h('p', {'class':'note warn', text:DC.t('{error}. You can still start the download and choose files later in the task details.', {error:DC.errText(e)})}));
+				/* Someone else's torrent cannot be added either: no "you can still start" then */
+				clear(body); body.appendChild(h('p', {'class':'note warn', text:e.code === 'duplicate_other_owner' ? DC.errText(e) : DC.t('{error}. You can still start the download and choose files later in the task details.', {error:DC.errText(e)})}));
 			});
 		}
 		function makePicks(list, statuses){

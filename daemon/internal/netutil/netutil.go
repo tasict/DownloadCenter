@@ -437,13 +437,13 @@ func (g guardRT) RoundTrip(req *http.Request) (*http.Response, error) {
 // CheckHost refuses a host that is or resolves to a forbidden address.
 // With literalOnly, names other than localhost are not resolved.
 func CheckHost(ctx context.Context, host string, literalOnly bool) error {
-	if ip := net.ParseIP(host); ip != nil {
+	if ip := HostIP(host); ip != nil {
 		if Forbidden(ip) {
 			return fmt.Errorf("address %s is not allowed", ip)
 		}
 		return nil
 	}
-	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+	if h := strings.ToLower(strings.TrimSuffix(host, ".")); h == "localhost" || strings.HasSuffix(h, ".localhost") {
 		return fmt.Errorf("address %s is not allowed", host)
 	}
 	if literalOnly {
@@ -456,7 +456,7 @@ func CheckHost(ctx context.Context, host string, literalOnly bool) error {
 // AllowedIP resolves host and returns its first address that is not
 // forbidden.
 func AllowedIP(ctx context.Context, host string) (net.IP, error) {
-	if ip := net.ParseIP(host); ip != nil {
+	if ip := HostIP(host); ip != nil {
 		if Forbidden(ip) {
 			return nil, fmt.Errorf("address %s is not allowed", ip)
 		}
@@ -475,4 +475,83 @@ func AllowedIP(ctx context.Context, host string) (net.IP, error) {
 		return ip.IP, nil
 	}
 	return nil, lastErr
+}
+
+// HostIP is the address a host names by itself: an IP literal, or IPv4 in
+// any form the C library's resolver takes as one (2130706433, 0x7f.1 and
+// 127.1 are all 127.0.0.1), as dc-dl and dc-bt would connect to it; nil for
+// a name. The rules are inet_aton's: one to four parts, each decimal, octal
+// (a leading 0) or hexadecimal (0x), the last one filling the bytes left.
+func HostIP(host string) net.IP {
+	if ip := net.ParseIP(host); ip != nil {
+		return ip
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) > 4 {
+		return nil
+	}
+	var v [4]uint64
+	for i, p := range parts {
+		n, ok := atonPart(p)
+		if !ok {
+			return nil
+		}
+		v[i] = n
+	}
+	// The last part fills the remaining bytes
+	last := len(parts) - 1
+	limit := uint64(1)<<(8*uint(4-last)) - 1
+	if v[last] > limit {
+		return nil
+	}
+	ip := make(net.IP, 4)
+	for i := 0; i < last; i++ {
+		if v[i] > 255 {
+			return nil
+		}
+		ip[i] = byte(v[i])
+	}
+	for i := 3; i >= last; i-- {
+		ip[i] = byte(v[last] >> (8 * uint(3-i)))
+	}
+	return ip.To16()
+}
+
+// atonPart reads one part of an inet_aton address: it starts with a digit.
+func atonPart(p string) (uint64, bool) {
+	if p == "" || p[0] < '0' || p[0] > '9' {
+		return 0, false
+	}
+	base, digits := uint64(10), p
+	switch {
+	case len(p) > 1 && (p[1] == 'x' || p[1] == 'X') && p[0] == '0':
+		base, digits = 16, p[2:]
+	case len(p) > 1 && p[0] == '0':
+		base, digits = 8, p[1:]
+	}
+	if digits == "" {
+		return 0, false
+	}
+	var n uint64
+	for _, c := range digits {
+		var d uint64
+		switch {
+		case c >= '0' && c <= '9':
+			d = uint64(c - '0')
+		case c >= 'a' && c <= 'f':
+			d = uint64(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			d = uint64(c-'A') + 10
+		default:
+			return 0, false
+		}
+		if d >= base {
+			return 0, false
+		}
+		n = n*base + d
+		if n > 0xffffffff {
+			return 0, false
+		}
+	}
+	return n, true
 }

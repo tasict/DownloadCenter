@@ -48,6 +48,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request, p *auth.Pri
 		"engine_versions": s.engineVersions(),
 		"health":          s.M.EngineHealth(),
 	}
+	if s.Public != nil {
+		resp["public_tracker_list"] = s.Public.Peek(false)
+	}
 	// What the default client identity sends
 	if bt, ok := s.M.BTEngine().(engine.OwnIdentity); ok {
 		if id, agent := bt.OwnIdentity(); id != "" {

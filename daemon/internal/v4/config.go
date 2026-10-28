@@ -65,6 +65,8 @@ func (s *service) configShape(c *call) result {
 		"proxy_password": "",
 		"peer_mode":      st.Torrent.PeerMode, "peer_id": st.Torrent.PeerID, "peer_version": firstNonEmpty(st.Torrent.PeerVersion, ver),
 		"peer_agent": agent,
+		// Download Center's own: new torrents get the public tracker list
+		"public_trackers": b2i(st.Torrent.PublicTrackers),
 	}
 	return result{
 		"global": global,
@@ -127,6 +129,7 @@ func (s *service) configSet(c *call) result {
 		st.Torrent.UPnP = boolv("bt_upnp_forward", st.Torrent.UPnP) || boolv("bt_nat", false)
 	}
 	st.Torrent.DHT = boolv("bt_dht", st.Torrent.DHT)
+	st.Torrent.PublicTrackers = boolv("bt_public_trackers", st.Torrent.PublicTrackers)
 	st.Torrent.LSD = boolv("bt_lsd", st.Torrent.LSD)
 	st.Torrent.Encrypt = boolv("bt_encrypt", st.Torrent.Encrypt)
 	st.BT.MaxNum = intv("bt_max_num", st.BT.MaxNum)

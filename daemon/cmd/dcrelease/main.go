@@ -12,6 +12,9 @@
 //	dcrelease publish -repo R -tag T [-changelog F]
 //	                                              publish the draft with its CHANGELOG notes
 //	dcrelease feed    -repo R -pub F -out FILE    write updates.json from the published releases
+//	dcrelease trackers -out FILE [-prev URL] [-source URL]
+//	                                              write trackers.json (the public tracker list)
+//	                                              from newTrackon, else keep the one at -prev
 //
 // The GitHub token comes from -token-file, else from $GITHUB_TOKEN.
 package main
@@ -54,6 +57,8 @@ func main() {
 		err = publish(args)
 	case "feed":
 		err = feed(args)
+	case "trackers":
+		err = trackerList(args)
 	default:
 		usage()
 	}
@@ -64,14 +69,14 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: dcrelease keygen|notes|sums|sign|check|draft|verify|publish|feed [flags] (see the source header)")
+	fmt.Fprintln(os.Stderr, "usage: dcrelease keygen|notes|sums|sign|check|draft|verify|publish|feed|trackers [flags] (see the source header)")
 	os.Exit(2)
 }
 
 type opts struct {
 	fs                                           *flag.FlagSet
 	key, pub, dir, version, changelog, repo, tag *string
-	commit, out, tokenFile                       *string
+	commit, out, tokenFile, prev, source         *string
 }
 
 func parse(name string, args []string) *opts {
@@ -81,7 +86,9 @@ func parse(name string, args []string) *opts {
 		dir: fs.String("dir", "", "directory with the packages"), version: fs.String("version", "", "version, e.g. 1.0.0"),
 		changelog: fs.String("changelog", "CHANGELOG.md", "CHANGELOG.md"), repo: fs.String("repo", "", "GitHub repository owner/name"),
 		tag: fs.String("tag", "", "release tag, e.g. v1.0.0"), commit: fs.String("commit", "", "commit to tag"),
-		out: fs.String("out", "", "output file"), tokenFile: fs.String("token-file", "", "file with a GitHub token (else $GITHUB_TOKEN)")}
+		out: fs.String("out", "", "output file"), tokenFile: fs.String("token-file", "", "file with a GitHub token (else $GITHUB_TOKEN)"),
+		prev:   fs.String("prev", "", "URL of the trackers.json published now"),
+		source: fs.String("source", newTrackon, "list of stable trackers, one per line")}
 	fs.Parse(args)
 	return o
 }

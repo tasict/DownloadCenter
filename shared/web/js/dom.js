@@ -50,6 +50,10 @@
 		popout:'<path d="M18.5 13.5v4a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2h4"/><g class="a-pop"><path d="M14 4.5h5.5V10"/><path d="M19.5 4.5L11 13"/></g>',
 		lock:'<rect x="5" y="10.5" width="14" height="10" rx="1.5"/><path class="a-shackle" d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/><path d="M12 14.5v2.5"/>',
 		chev:'<path d="M9.5 5.5L16 12l-6.5 6.5"/>',
+		/* Source status of a torrent: a signal that keeps sounding while it is looked for, struck through once it has probably died */
+		waves:'<circle class="dot" cx="12" cy="12" r="1.6"/><path class="a-w1" d="M8.6 15.4a4.8 4.8 0 0 1 0-6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8"/><path class="a-w2" d="M5.8 18.2a8.8 8.8 0 0 1 0-12.4M18.2 5.8a8.8 8.8 0 0 1 0 12.4"/>',
+		'waves-off':'<g class="a-shake"><circle class="dot" cx="12" cy="12" r="1.6"/><path d="M8.6 15.4a4.8 4.8 0 0 1 0-6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8M5.8 18.2a8.8 8.8 0 0 1 0-12.4M18.2 5.8a8.8 8.8 0 0 1 0 12.4"/><path d="M4.5 4.5l15 15"/></g>',
+		search:'<circle cx="11" cy="11" r="6"/><path d="M19.5 19.5l-4.3-4.3"/>',
 		back:'<path d="M15 5L8 12l7 7"/>',
 		eye:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
 		eyeoff:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/>',
@@ -140,6 +144,14 @@
 		if(s < 3600) return DC.t('{m} min', {m:Math.floor(s / 60)});
 		return DC.t('{h} h {m} min', {h:Math.floor(s / 3600), m:Math.floor((s % 3600) / 60)});
 	}
+	/* Long waits (a torrent without sources): days past two of them; whole hours and days without the zeros */
+	function fspan(s){
+		s = +s || 0;
+		if(s >= 86400 && s % 86400 < 3600) return DC.t('{n} days', {n:Math.floor(s / 86400)});
+		if(s >= 3600 && s < 86400 * 2 && s % 3600 < 60) return DC.t('{n} hours', {n:Math.floor(s / 3600)});
+		if(s < 86400 * 2) return fdur(s);
+		return DC.t('{d} d {h} h', {d:Math.floor(s / 86400), h:Math.floor((s % 86400) / 3600)});
+	}
 	function pad(n){ return (n < 10 ? '0' : '') + n; }
 	function ftime(unix){
 		if(!unix) return '';
@@ -162,8 +174,10 @@
 		for(i = 0; i < arguments.length; i++){ s = arguments[i]; if(!s) continue; if(out && !/[。！？]$/.test(out)) out += ' '; out += s; }
 		return out;
 	};
+	/* Seconds since a time the NAS reported; a browser clock running behind the NAS never makes it negative */
+	DC.elapsed = function(unix){ return unix ? Math.max(0, Math.floor(Date.now() / 1000) - unix) : 0; };
 	DC.KB = KB; DC.MB = MB; DC.GB = GB;
-	DC.fsize = fsize; DC.fspeed = fspeed; DC.fspeedParts = fspeedParts; DC.feta = feta; DC.fdur = fdur; DC.pad = pad; DC.ftime = ftime; DC.fdate = fdate; DC.fclock = fclock; DC.extOf = extOf; DC.baseName = baseName;
+	DC.fsize = fsize; DC.fspeed = fspeed; DC.fspeedParts = fspeedParts; DC.feta = feta; DC.fdur = fdur; DC.fspan = fspan; DC.pad = pad; DC.ftime = ftime; DC.fdate = fdate; DC.fclock = fclock; DC.extOf = extOf; DC.baseName = baseName;
 
 	/* ---------- browser storage: per-viewer conveniences only ---------- */
 	DC.ls = function(k, v){
