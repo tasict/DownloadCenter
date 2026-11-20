@@ -10,6 +10,8 @@ The agent runs on your computer and talks to the NAS directly. It needs to reach
 2. The next window shows the token once, and under **For AI agents** a one-line setup command. Pick your agent, copy the command and run it in a terminal on the computer where the agent runs. It
    - downloads the skill file from your NAS into the agent's skills folder, and
    - saves the NAS address and the token to `~/.config/download-center/config`, readable only by you.
+
+   Open Download Center at its `https://` address for this: over plain `http://` the page warns that the skill file and the token cross the network unencrypted. The command is only offered when the page's address is an ordinary host name or IP address with an optional port.
 3. Start a new session of the agent and ask it something about your downloads.
 
 On Windows, run the command in Git Bash or WSL, or install by hand (below).
@@ -26,11 +28,11 @@ The skill file is served by your NAS at `<Download Center address>/docs/skill/SK
 
 ## The connection file
 
-`~/.config/download-center/config` holds two lines:
+`~/.config/download-center/config` holds two lines, each value in single quotes (the agent loads the file as shell assignments, so nothing in the values must be able to run):
 
 ```sh
-DC_URL=https://nas.example.com:8081/DownloadCenter
-DC_TOKEN=dct_xxxxxxxx_…
+DC_URL='https://nas.example.com:8081/DownloadCenter'
+DC_TOKEN='dct_xxxxxxxx_…'
 ```
 
 `DC_URL` is the address of the Download Center page without the trailing slash. If you prefer, set `DC_URL` and `DC_TOKEN` as environment variables of the agent instead; the skill uses them when they are set.
@@ -39,7 +41,7 @@ To create the file by hand:
 
 ```sh
 mkdir -p ~/.config/download-center
-(umask 077; printf 'DC_URL=%s\nDC_TOKEN=%s\n' 'https://nas.example.com:8081/DownloadCenter' 'dct_…' > ~/.config/download-center/config)
+(umask 077; printf "DC_URL='%s'\nDC_TOKEN='%s'\n" 'https://nas.example.com:8081/DownloadCenter' 'dct_…' > ~/.config/download-center/config)
 ```
 
 ## Keeping it current
@@ -47,6 +49,14 @@ mkdir -p ~/.config/download-center
 The skill describes the API of the Download Center version it came from. After updating Download Center, run the command under **Install or update the skill by hand** again; it replaces the skill file and leaves the connection file alone.
 
 When the token expires, or after you regenerate it, the agent gets `token_invalid` or `token_expired`. Regenerate the token (or create a new one) and run the setup command shown with it.
+
+## Searching for torrents
+
+The agent can also find torrents for you ("find the offline Wikipedia and download the version without pictures"): it searches the sources set up in **Settings › Search**, shows you what it found, and adds the one you pick the same way as a link you gave it. This needs a permission the AI Agent preset does not include: edit the token in **Settings › Access tokens** and tick **Search for torrents** among the custom permissions (or choose it when you create the token). Without it, the agent gets `insufficient_scope` and tells you which permission is missing.
+
+- Searches are made by the NAS, not by the agent, through the proxy your downloads use; the agent never contacts the search sites.
+- Search sources are third-party sites. The skill tells the agent to add only what you picked and only what you have the right to download; you remain responsible for what is downloaded.
+- The browser tools (WebMCP, below) do not search.
 
 ## Security
 
@@ -78,7 +88,9 @@ Your browser needs WebMCP: Chrome with `chrome://flags/#enable-webmcp-testing` t
 | `show_in_page` | Show a download's details, or the list in one state, in the open page |
 
 - The tools use the same API as the page, with your account's rights: a regular user's agent sees and changes only that user's downloads.
-- Deleting tasks always asks you in the page first, naming the tasks and saying whether files are deleted; so does adding more than 10 links at once. The agent cannot answer for you, and the question closes by itself after 5 minutes.
+- One small change per page goes through without asking (for example adding three links). After that, every change the agent asks for is shown to you in the page first, and so is a change that adds more than 10 items, picks a folder, adds trackers of the agent's own or adds links that lead to this NAS or to addresses on your local network (also through a thunder://, flashget:// or qqdl:// link, or a magnet link's trackers, web seeds or peers). Such a question shows where the links really lead. Deleting tasks always asks. The question lists everything the agent asked for, starts on Cancel, cannot be answered by the agent and closes by itself after 5 minutes.
+- When the switch is off, the tools answer that they are switched off, even if the browser still holds them.
+- Downloads an agent adds through the page are checked like downloads added with an access token, even in an administrator's browser: they never connect to this NAS's own or loopback addresses, whatever name the link uses, and the task details name the AI agent as the caller. Every request a tool sends is marked as the agent's by the page itself; nothing the agent passes can change that.
 - Every change the agent makes is shown at the bottom of the page, for example "AI agent paused 3 downloads".
 - The tools exist only while the tab is open and you are signed in. For agents that work on their own, use a token and the skill file as above.
 - What the tools return (task names, file names, logs) reaches the agent's model provider; names come from the internet and are marked as untrusted content for the agent.

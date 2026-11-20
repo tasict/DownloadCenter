@@ -56,9 +56,15 @@ type Engine struct {
 	haveG   bool
 	version string
 	cmd     *exec.Cmd
-	oldBT   atomic.Bool  // dc-bt older than 1.1: cannot move data while seeding
-	finder  atomic.Bool  // dc-bt 1.4 or newer: refresh_peers, set_trackers
-	lib     atomic.Value // libtorrent version (string), for the default identity
+	oldBT   atomic.Bool // dc-bt older than 1.1: cannot move data while seeding
+	finder  atomic.Bool // dc-bt 1.4 or newer: refresh_peers, set_trackers
+	safeDir atomic.Bool // dc-bt 1.5 or newer: untrusted_dir
+	adoptOK atomic.Bool // dc-bt 1.7 or newer: adopt_from (1.6 took over files on weaker checks)
+
+	// CAFile: certificate authorities trusted besides the system's (the
+	// package's list); a missing file means the system's alone
+	CAFile string
+	lib    atomic.Value // libtorrent version (string), for the default identity
 	// The client identity ([2]string: Global.PeerID, PeerAgent) the running
 	// dc-bt started with. Torrents keep the peer id they were added with, so
 	// it keeps that identity until it starts again: sending a new User-Agent
@@ -69,6 +75,11 @@ type Engine struct {
 	offsets   map[string]int64 // upload already counted before a resumed re-add
 	needOff   map[string]bool
 	resumeFor map[string]string // official .fastresume to use on the next add
+	// untrusted_dir torrents whose data is in their destination folder, which
+	// dc-bt does not use: dc-bt did not start them and reports nothing, they
+	// count as having finished seeding (until Remove)
+	seeded  map[string]*engine.Status
+	adopted map[string]bool // the last add took the data in the destination over
 }
 
 type reply struct {
@@ -79,7 +90,27 @@ type reply struct {
 
 func newEngine(bin, dataDir string) *Engine {
 	return &Engine{bin: bin, dataDir: dataDir, pending: map[int64]chan reply{},
-		offsets: map[string]int64{}, needOff: map[string]bool{}, resumeFor: map[string]string{}}
+		offsets: map[string]int64{}, needOff: map[string]bool{}, resumeFor: map[string]string{}, seeded: map[string]*engine.Status{},
+		adopted: map[string]bool{}, CAFile: PackageCAFile(bin)}
+}
+
+// PackageCAFile is where the package keeps its list of certificate
+// authorities: certs/cacert.pem beside the bin folder of the engine.
+func PackageCAFile(bin string) string {
+	return filepath.Join(filepath.Dir(filepath.Dir(bin)), "certs", "cacert.pem")
+}
+
+// caArgs is --ca-file for a sidecar when the list is there.
+func caArgs(path, who string) []string {
+	if path == "" {
+		return nil
+	}
+	if f, err := os.Open(path); err == nil {
+		f.Close()
+		return []string{"--ca-file", path}
+	}
+	log.Printf("%s: no certificate list at %s: the system's certificate authorities only", who, path)
+	return nil
 }
 
 func (e *Engine) Name() string    { return "libtorrent" }
@@ -99,6 +130,7 @@ func (e *Engine) Caps() engine.Caps {
 		ResumeImportOfficial: true,
 		Torrents:             true,
 		PeerRefresh:          e.finder.Load(),
+		AdoptData:            e.adoptOK.Load(),
 	}
 }
 
@@ -111,14 +143,27 @@ func (e *Engine) sockPath() string {
 	}
 	h := sha1.Sum([]byte(e.dataDir))
 	dir := filepath.Join(os.TempDir(), "dc-bt-"+hex.EncodeToString(h[:6]))
-	os.MkdirAll(dir, 0700)
-	os.Chmod(dir, 0700)
+	os.Mkdir(dir, 0700)
+	// Only a folder of our own that nobody else can enter: another account
+	// could have made it first. Otherwise the long path, which cannot be
+	// listened on, so dc-bt does not start
+	var st syscall.Stat_t
+	if err := syscall.Lstat(dir, &st); err != nil || st.Mode&syscall.S_IFMT != syscall.S_IFDIR ||
+		int(st.Uid) != os.Getuid() || st.Mode&0077 != 0 {
+		return p
+	}
 	return filepath.Join(dir, "sock")
 }
 func (e *Engine) pidPath() string      { return filepath.Join(e.dataDir, "run", "dc-bt.pid") }
 func (e *Engine) settingsPath() string { return filepath.Join(e.dataDir, "dc-bt.json") }
 
 var errRestart = errors.New("dc-bt: restart required for the new client identity")
+
+// TrackerCertificate is what a tracker's message says when its certificate
+// cannot be verified (OpenSSL's "certificate verify failed" and the like):
+// on old firmware the system's list of certificate authorities is the
+// usual cause.
+const TrackerCertificate = "its certificate cannot be verified; the list of trusted certificate authorities on the NAS may be out of date"
 
 // ownIdentity is libtorrent's own peer id prefix and User-Agent for its
 // version, written the way libtorrent's generate_fingerprint does it:
@@ -175,7 +220,9 @@ func settingsJSON(g engine.Global, lib string) map[string]any {
 		to = from
 	}
 	px := map[string]any{"type": "none"}
-	if g.Proxy.Type != "" && g.Proxy.Type != "none" && g.Proxy.Host != "" {
+	// "Proxy only" without a usable proxy is sent as such: dc-bt then makes
+	// no connection at all rather than direct ones
+	if g.Proxy.Type != "" && g.Proxy.Type != "none" && (g.Proxy.Host != "" || g.Proxy.Force) {
 		px = map[string]any{
 			"type": g.Proxy.Type, "host": g.Proxy.Host, "port": g.Proxy.Port,
 			"user": g.Proxy.User, "pass": g.Proxy.Pass,
@@ -248,8 +295,9 @@ func (e *Engine) spawn() error {
 		return err
 	}
 	e.killStale()
-	cmd := exec.Command(e.bin, "--socket", e.sockPath(), "--state", filepath.Join(e.dataDir, "bt"),
-		"--torrents", filepath.Join(e.dataDir, "torrents"), "--settings", e.settingsPath())
+	args := []string{"--socket", e.sockPath(), "--state", filepath.Join(e.dataDir, "bt"),
+		"--torrents", filepath.Join(e.dataDir, "torrents"), "--settings", e.settingsPath()}
+	cmd := exec.Command(e.bin, append(args, caArgs(e.CAFile, "libtorrent")...)...)
 	cmd.Dir = e.dataDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	lf, _ := os.OpenFile(filepath.Join(e.dataDir, "logs", "dc-bt.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
@@ -452,6 +500,8 @@ func (e *Engine) getVersion() (string, error) {
 	}
 	e.oldBT.Store(!versionAtLeast(v.Dcbt, 1, 1))
 	e.finder.Store(versionAtLeast(v.Dcbt, 1, 4))
+	e.safeDir.Store(versionAtLeast(v.Dcbt, 1, 5))
+	e.adoptOK.Store(versionAtLeast(v.Dcbt, 1, 7))
 	e.lib.Store(v.Libtorrent)
 	return v.Libtorrent, nil
 }
@@ -459,6 +509,7 @@ func (e *Engine) getVersion() (string, error) {
 // versionAtLeast compares a "major.minor" version.
 func versionAtLeast(v string, major, minor int) bool {
 	a, b, _ := strings.Cut(v, ".")
+	b, _, _ = strings.Cut(b, ".") // "1.7.1": a patch level does not count
 	ma, err := strconv.Atoi(a)
 	if err != nil {
 		return false
@@ -550,6 +601,10 @@ func (e *Engine) SetFastResume(infohash, path string) {
 
 // Add adds a torrent; the reference is its info hash.
 func (e *Engine) Add(hash string, r engine.AddRequest) (string, error) {
+	if r.UntrustedDir && !e.safeDir.Load() {
+		// An older dc-bt would follow links the user puts in the folder
+		return "", engine.ErrEngineTooOld
+	}
 	args := map[string]any{
 		"save_path":  r.Dir,
 		"paused":     r.Paused,
@@ -587,6 +642,18 @@ func (e *Engine) Add(hash string, r engine.AddRequest) (string, error) {
 	if r.Guard {
 		args["guard"] = true
 	}
+	if r.UntrustedDir {
+		args["untrusted_dir"] = true
+		if r.OwnerUID > 0 {
+			args["owner_uid"], args["owner_gid"] = r.OwnerUID, r.OwnerGID
+		}
+		if r.AdoptFrom != "" && e.adoptOK.Load() {
+			args["adopt_from"], args["adopt_root"] = r.AdoptFrom, r.AdoptRoot
+			if r.AdoptRequired {
+				args["adopt_required"] = true
+			}
+		}
+	}
 	if hash != "" {
 		e.omu.Lock()
 		if p := e.resumeFor[strings.ToLower(hash)]; p != "" {
@@ -599,9 +666,30 @@ func (e *Engine) Add(hash string, r engine.AddRequest) (string, error) {
 		Infohash string `json:"infohash"`
 		Existed  bool   `json:"existed"`
 		Resumed  bool   `json:"resumed"`
+		SeedDone bool   `json:"seed_done"`
+		Wanted   int64  `json:"total_wanted"`
+		Adopted  int    `json:"adopted"`
+		Adopting bool   `json:"adopting"`
 	}
 	if err := e.call("add", args, &res); err != nil {
+		if r.UntrustedDir && (strings.Contains(err.Error(), "not a private folder") || strings.Contains(err.Error(), "cannot take over the data")) {
+			return "", engine.ErrFolderNotPrivate
+		}
 		return "", err
+	}
+	if res.Adopting {
+		return "", engine.ErrPending
+	}
+	e.omu.Lock()
+	delete(e.seeded, res.Infohash)
+	e.adopted[res.Infohash] = res.Adopted > 0
+	if res.SeedDone {
+		e.seeded[res.Infohash] = &engine.Status{Ref: res.Infohash, InfoHash: res.Infohash, State: engine.Complete,
+			Seeding: true, Dir: r.Dir, Total: res.Wanted, Completed: res.Wanted, Availability: -1}
+	}
+	e.omu.Unlock()
+	if res.SeedDone {
+		return res.Infohash, nil
 	}
 	if res.Resumed && !r.MetadataOnly {
 		// The resume data carries the all-time upload the manager already
@@ -635,8 +723,17 @@ func (e *Engine) Remove(ref string) error {
 	e.omu.Lock()
 	delete(e.offsets, ref)
 	delete(e.needOff, ref)
+	delete(e.seeded, ref)
 	e.omu.Unlock()
 	return e.simple("remove", ref, nil)
+}
+
+// Adopted reports whether the last Add of ref took the data already in its
+// destination over (AddRequest.AdoptFrom).
+func (e *Engine) Adopted(ref string) bool {
+	e.omu.Lock()
+	defer e.omu.Unlock()
+	return e.adopted[ref]
 }
 
 // Forget drops a finished torrent from the session, keeping its data.
@@ -751,6 +848,11 @@ func (e *Engine) Sources(ref string) ([]engine.TrackerState, error) {
 	if err := e.call("sources", map[string]any{"infohash": ref}, &res); err != nil {
 		return nil, err
 	}
+	for i := range res.Trackers {
+		if strings.Contains(strings.ToLower(res.Trackers[i].Message), "certificate") {
+			res.Trackers[i].Message = TrackerCertificate
+		}
+	}
 	return res.Trackers, nil
 }
 
@@ -852,10 +954,16 @@ func (e *Engine) convert(r *rawStatus) *engine.Status {
 }
 
 func (e *Engine) StatusAll() (map[string]*engine.Status, error) {
+	return e.StatusAllFiles(true)
+}
+
+// StatusAllFiles is StatusAll, with the file lists only when files is set
+// (they are the larger part of the answer for torrents of many files).
+func (e *Engine) StatusAllFiles(files bool) (map[string]*engine.Status, error) {
 	var res struct {
 		Torrents []rawStatus `json:"torrents"`
 	}
-	if err := e.call("status_all", map[string]any{"files": true}, &res); err != nil {
+	if err := e.call("status_all", map[string]any{"files": files}, &res); err != nil {
 		return nil, err
 	}
 	out := make(map[string]*engine.Status, len(res.Torrents))
@@ -863,12 +971,27 @@ func (e *Engine) StatusAll() (map[string]*engine.Status, error) {
 		s := e.convert(&res.Torrents[i])
 		out[s.Ref] = s
 	}
+	e.omu.Lock()
+	for ref, st := range e.seeded {
+		if out[ref] == nil {
+			c := *st
+			out[ref] = &c
+		}
+	}
+	e.omu.Unlock()
 	return out, nil
 }
 
 func (e *Engine) Status(ref string) (*engine.Status, error) {
 	var r rawStatus
 	if err := e.call("status", map[string]any{"infohash": ref}, &r); err != nil {
+		e.omu.Lock()
+		st := e.seeded[ref]
+		e.omu.Unlock()
+		if err == engine.ErrNotFound && st != nil {
+			c := *st
+			return &c, nil
+		}
 		return nil, err
 	}
 	return e.convert(&r), nil

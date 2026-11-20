@@ -37,10 +37,12 @@
 
 using json = nlohmann::json;
 
-static const char *VERSION = "1.1";
+static const char *VERSION = "1.4";
 static const size_t MAX_PENDING = 256 * 1024; // buffered for dcd before the transfer pauses
 static const size_t MAX_REQUEST = 1 << 20;
 static const int MAX_CONNS = 256;
+static const size_t MAX_HEADER_LINE = 4096;   // longer response header lines are cut
+static const size_t MAX_HEADER_BYTES = 65536; // and lines past this many bytes dropped
 static const char *ALLOWED = "http,https,ftp,ftps,sftp,scp";
 
 static volatile sig_atomic_t g_stop = 0;
@@ -186,6 +188,7 @@ struct Conn
 	bool blocked = false;
 	bool hostKeyChanged = false;
 	std::vector<std::string> headers;
+	size_t headerBytes = 0;
 	char err[CURL_ERROR_SIZE] = "";
 	std::string url;
 };
@@ -298,9 +301,18 @@ static size_t onHeader(char *p, size_t size, size_t n, void *ud)
 		line.pop_back();
 	// A new response (redirect, 100-continue): keep only the last one
 	if (line.compare(0, 5, "HTTP/") == 0)
+	{
 		c->headers.clear();
-	if (!line.empty() && c->headers.size() < 200)
+		c->headerBytes = 0;
+	}
+	// A server cannot make the H frame larger than dcd reads
+	if (line.size() > MAX_HEADER_LINE)
+		line.resize(MAX_HEADER_LINE);
+	if (!line.empty() && c->headers.size() < 200 && c->headerBytes + line.size() <= MAX_HEADER_BYTES)
+	{
+		c->headerBytes += line.size();
 		c->headers.push_back(line);
+	}
 	return len;
 }
 
@@ -314,6 +326,30 @@ static curl_socket_t onOpenSocket(void *ud, curlsocktype purpose, struct curl_so
 		return CURL_SOCKET_BAD;
 	}
 	return socket(a->family, a->socktype, a->protocol);
+}
+
+// onPrereq runs before every request, on a new connection or one kept from
+// an earlier transfer (which onOpenSocket never saw): the address it is
+// connected to is checked again.
+static int onPrereq(void *ud, char *ip, char *, int, int)
+{
+	Conn *c = (Conn *)ud;
+	if (!c->guard || c->proxied)
+		return CURL_PREREQFUNC_OK;
+	struct sockaddr_storage ss;
+	memset(&ss, 0, sizeof ss);
+	struct sockaddr_in *s4 = (struct sockaddr_in *)&ss;
+	struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&ss;
+	if (ip && inet_pton(AF_INET, ip, &s4->sin_addr) == 1)
+		s4->sin_family = AF_INET;
+	else if (ip && inet_pton(AF_INET6, ip, &s6->sin6_addr) == 1)
+		s6->sin6_family = AF_INET6;
+	if (ss.ss_family == 0 || forbidden((struct sockaddr *)&ss))
+	{
+		c->blocked = true;
+		return CURL_PREREQFUNC_ABORT;
+	}
+	return CURL_PREREQFUNC_OK;
 }
 
 static int onHostKey(CURL *, const struct curl_khkey *, const struct curl_khkey *, enum curl_khmatch m, void *ud)
@@ -347,6 +383,25 @@ static std::string str(const json &j, const char *k)
 {
 	auto it = j.find(k);
 	return it != j.end() && it->is_string() ? it->get<std::string>() : std::string();
+}
+
+// flag reads a boolean field; anything else (missing, another type) is def.
+static bool flag(const json &j, const char *k, bool def)
+{
+	auto it = j.find(k);
+	return it != j.end() && it->is_boolean() ? it->get<bool>() : def;
+}
+
+// rangeOK: "a-" or "a-b", digits only (it becomes a request header).
+static bool rangeOK(const std::string &r)
+{
+	size_t dash = r.find('-');
+	if (dash == 0 || dash == std::string::npos || r.size() > 41)
+		return false;
+	for (size_t i = 0; i < r.size(); i++)
+		if (i != dash && (r[i] < '0' || r[i] > '9'))
+			return false;
+	return true;
 }
 
 static void versionReply(Conn *c)
@@ -385,6 +440,11 @@ static void start(Conn *c, const std::string &line)
 		fail(c, "bad request");
 		return;
 	}
+	if (!r.is_object())
+	{
+		fail(c, "bad request");
+		return;
+	}
 	if (str(r, "cmd") == "version")
 	{
 		versionReply(c);
@@ -405,7 +465,7 @@ static void start(Conn *c, const std::string &line)
 		return;
 	}
 	c->easy = e;
-	c->guard = r.value("guard", false);
+	c->guard = flag(r, "guard", false);
 	std::string proxy = str(r, "proxy");
 	c->proxied = !proxy.empty();
 	bool http = scheme == "http" || scheme == "https";
@@ -422,6 +482,8 @@ static void start(Conn *c, const std::string &line)
 	curl_easy_setopt(e, CURLOPT_HEADERDATA, c);
 	curl_easy_setopt(e, CURLOPT_OPENSOCKETFUNCTION, onOpenSocket);
 	curl_easy_setopt(e, CURLOPT_OPENSOCKETDATA, c);
+	curl_easy_setopt(e, CURLOPT_PREREQFUNCTION, onPrereq);
+	curl_easy_setopt(e, CURLOPT_PREREQDATA, c);
 	curl_easy_setopt(e, CURLOPT_CONNECTTIMEOUT, 30L);
 	curl_easy_setopt(e, CURLOPT_TCP_KEEPALIVE, 1L);
 	curl_easy_setopt(e, CURLOPT_BUFFERSIZE, 65536L);
@@ -442,11 +504,20 @@ static void start(Conn *c, const std::string &line)
 		curl_easy_setopt(e, CURLOPT_CAPATH, g_caPath.c_str());
 	std::string ua = str(r, "ua");
 	curl_easy_setopt(e, CURLOPT_USERAGENT, ua.empty() ? "DownloadCenter/1.0" : ua.c_str());
-	if (r.value("head", false))
+	if (flag(r, "head", false))
 		curl_easy_setopt(e, CURLOPT_NOBODY, 1L);
 	std::string range = str(r, "range");
 	if (!range.empty())
+	{
+		if (!rangeOK(range))
+		{
+			curl_easy_cleanup(e);
+			c->easy = nullptr;
+			fail(c, "bad range");
+			return;
+		}
 		curl_easy_setopt(e, CURLOPT_RANGE, range.c_str());
+	}
 	std::string user = str(r, "user");
 	if (!user.empty())
 	{
@@ -455,8 +526,12 @@ static void start(Conn *c, const std::string &line)
 	}
 	if (http)
 	{
-		curl_easy_setopt(e, CURLOPT_FOLLOWLOCATION, 1L);
-		curl_easy_setopt(e, CURLOPT_MAXREDIRS, 10L);
+		// With follow false dcd follows redirects itself, checking each address
+		if (flag(r, "follow", true))
+		{
+			curl_easy_setopt(e, CURLOPT_FOLLOWLOCATION, 1L);
+			curl_easy_setopt(e, CURLOPT_MAXREDIRS, 10L);
+		}
 		// Credentials go out at once (no 401 round trip per range) and are
 		// dropped on redirects to another host
 		curl_easy_setopt(e, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
@@ -537,9 +612,63 @@ static bool exists(const std::string &p)
 	return stat(p.c_str(), &st) == 0;
 }
 
+static bool readAll(const std::string &p, std::string &out)
+{
+	FILE *f = fopen(p.c_str(), "rb");
+	if (!f)
+		return false;
+	char buf[65536];
+	size_t n;
+	while ((n = fread(buf, 1, sizeof buf, f)) > 0)
+		out.append(buf, n);
+	bool ok = !ferror(f);
+	fclose(f);
+	return ok;
+}
+
+// mergeCA writes the system's CA file and the package's list into one file
+// beside the socket: libcurl takes a single CA file (with the hashed folder
+// besides), and the package's list must add to the system's, never replace
+// it. Returns the file, or "" (then the system's alone).
+static std::string mergeCA(const std::string &sysFile, const std::string &extra, const std::string &sock)
+{
+	std::string all, more;
+	if (!readAll(extra, more) || more.empty())
+	{
+		dlog("CA list %s cannot be read: the system's certificate authorities only", extra.c_str());
+		return "";
+	}
+	if (!sysFile.empty())
+		readAll(sysFile, all);
+	if (!all.empty() && all.back() != '\n')
+		all.push_back('\n');
+	all += more;
+	size_t slash = sock.find_last_of('/');
+	std::string out = (slash == std::string::npos ? std::string(".") : sock.substr(0, slash)) + "/dc-dl-ca.pem";
+	// Only root may change it: whoever can, adds authorities
+	std::string tmp = out + ".tmp";
+	int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+	bool ok = fd >= 0 && fchmod(fd, 0600) == 0;
+	for (size_t off = 0; ok && off < all.size();)
+	{
+		ssize_t n = write(fd, all.data() + off, all.size() - off);
+		ok = n > 0;
+		off += ok ? size_t(n) : 0;
+	}
+	if (fd >= 0 && close(fd) != 0)
+		ok = false;
+	if (!ok || rename(tmp.c_str(), out.c_str()) != 0)
+	{
+		dlog("cannot write %s: the system's certificate authorities only", out.c_str());
+		unlink(tmp.c_str());
+		return "";
+	}
+	return out;
+}
+
 int main(int argc, char **argv)
 {
-	std::string sock;
+	std::string sock, caList;
 	for (int i = 1; i < argc; i++)
 	{
 		std::string a = argv[i];
@@ -547,6 +676,8 @@ int main(int argc, char **argv)
 			sock = argv[++i];
 		else if (a == "--known-hosts" && i + 1 < argc)
 			g_knownHosts = argv[++i];
+		else if (a == "--ca-file" && i + 1 < argc)
+			caList = argv[++i];
 		else if (a == "--prefer-chacha")
 			g_aesHW = false;
 		else if (a == "--version")
@@ -557,7 +688,7 @@ int main(int argc, char **argv)
 	}
 	if (sock.empty() || g_knownHosts.empty())
 	{
-		fprintf(stderr, "usage: dc-dl --socket <path> --known-hosts <file>\n");
+		fprintf(stderr, "usage: dc-dl --socket <path> --known-hosts <file> [--ca-file <file>]\n");
 		return 2;
 	}
 	signal(SIGPIPE, SIG_IGN);
@@ -569,14 +700,29 @@ int main(int argc, char **argv)
 		if (k >= 0)
 			close(k);
 	}
-	for (const char *p : {"/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/ca-bundle.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"})
-		if (exists(p))
-		{
-			g_caFile = p;
-			break;
-		}
-	if (exists("/etc/ssl/certs"))
+	// The system's store: OpenSSL's SSL_CERT_FILE and SSL_CERT_DIR when set,
+	// else the usual places
+	const char *envFile = getenv("SSL_CERT_FILE"), *envDir = getenv("SSL_CERT_DIR");
+	if (envFile && *envFile)
+		g_caFile = envFile;
+	else
+		for (const char *p : {"/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/ca-bundle.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"})
+			if (exists(p))
+			{
+				g_caFile = p;
+				break;
+			}
+	if (envDir && *envDir)
+		g_caPath = envDir;
+	else if (exists("/etc/ssl/certs"))
 		g_caPath = "/etc/ssl/certs";
+	std::string sysFile = g_caFile;
+	if (!caList.empty())
+	{
+		std::string merged = mergeCA(g_caFile, caList, sock);
+		if (!merged.empty())
+			g_caFile = merged;
+	}
 	if (g_aesHW)
 		g_aesHW = aesGcmInHardware();
 	if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK)
@@ -593,7 +739,8 @@ int main(int argc, char **argv)
 		dlog("cannot listen on %s: %s", sock.c_str(), strerror(errno));
 		return 1;
 	}
-	dlog("dc-dl %s started (%s), CA %s, %s", VERSION, curl_version(), g_caFile.empty() ? g_caPath.c_str() : g_caFile.c_str(),
+	dlog("dc-dl %s started (%s), CA %s%s%s, %s", VERSION, curl_version(), sysFile.empty() ? g_caPath.c_str() : sysFile.c_str(),
+		 g_caFile != sysFile ? " and " : "", g_caFile != sysFile ? caList.c_str() : "",
 		 g_aesHW ? "AES-GCM in hardware" : "no AES hardware, ChaCha20 first");
 
 	std::vector<struct curl_waitfd> wfds;

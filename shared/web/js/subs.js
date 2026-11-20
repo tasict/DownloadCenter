@@ -7,7 +7,8 @@
 	/* Text encodings offered when a file is not Unicode (TextDecoder labels) */
 	var ENCODINGS = ['utf-8', 'big5', 'gb18030', 'shift_jis', 'euc-kr', 'windows-1252'];
 	var BY_LANG = {TCH:'big5', SCH:'gb18030', JPN:'shift_jis', KOR:'euc-kr'};
-	var MAX_CUES = 20000;
+	/* A subtitle file comes from the network: whatever it holds, the work is bounded and linear */
+	var MAX_CUES = 20000, MAX_LINES = 400000, MAX_CUE_LINES = 20, MAX_LINE = 1000;
 	var TIME = /^\s*((?:\d+:)?\d{1,2}:\d{1,2}(?:[,.]\d{1,3})?)\s*-->\s*((?:\d+:)?\d{1,2}:\d{1,2}(?:[,.]\d{1,3})?)(?:\s|$)/;
 	var ENT = {amp:'&', lt:'<', gt:'>', nbsp:' ', lrm:'‎', rlm:'‏'};
 
@@ -84,14 +85,34 @@
 		return pad(Math.floor(t / 3600000), 2) + ':' + pad(Math.floor(t / 60000) % 60, 2) + ':' + pad(Math.floor(t / 1000) % 60, 2) + '.' + pad(t % 1000, 3);
 	}
 	/* One line of cue text: drop {\…} overrides and every tag but b, i and u, then escape the rest so the cue parser
-	   sees no markup of its own (WebVTT entities are decoded first so they are not escaped twice). */
+	   sees no markup of its own (WebVTT entities are decoded first so they are not escaped twice). One pass, each
+	   character looked at a bounded number of times: the next } and > are found once, from the end. */
 	function clean(line, vtt){
-		line = line.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').replace(/\{\\[^}]*\}/g, '');
-		line = line.replace(/<\s*(\/?)\s*([biu])\s*>/gi, function(m, c, t){ return '\u0001' + c + t.toLowerCase() + '\u0002'; });
-		line = line.replace(/<[^>]*>/g, '');
-		if(vtt) line = line.replace(/&(amp|lt|gt|nbsp|lrm|rlm);/g, function(m, n){ return ENT[n]; });
-		line = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-		return line.replace(/\u0001(\/?)([biu])\u0002/g, '<$1$2>').replace(/^\s+|\s+$/g, '');
+		var n, nextBrace = [], nextGt = [], b = -1, g = -1, out = [], i, j, c, tag, ent, k, lo, hi;
+		line = line.slice(0, MAX_LINE).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+		n = line.length;
+		for(i = n - 1; i >= 0; i--){ c = line.charAt(i); if(c === '}') b = i; if(c === '>') g = i; nextBrace[i] = b; nextGt[i] = g; }
+		for(i = 0; i < n; i++){
+			c = line.charAt(i);
+			if(c === '{' && line.charAt(i + 1) === '\\' && nextBrace[i] >= 0){ i = nextBrace[i]; continue; }
+			if(c === '<' && nextGt[i] >= 0){
+				j = nextGt[i];
+				tag = line.slice(i + 1, j).replace(/\s+/g, '').toLowerCase();
+				if(/^\/?[biu]$/.test(tag)) out.push('<' + tag + '>');
+				i = j;
+				continue;
+			}
+			if(c === '&' && vtt){
+				ent = null;
+				for(k in ENT) if(ENT.hasOwnProperty(k) && line.substr(i + 1, k.length + 1) === k + ';'){ ent = k; break; }
+				if(ent){ c = ENT[ent]; i += ent.length + 1; }
+			}
+			out.push(c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c);
+		}
+		line = out.join('');
+		for(lo = 0; lo < line.length && /\s/.test(line.charAt(lo)); lo++){}
+		for(hi = line.length; hi > lo && /\s/.test(line.charAt(hi - 1)); hi--){}
+		return line.slice(lo, hi);
 	}
 	/* SRT or WebVTT text to WebVTT holding only timings and cleaned text; null when no cue is left. Headers, cue numbers
 	   and identifiers, NOTE, STYLE and REGION blocks, cue settings and SRT coordinates are dropped. */
@@ -104,7 +125,7 @@
 			for(k = 0; k < cur.text.length; k++){ l = clean(cur.text[k], vtt); if(l) body.push(l); }
 			if(body.length) out.push(stamp(cur.a) + ' --> ' + stamp(cur.b) + '\n' + body.join('\n'));
 		}
-		for(i = 0; i < lines.length; i++){
+		for(i = 0; i < lines.length && i < MAX_LINES; i++){
 			line = lines[i];
 			m = TIME.exec(line);
 			if(m){
@@ -113,7 +134,7 @@
 				close();
 				cur = {a:ms(m[1]), b:ms(m[2]), text:[]};
 			}else if(/^\s*$/.test(line)){ close(); cur = null; }
-			else if(cur) cur.text.push(line);
+			else if(cur && cur.text.length < MAX_CUE_LINES) cur.text.push(line);
 		}
 		close();
 		return out.length ? 'WEBVTT\n\n' + out.join('\n\n') + '\n' : null;

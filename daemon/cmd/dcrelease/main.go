@@ -302,6 +302,14 @@ func draft(args []string) error {
 		fmt.Printf("created draft release %s\n", tag)
 	} else {
 		fmt.Printf("refilling the existing draft release %s\n", tag)
+		// What an earlier attempt uploaded and this one does not is not part
+		// of the release: verify would refuse it
+		for _, name := range r.Unexpected(*o.version) {
+			fmt.Printf("  deleting %s\n", name)
+			if err := g.DeleteAsset(r.Asset(name)); err != nil {
+				return err
+			}
+		}
 	}
 	for _, f := range files {
 		if a := r.Asset(f); a != nil {

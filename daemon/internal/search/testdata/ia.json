@@ -1,0 +1,85 @@
+{
+ "responseHeader": {
+  "status": 0,
+  "QTime": 379,
+  "params": {
+   "query": "(text:ubuntu OR text:ubuntu OR text__reviews:ubuntu) AND format:&quot;Archive BitTorrent&quot;",
+   "qin": "ubuntu AND format:&quot;Archive BitTorrent&quot;",
+   "fields": "identifier,title,item_size,downloads,publicdate,mediatype,btih",
+   "wt": "json",
+   "rows": 5,
+   "start": 0
+  }
+ },
+ "response": {
+  "numFound": 7,
+  "start": 0,
+  "docs": [
+   {
+    "btih": "f255aa62476b76f1219225dd053d05344af77452",
+    "downloads": 6,
+    "identifier": "ruffle-rs-ruffle-2024-03-15",
+    "item_size": 98130639,
+    "mediatype": "software",
+    "publicdate": "2024-03-19T23:29:51Z",
+    "title": "ruffle Build 2024-03-15"
+   },
+   {
+    "btih": "813b2552c2f1d6e4acc0818e35f2a27ccb4e769f",
+    "downloads": 7,
+    "identifier": "5aw5tkxykq1zr5zbsptapof1lhubrpmjezeoybgr",
+    "item_size": 27861490,
+    "mediatype": "audio",
+    "publicdate": "2022-04-21T15:17:23Z",
+    "title": "Ubuntu Responsabilidad Global de la Ascención por Fran Ortega"
+   },
+   {
+    "btih": "336cf6ebfa2b620f0e5448f9a6c19b70ebab2b16",
+    "downloads": 5,
+    "identifier": "heise_ctbankix2011",
+    "item_size": 415342762,
+    "mediatype": "software",
+    "publicdate": "2025-09-18T00:01:23Z",
+    "title": "c't Bankix April 2011"
+   },
+   {
+    "btih": "8ac3db7dac80cf217800d12a2c466d3f4b159e86",
+    "downloads": 647,
+    "identifier": "UbuntuBasura",
+    "item_size": 105402,
+    "mediatype": "image",
+    "publicdate": "2015-10-13T13:23:17Z",
+    "title": "Ubuntu Basura"
+   },
+   {
+    "btih": "5db26c981476a0936a5ef231e64a3094075479a8",
+    "downloads": 24,
+    "identifier": "2f33302d746573745f6576705f706b",
+    "item_size": 3531714,
+    "mediatype": "texts",
+    "publicdate": "2022-02-25T13:55:21Z",
+    "title": "The Economics of Immigration - www.analysisonline.org"
+   },
+   {
+    "btih": "b42ef954921eb08816118ad3b1c4b935cafad247",
+    "downloads": 76333,
+    "identifier": "PhantasmagoriaTheater-NightOfTheLivingDead1968321",
+    "item_size": 1173905628,
+    "licenseurl": "http://creativecommons.org/licenses/publicdomain/",
+    "mediatype": "movies",
+    "publicdate": "2009-10-16T10:30:23Z",
+    "title": "Night of the Living Dead (1968)"
+   },
+   {
+    "btih": "77d2d7f957d4e8e8a559238835dfd328eb3bb139",
+    "downloads": 71045,
+    "identifier": "NightOfTheLivingDead1968-Restored",
+    "item_size": 2409372044,
+    "licenseurl": "http://creativecommons.org/publicdomain/mark/1.0/",
+    "mediatype": "movies",
+    "publicdate": "2011-02-02T18:55:22Z",
+    "title": "Night of the Living Dead (1968) - restored"
+   }
+  ]
+ }
+}

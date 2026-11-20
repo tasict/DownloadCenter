@@ -370,6 +370,14 @@ func (s *Service) createChannel(w http.ResponseWriter, r *http.Request, p *auth.
 		n := "Webhook"
 		in.Name = &n
 	}
+	if !p.Admin {
+		var n int
+		s.db.QueryRow(`SELECT COUNT(*) FROM channels WHERE owner = ?`, p.User).Scan(&n)
+		if n >= maxUserChannels {
+			api.Error(w, 409, "too_many_channels", "An account can have up to 10 notification channels")
+			return
+		}
+	}
 	c := &Channel{ID: auth.RandomID("ch_", 10), Owner: p.User, Service: service, Config: map[string]string{}, Enabled: true,
 		Scope: "own", CreatedAt: s.now().Unix(), State: map[string]any{}}
 	secrets, err := s.apply(c, &in, p, true)

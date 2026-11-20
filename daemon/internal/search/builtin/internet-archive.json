@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "id": "internet-archive",
+  "name": "Internet Archive",
+  "version": "1.0",
+  "description": "Items of the Internet Archive that their uploaders marked with a license (Creative Commons, public domain). The license is the uploader's statement.",
+  "homepage": "https://archive.org/",
+  "type": "json",
+  "prefer": "torrent",
+  "webseed": true,
+  "request": {
+    "url": "https://archive.org/advancedsearch.php?q=title%3A%28{query}%29%20AND%20format%3A%22Archive%20BitTorrent%22%20AND%20NOT%20access-restricted-item%3Atrue%20AND%20NOT%20mediatype%3A%28collection%20OR%20web%20OR%20account%29%20AND%20licenseurl%3A%2A&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=item_size&fl%5B%5D=publicdate&fl%5B%5D=mediatype&fl%5B%5D=btih&sort%5B%5D=downloads%20desc&rows={limit}&page={page}&output=json",
+    "strip": "+-&|!(){}[]^\"~*?:\\/"
+  },
+  "categories": {"video": "movies", "audio": "audio", "software": "software", "books": "texts"},
+  "test_query": "night of the living dead",
+  "response": {
+    "items": "response.docs",
+    "fields": {
+      "title": "title",
+      "size": "item_size",
+      "infohash": "btih",
+      "torrent": "https://archive.org/download/{identifier}/{identifier}_archive.torrent",
+      "page": "https://archive.org/details/{identifier}",
+      "date": "publicdate",
+      "category": "mediatype"
+    }
+  }
+}

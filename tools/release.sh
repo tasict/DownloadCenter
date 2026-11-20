@@ -5,7 +5,9 @@
 # Usage (on the build NAS, from anywhere):  sh tools/release.sh <version>
 #
 # 1. checks: the version matches qpkg.cfg and has a CHANGELOG.md section, the
-#    working tree is clean, master is pushed, the tag is new;
+#    working tree is clean, master is pushed, the tag is new, the list of
+#    certificate authorities is there (refresh it before committing the
+#    release: sh tools/update-cacert.sh);
 # 2. go vet and tests, then build.sh for every architecture;
 # 3. SHA256SUMS of the four packages, signed with the release key;
 # 4. a draft GitHub Release with the packages, SHA256SUMS and its signature;
@@ -61,6 +63,8 @@ CFG=$(sed -n 's/^QPKG_VER="\(.*\)"/\1/p' qpkg.cfg)
 [ -f "$KEY_FILE" ] || die "missing $KEY_FILE (sh tools/release.sh --keygen)"
 [ -f "$PUB_FILE" ] || die "missing tools/release-key.pub"
 dcrelease notes -version "$V" -changelog "$ROOT/CHANGELOG.md" >/dev/null
+[ -s shared/certs/cacert.pem ] || die "missing shared/certs/cacert.pem (sh tools/update-cacert.sh)"
+echo "certificate authorities: Mozilla data as of $(sed -n 's/^## Certificate data from Mozilla as of: //p' shared/certs/cacert.pem)"
 
 [ "$("$GIT" rev-parse --abbrev-ref HEAD)" = "$BRANCH" ] || die "not on $BRANCH"
 [ -z "$("$GIT" status --porcelain)" ] || die "the working tree has uncommitted changes"

@@ -16,33 +16,40 @@ type fakeBT struct {
 	forgot []string
 	prios  []map[int]int
 	noMove bool
+	adopt  bool                // takes over data in the destination (Caps.AdoptData)
+	took   bool                // ... and did at the last add
+	added  []engine.AddRequest // every add
 }
 
 func (f *fakeBT) Name() string { return "libtorrent" }
 func (f *fakeBT) Caps() engine.Caps {
-	return engine.Caps{Torrents: true, MoveWhileSeeding: !f.noMove}
+	return engine.Caps{Torrents: true, MoveWhileSeeding: !f.noMove, AdoptData: f.adopt}
 }
-func (f *fakeBT) Start() error                                         { return nil }
-func (f *fakeBT) Stop() error                                          { return nil }
-func (f *fakeBT) Health() error                                        { return nil }
-func (f *fakeBT) Version() string                                      { return "test" }
-func (f *fakeBT) ApplyGlobal(engine.Global) error                      { return nil }
-func (f *fakeBT) Add(hash string, r engine.AddRequest) (string, error) { return hash, nil }
-func (f *fakeBT) Forget(ref string)                                    { f.forgot = append(f.forgot, ref) }
-func (f *fakeBT) Restart(engine.Global) error                          { return nil }
-func (f *fakeBT) Pause(string) error                                   { return nil }
-func (f *fakeBT) Resume(string) error                                  { return nil }
-func (f *fakeBT) Remove(string) error                                  { return nil }
-func (f *fakeBT) SetLimits(string, int64, int64) error                 { return nil }
-func (f *fakeBT) SetSequential(string, bool) error                     { return nil }
-func (f *fakeBT) AddTrackers(string, []string) error                   { return nil }
-func (f *fakeBT) ReplaceURIs(string, []string) error                   { return nil }
-func (f *fakeBT) SetSeeding(string, float64, int) error                { return nil }
-func (f *fakeBT) StatusAll() (map[string]*engine.Status, error)        { return nil, nil }
-func (f *fakeBT) Status(string) (*engine.Status, error)                { return nil, engine.ErrNotFound }
-func (f *fakeBT) Peers(string) ([]engine.Peer, error)                  { return nil, nil }
-func (f *fakeBT) Trackers(string) ([]string, error)                    { return nil, nil }
-func (f *fakeBT) SaveState() error                                     { return nil }
+func (f *fakeBT) Adopted(string) bool             { return f.took }
+func (f *fakeBT) Start() error                    { return nil }
+func (f *fakeBT) Stop() error                     { return nil }
+func (f *fakeBT) Health() error                   { return nil }
+func (f *fakeBT) Version() string                 { return "test" }
+func (f *fakeBT) ApplyGlobal(engine.Global) error { return nil }
+func (f *fakeBT) Add(hash string, r engine.AddRequest) (string, error) {
+	f.added = append(f.added, r)
+	return hash, nil
+}
+func (f *fakeBT) Forget(ref string)                             { f.forgot = append(f.forgot, ref) }
+func (f *fakeBT) Restart(engine.Global) error                   { return nil }
+func (f *fakeBT) Pause(string) error                            { return nil }
+func (f *fakeBT) Resume(string) error                           { return nil }
+func (f *fakeBT) Remove(string) error                           { return nil }
+func (f *fakeBT) SetLimits(string, int64, int64) error          { return nil }
+func (f *fakeBT) SetSequential(string, bool) error              { return nil }
+func (f *fakeBT) AddTrackers(string, []string) error            { return nil }
+func (f *fakeBT) ReplaceURIs(string, []string) error            { return nil }
+func (f *fakeBT) SetSeeding(string, float64, int) error         { return nil }
+func (f *fakeBT) StatusAll() (map[string]*engine.Status, error) { return nil, nil }
+func (f *fakeBT) Status(string) (*engine.Status, error)         { return nil, engine.ErrNotFound }
+func (f *fakeBT) Peers(string) ([]engine.Peer, error)           { return nil, nil }
+func (f *fakeBT) Trackers(string) ([]string, error)             { return nil, nil }
+func (f *fakeBT) SaveState() error                              { return nil }
 func (f *fakeBT) SetFiles(ref string, sel []int, prio map[int]int) error {
 	f.prios = append(f.prios, prio)
 	return nil
@@ -68,9 +75,9 @@ func stageSetup(t *testing.T, withMove bool) (*Manager, *fakeBT, *Task, string, 
 		move = filepath.Join(dir, "Movies")
 		os.MkdirAll(move, 0755)
 	}
-	task := &Task{Hash: stageHash, Owner: "dc-test-nobody", Kind: KindBT, Name: "Sintel", IsFolder: true, Engine: "libtorrent",
+	task := &Task{Hash: stageHash, Owner: "admin", Kind: KindBT, Name: "Sintel", IsFolder: true, Engine: "libtorrent",
 		State: StDownloading, TempDir: temp, MoveDir: move, Size: 100, CreatedAt: 1}
-	m.stageTorrent(task, "Sintel")
+	m.stageTorrent(task, true)
 	os.WriteFile(m.torrentPath(stageHash), []byte("d4:infod4:name6:Sintelee"), 0600)
 	task.EngineRef = stageHash
 	m.live[stageHash] = task
@@ -105,7 +112,7 @@ func taskEvents(m *Manager) string {
 
 func TestStagedTorrent(t *testing.T) {
 	m, f, task, temp, move := stageSetup(t, true)
-	work := m.workDirFor(temp, stageHash)
+	work := m.workDirFor(false, temp, "", stageHash)
 	if task.WorkDir != work || task.DataPath != "" || !task.InTemp() {
 		t.Fatalf("new torrent not staged: work %q data %q", task.WorkDir, task.DataPath)
 	}
@@ -183,11 +190,16 @@ func TestStagedTorrentConflictAndFailure(t *testing.T) {
 
 func TestStagedTorrentAcrossVolumes(t *testing.T) {
 	m, f, task, _, move := stageSetup(t, true)
+	// Staged on another file system than the destination's (a folder mounted
+	// inside the destination's shared folder)
+	other := t.TempDir()
+	stagingBase(filepath.Join(other, "x"))
+	task.WorkDir = filepath.Join(other, TempDirName, stageHash)
 	work := task.WorkDir
 	old := sameVolume
 	sameVolume = func(a, b string) bool { return !strings.HasPrefix(a, work) }
 	defer func() { sameVolume = old }()
-	via := m.workDirFor(move, stageHash)
+	via := m.workDirFor(false, move, "", stageHash)
 	st := seedingStatus(work, "Sintel")
 	apply(m, task, st, f)
 	if len(f.moves) != 1 || f.moves[0] != [3]string{stageHash, via, ""} {
@@ -223,7 +235,7 @@ func TestStagedTorrentWithoutEngineMove(t *testing.T) {
 	}
 	// New torrents stay in place when the engine cannot move them
 	n := &Task{Hash: stageHash, Kind: KindBT, TempDir: temp, MoveDir: move}
-	m.stageTorrent(n, "Other")
+	m.stageTorrent(n, true)
 	if n.WorkDir != "" {
 		t.Errorf("staged without engine support: %q", n.WorkDir)
 	}
@@ -235,16 +247,15 @@ func TestStageTorrentExistingData(t *testing.T) {
 	dir := t.TempDir()
 	temp, move := filepath.Join(dir, "Download"), filepath.Join(dir, "Movies")
 	os.MkdirAll(filepath.Join(move, "Sintel"), 0755)
-	os.MkdirAll(filepath.Join(temp, "Old"), 0755)
-	n := &Task{Hash: stageHash, Kind: KindBT, TempDir: temp, MoveDir: move}
-	m.stageTorrent(n, "Sintel")
-	if n.WorkDir != "" || n.DataPath != filepath.Join(move, "Sintel") || !n.Options.Check {
-		t.Errorf("data at the destination: work %q data %q check %v", n.WorkDir, n.DataPath, n.Options.Check)
-	}
-	n = &Task{Hash: stageHash, Kind: KindBT, TempDir: temp, MoveDir: move}
-	m.stageTorrent(n, "Old")
-	if n.WorkDir != "" || n.DataPath != "" || !n.Options.Check || n.SaveDir() != temp {
-		t.Errorf("data in the temporary location: work %q data %q", n.WorkDir, n.DataPath)
+	// Data of the same name at the destination is never taken over, not
+	// even when this torrent left it there: the engine works in private
+	// folders only
+	m.saveTask(&Task{Hash: stageHash, Owner: "admin", Kind: KindBT, Name: "Sintel", State: StDone, TempDir: temp, MoveDir: move,
+		DataPath: filepath.Join(move, "Sintel"), CreatedAt: 1, RemovedAt: 2})
+	n := &Task{Hash: stageHash, Kind: KindBT, Name: "Sintel", TempDir: temp, MoveDir: move}
+	m.stageTorrent(n, true)
+	if n.WorkDir == "" || n.DataPath != "" || n.Options.Check {
+		t.Errorf("data adopted: work %q data %q check %v", n.WorkDir, n.DataPath, n.Options.Check)
 	}
 }
 

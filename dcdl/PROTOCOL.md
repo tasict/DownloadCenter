@@ -7,13 +7,14 @@ download logic — pieces, control files, connections per task, rate limits —
 and asks `dc-dl` for one byte range at a time.
 
 ```
-dc-dl --socket <data>/run/dc-dl.sock --known-hosts <data>/ssh_known_hosts
+dc-dl --socket <data>/run/dc-dl.sock --known-hosts <data>/ssh_known_hosts --ca-file <root>/certs/cacert.pem
 ```
 
 | Option | Meaning |
 |---|---|
 | `--socket` | Socket path; created with mode 0600, removed on exit |
 | `--known-hosts` | OpenSSH `known_hosts` for SFTP/SCP; created empty when missing. A host seen for the first time is added (trust on first use); a different key later makes the transfer fail |
+| `--ca-file` | Certificate authorities (PEM) trusted besides the system's, never instead of them (since 1.3). libcurl takes one CA file and one hashed folder: the system's file (`SSL_CERT_FILE` when set, else the first of `/etc/ssl/certs/ca-certificates.crt`, `/etc/ssl/ca-bundle.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/cert.pem`) and this one are written together into `dc-dl-ca.pem` beside the socket at start (mode 0600 since 1.4: whoever can change it adds authorities), which is the CA file; the folder is `SSL_CERT_DIR` when set, else `/etc/ssl/certs`. Unreadable: the system's alone (logged) |
 | `--prefer-chacha` | Offer ChaCha20-Poly1305 first even when the CPU has AES instructions (for testing; see below) |
 | `--version` | Print the versions and exit |
 
@@ -34,23 +35,27 @@ stays OpenSSL's default. `version` reports this as `aes_hw`.
 
 ```json
 {"url": "https://host/file.iso", "range": "1048576-2097151", "headers": ["Cookie: a=b"],
- "user": "u", "pass": "p", "proxy": "socks5h://user:pass@10.0.0.1:1080", "guard": true, "head": false, "ua": ""}
+ "user": "u", "pass": "p", "proxy": "socks5h://user:pass@10.0.0.1:1080", "guard": true, "head": false, "ua": "", "follow": false}
 ```
+
+A request that is not a JSON object, or whose fields have other types than
+below, fails (`E`) instead of being guessed at.
 
 | Field | Meaning |
 |---|---|
 | `url` | `http`, `https`, `ftp`, `ftps`, `sftp` or `scp`; anything else fails |
-| `range` | `CURLOPT_RANGE` (`"a-"` or `"a-b"`, inclusive); omitted = whole file. SCP has no ranges |
+| `range` | `CURLOPT_RANGE` (`"a-"` or `"a-b"`, inclusive, digits only: anything else fails with `bad range`); omitted = whole file. SCP has no ranges |
 | `head` | Only the response headers (`CURLOPT_NOBODY`); for FTP libcurl reports `Content-Length`, `Last-Modified` and `Accept-ranges` as header lines |
 | `headers` | Extra HTTP request headers (lines with CR/LF are dropped) |
 | `user`, `pass` | Credentials (HTTP Basic sent at once; FTP/SFTP/SCP login). Dropped on redirects to another host |
 | `proxy` | `http://`, `socks5://` or `socks5h://` proxy, with credentials in the URL; empty = direct. Environment proxies are never used |
-| `guard` | Refuse to connect to loopback, link-local, unspecified, multicast and the NAS's own addresses — checked on every socket (redirects and FTP data connections included). Not applied when `proxy` is set |
+| `guard` | Refuse to connect to loopback, link-local, unspecified, multicast and the NAS's own addresses — checked on every socket (redirects and FTP data connections included) and again before every request, so a connection kept from an earlier transfer without `guard` is checked too (`CURLOPT_PREREQFUNCTION`). Not applied when `proxy` is set: dcd checks the target of such a request (each redirect included) itself |
+| `follow` | `false`: HTTP redirects are not followed; the `H` frame carries the redirect (`status` 3xx, `Location` in `headers`) and dcd follows it with a new request, checking the new address and dropping credentials and all but a few headers when the host changes (since 1.2; omitted = `true`, libcurl follows up to 10 redirects) |
 | `ua` | User agent (default `DownloadCenter/1.0`) |
 
 `{"cmd": "version"}` instead answers one JSON line and closes:
-`{"dcdl": "1.1", "curl": "8.22.0", "ssl": "OpenSSL/3.5.9", "libssh": "libssh2/1.11.1", "nghttp2": "1.70.0", "http2": true, "aes_hw": true, "protocols": ["ftp", …]}`
-(`aes_hw` since 1.1).
+`{"dcdl": "1.4", "curl": "8.22.0", "ssl": "OpenSSL/3.5.9", "libssh": "libssh2/1.11.1", "nghttp2": "1.70.0", "http2": true, "aes_hw": true, "protocols": ["ftp", …]}`
+(`aes_hw` since 1.1; `follow`, the check of kept connections and the limits on response headers since 1.2; `--ca-file` since 1.3; the merged CA file 0600 since 1.4).
 
 ## Frames
 
@@ -58,7 +63,7 @@ Each frame is a type byte, a 4-byte big-endian length and the payload.
 
 | Type | Payload | When |
 |---|---|---|
-| `H` | JSON: `status` (HTTP status or last FTP reply code; 0 = none), `headers` (raw lines of the final response, status line first), `url` (effective URL after redirects), `length` (bytes to come, -1 unknown), `filetime` (Unix time, -1 unknown) | Exactly once, before the first `D`, or before `E` when no data came |
+| `H` | JSON: `status` (HTTP status or last FTP reply code; 0 = none), `headers` (raw lines of the final response, status line first; at most 200 lines of 4096 bytes and 64 KiB in all, longer lines cut, the rest dropped), `url` (effective URL after redirects), `length` (bytes to come, -1 unknown), `filetime` (Unix time, -1 unknown) | Exactly once, before the first `D`, or before `E` when no data came |
 | `D` | Data | As it arrives; paused while more than 256 KiB wait for dcd |
 | `E` | JSON: `code` (CURLcode; 0 = complete), `error`, `blocked` (refused by `guard`), `hostkey_changed` (SFTP/SCP key differs from `known_hosts`) | Last frame |
 
@@ -66,4 +71,4 @@ HTTP error statuses do not fail the transfer (`code` 0): dcd reads `status`
 from `H` and closes the connection itself.
 
 Only `CONNECTTIMEOUT` (30 s) is set; a stalled transfer is noticed by dcd,
-which closes the connection.
+which closes the connection (also when no frame at all comes for 60 seconds).

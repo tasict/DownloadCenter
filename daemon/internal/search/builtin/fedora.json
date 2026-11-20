@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "fedora",
+  "name": "Fedora",
+  "version": "1.0",
+  "description": "Official Fedora releases from the Fedora torrent server.",
+  "homepage": "https://torrent.fedoraproject.org/",
+  "type": "rss",
+  "match": "local",
+  "request": {
+    "url": "https://torrent.fedoraproject.org/rss20.xml"
+  },
+  "categories": {"software": ""},
+  "test_query": "fedora",
+  "response": {
+    "fields": {
+      "title": "title",
+      "torrent": "link",
+      "date": "pubDate"
+    }
+  }
+}

@@ -6,7 +6,7 @@
 	var field = DC.field, fieldDiv = DC.fieldDiv, toggle = DC.toggle, num = DC.num, sec = DC.sec;
 	var SET_INFO = {
 		dl:['down', DC.t('Folders, concurrent downloads, speed, torrents')], sched:['cal', DC.t('When to run at full speed, limited speed or pause')], users:['user', DC.t('Who can use Download Center')],
-		acct:['key', DC.t('Accounts for sites that require sign-in and file-hosting services')], token:['ticket', DC.t('Let other apps use your downloads')], notify:['bell', DC.t('Telegram, Discord, Webhook')], import:['inbox', DC.t('Settings, tasks and site accounts')], about:['retry', DC.t('Version, updates and links')]
+		acct:['key', DC.t('Accounts for sites that require sign-in and file-hosting services')], search:['search', DC.t('Where torrent searches look')], token:['ticket', DC.t('Let other apps use your downloads')], notify:['bell', DC.t('Telegram, Discord, Webhook')], import:['inbox', DC.t('Settings, tasks and site accounts')], about:['retry', DC.t('Version, updates and links')]
 	};
 	var importAvail = null, importAsk = false;
 	/* After a successful import the section disappears (kept on screen until the next navigation, so the summary stays readable). */
@@ -20,8 +20,10 @@
 
 	function tabs(){
 		var admin = DC.isAdmin(), t;
-		t = admin ? [['dl', DC.t('Downloads')], ['sched', DC.t('Schedule')], ['users', DC.t('Users')], ['acct', DC.t('Site accounts')], ['token', DC.t('Access tokens')], ['notify', DC.t('Notifications & integrations')]]
+		t = admin ? [['dl', DC.t('Downloads')], ['sched', DC.t('Schedule')], ['users', DC.t('Users')], ['acct', DC.t('Site accounts')], ['search', DC.t('Search')], ['token', DC.t('Access tokens')], ['notify', DC.t('Notifications & integrations')]]
 			: [['dl', DC.t('Downloads')], ['acct', DC.t('Site accounts')], ['token', DC.t('Access tokens')], ['notify', DC.t('Notifications & integrations')]];
+		/* Search sources: administrators in the web UI, when this NAS has the search */
+		if(admin && !(DC.S.me.search && DC.S.me.via === 'session')) t = t.filter(function(x){ return x[0] !== 'search'; });
 		if(admin && importAvail) t.push(['import', DC.t('Import from official version')]);
 		if(admin && DC.S.me.via === 'session') t.push(['about', DC.t('About and updates')]);
 		if(DC.S.me.via === 'token') t = [['dl', DC.t('Downloads')]];
@@ -60,6 +62,7 @@
 		else if(S.setTab === 'sched') setSchedule(body);
 		else if(S.setTab === 'users') setUsers(body);
 		else if(S.setTab === 'acct') DC.setMore.accounts(body);
+		else if(S.setTab === 'search') DC.setMore.search(body);
 		else if(S.setTab === 'token') DC.setMore.tokens(body);
 		else if(S.setTab === 'notify') DC.setMore.notify(body);
 		else if(S.setTab === 'about') DC.update.settings(body);
@@ -96,7 +99,7 @@
 	function setDownloadUser(body){
 		var me = DC.S.me, home = me.home_folder || 'home/Download';
 		add(body, [
-			sec('folder', DC.t('My folders'), null, [h('p', {'class':'note', text:DC.t('All downloaded files are saved to {home} in your home folder, and you own them. Until they finish, downloads stay in @DownloadCenterTemp inside it and only then move to {home}; torrents keep seeding from there.', {home:home})})])
+			sec('folder', DC.t('My folders'), null, [h('p', {'class':'note', text:DC.t('All downloaded files are saved to {home} in your home folder, and you own them. Downloads in progress are kept in a private folder of Download Center on the same volume and appear in {home} only once they are complete.', {home:home})})])
 		]);
 	}
 
@@ -178,7 +181,7 @@
 			return h('div', {'class':'sprow', role:'row'}, [h('span', {role:'rowheader', text:label}), spIn(a, ak, DC.t('{what}, normal', {what:label})), spIn(b, bk, DC.t('{what}, limited speed period', {what:label}))]);
 		}
 		add(body, [
-			secMore('folder', DC.t('Folder'), DC.t('Locations preselected when adding downloads; you can still change them in the dialog.'), DC.t('Downloads in progress stay in @DownloadCenterTemp in the shared folder of the temporary location and move to “Move to when finished” only once complete, or to the temporary location if “Don\'t move” is chosen; torrents keep seeding from where they were moved. Regular users always save to home/Download in their own home folder.'), [
+			secMore('folder', DC.t('Folder'), DC.t('Locations preselected when adding downloads; you can still change them in the dialog.'), DC.t('Downloads in progress are kept in a private folder of Download Center at the top of their destination\'s volume, which File Station does not show, and appear in “Move to when finished” (or in the temporary location if “Don\'t move” is chosen) only once complete. Torrents keep seeding from a private copy. Regular users always save to home/Download in their own home folder.'), [
 				fieldDiv(DC.t('Default temporary location'), null, temp.el),
 				fieldDiv(DC.t('Default move-to folder when finished'), null, move.el)
 			]),

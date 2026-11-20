@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="1.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <atom:link rel="self" type="application/rss+xml" />
+    <title>Prowlarr</title>
+    <item>
+      <title>Ubuntu 24.04 Desktop amd64 (repack)</title>
+      <description />
+      <guid>https://tracker.example.net/torrent/99</guid>
+      <prowlarrindexer id="3" type="public">Example Net</prowlarrindexer>
+      <comments>https://tracker.example.net/torrent/99</comments>
+      <pubDate>Fri, 26 Apr 2024 09:15:00 +0000</pubDate>
+      <size>6114656256</size>
+      <link>http://192.168.1.21:9696/3/download?apikey=PROWLARRKEY&amp;link=aHR0cHM6Ly90cmFja2VyLmV4YW1wbGUubmV0L2RsLzk5&amp;file=Ubuntu</link>
+      <category>4000</category>
+      <enclosure url="http://192.168.1.21:9696/3/download?apikey=PROWLARRKEY&amp;link=aHR0cHM6Ly90cmFja2VyLmV4YW1wbGUubmV0L2RsLzk5&amp;file=Ubuntu" length="6114656256" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="4000" />
+      <torznab:attr name="seeders" value="240" />
+      <torznab:attr name="files" value="1" />
+      <torznab:attr name="grabs" value="88" />
+      <torznab:attr name="peers" value="251" />
+      <torznab:attr name="infohash" value="3e4b2c0a8f64c0f5d0e12a9c7b1d5e6f7a8b9c0d" />
+      <torznab:attr name="downloadvolumefactor" value="1" />
+      <torznab:attr name="uploadvolumefactor" value="1" />
+    </item>
+    <item>
+      <title>The Adventures of Tom Sawyer (audiobook)</title>
+      <description />
+      <guid>https://tracker.example.net/download.php?id=100&amp;passkey=TRACKERPASSKEY</guid>
+      <prowlarrindexer id="3" type="public">Example Net</prowlarrindexer>
+      <pubDate>Sat, 27 Apr 2024 11:00:00 +0000</pubDate>
+      <size />
+      <link>http://192.168.1.21:9696/3/download?apikey=PROWLARRKEY&amp;link=aHR0cHM6Ly90cmFja2VyLmV4YW1wbGUubmV0L2RsLzEwMA&amp;file=Tom</link>
+      <category>3030</category>
+      <enclosure url="http://192.168.1.21:9696/3/download?apikey=PROWLARRKEY&amp;link=aHR0cHM6Ly90cmFja2VyLmV4YW1wbGUubmV0L2RsLzEwMA&amp;file=Tom" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="3030" />
+      <torznab:attr name="seeders" value="4" />
+      <torznab:attr name="files" value="12" />
+      <torznab:attr name="peers" value="6" />
+      <torznab:attr name="downloadvolumefactor" value="1" />
+      <torznab:attr name="uploadvolumefactor" value="1" />
+    </item>
+  </channel>
+</rss>

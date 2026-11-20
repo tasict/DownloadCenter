@@ -40,13 +40,13 @@ func TestTokenFolderLimit(t *testing.T) {
 	s := New(m, auth.New(db), dir, "test")
 	p := &auth.Principal{User: "bot", Admin: true, Via: "token", Folders: []string{shares[0].Name}}
 
-	if s.checkFolders(p, &core.AddOptions{}) {
+	if s.CheckFolders(p, &core.AddOptions{}) {
 		t.Error("the default move folder outside the allowlist was accepted")
 	}
-	if !s.checkFolders(p, &core.AddOptions{MoveSet: true}) {
+	if !s.CheckFolders(p, &core.AddOptions{MoveSet: true}) {
 		t.Error("staying in the allowed folder was refused")
 	}
-	if s.checkFolders(p, &core.AddOptions{TempDir: shares[1].Name, MoveSet: true}) {
+	if s.CheckFolders(p, &core.AddOptions{TempDir: shares[1].Name, MoveSet: true}) {
 		t.Error("a temporary folder outside the allowlist was accepted")
 	}
 
@@ -70,7 +70,7 @@ func TestTokenFolderLimit(t *testing.T) {
 	}
 
 	p.Folders = append(p.Folders, shares[1].Name)
-	if !s.checkFolders(p, &core.AddOptions{}) {
+	if !s.CheckFolders(p, &core.AddOptions{}) {
 		t.Error("both folders allowed, still refused")
 	}
 }

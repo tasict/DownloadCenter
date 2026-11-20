@@ -106,6 +106,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 			resp[k] = v
 		}
 	}
+	for k, f := range s.MeHooks {
+		resp[k] = f(p)
+	}
 	OK(w, resp)
 }
 

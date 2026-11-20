@@ -10,9 +10,18 @@
 # watchdog: run from cron every minute; restarts dcd when it is gone.
 #
 
+# cron and App Center may start this with umask 0: nothing written here may
+# be writable by others
+umask 022
+
 CONF="/etc/config/qpkg.conf"
 QPKG_NAME="DownloadCenter"
 QPKG_ROOT=$(/sbin/getcfg "$QPKG_NAME" Install_Path -f "$CONF")
+# Every path below hangs off the install path: without it, do nothing
+case "$QPKG_ROOT" in
+	/?*) [ -d "$QPKG_ROOT" ] || { echo "$QPKG_NAME: install path $QPKG_ROOT not found"; exit 1; } ;;
+	*) echo "$QPKG_NAME: install path not found"; exit 1 ;;
+esac
 DATA="${QPKG_ROOT}/data"
 DCD="${QPKG_ROOT}/bin/dcd"
 PIDFILE="${DATA}/run/dcd.pid"
@@ -30,12 +39,21 @@ log() {
 ensure_files() {
 	mkdir -p "$DATA" "${DATA}/run" "$LOGDIR"
 	chmod 700 "$DATA"
+	# The Apache conf holds the proxy secret: root only, also when an older
+	# version left it world-writable
+	[ -f "$APACHE_CONF" ] && chmod 600 "$APACHE_CONF"
 	chmod 755 "${QPKG_ROOT}/DownloadCenter.sh" "$DCD" 2>/dev/null
 	[ -f "${QPKG_ROOT}/bin/dc-dl" ] && chmod 755 "${QPKG_ROOT}/bin/dc-dl"
 	[ -x "${QPKG_ROOT}/bin/dc-bt" ] && chmod 755 "${QPKG_ROOT}/bin/dc-bt"
 	if [ -d "${QPKG_ROOT}/web" ]; then
 		chown -R admin:administrators "${QPKG_ROOT}/web"
 		chmod -R go-w "${QPKG_ROOT}/web"
+	fi
+	# Whoever can write the list of certificate authorities can make dcd, the
+	# sidecars and the plugin sandbox trust any server: root's only, like web/
+	if [ -d "${QPKG_ROOT}/certs" ] && [ ! -L "${QPKG_ROOT}/certs" ]; then
+		chown -R admin:administrators "${QPKG_ROOT}/certs"
+		chmod -R go-w "${QPKG_ROOT}/certs"
 	fi
 }
 
@@ -59,22 +77,51 @@ http_port() {
 	echo "$port"
 }
 
+# The secret the admin Apache sends with every request it forwards to dcd:
+# dcd trusts the client address and scheme headers only with it, so another
+# local process talking to 127.0.0.1 cannot claim to be a remote browser.
+# dcd creates data/proxy_auth at its first start; until then this does.
+proxy_auth() {
+	key=$(cat "${DATA}/proxy_auth" 2>/dev/null)
+	case "$key" in
+		*[!0-9a-f]*|'') key='' ;;
+	esac
+	if [ ${#key} -ne 32 ]; then
+		key=$(head -c 32 /dev/urandom | md5sum | cut -c1-32)
+		(umask 077; echo "$key" > "${DATA}/proxy_auth.tmp" && mv -f "${DATA}/proxy_auth.tmp" "${DATA}/proxy_auth")
+	fi
+	echo "$key"
+}
+
 write_apache_conf() {
 	port=$(http_port)
-	cat > "$APACHE_CONF" <<EOF
+	key=$(proxy_auth)
+	[ ${#key} -eq 32 ] || { log "cannot create the proxy secret" 2; return 1; }
+	# Written root-only into a new file, then moved over the old one (whose
+	# mode may be anything)
+	tmp="${APACHE_CONF}.tmp.$$"
+	rm -f "$tmp"
+	(umask 077; cat > "$tmp") <<EOF
 # DownloadCenter QPKG - UI, REST API and event stream, served by dcd
 ProxyPass /DownloadCenter/api/v1/events/stream http://127.0.0.1:${port}/DownloadCenter/api/v1/events/stream retry=0 timeout=86400 flushpackets=on
 ProxyPass /DownloadCenter http://127.0.0.1:${port}/DownloadCenter retry=0 timeout=600 keepalive=On
 ProxyPassReverse /DownloadCenter http://127.0.0.1:${port}/DownloadCenter
-<Location "/DownloadCenter/">
+<Location "/DownloadCenter">
     SetEnv no-gzip 1
-    <IfModule mod_headers.c>
+    <IfModule headers_module>
+        RequestHeader set X-DC-Auth "${key}"
         RequestHeader set X-DC-Scheme "expr=%{REQUEST_SCHEME}"
         RequestHeader unset X-DC-Remote
         RequestHeader set X-DC-Remote "expr=%{REMOTE_ADDR}"
     </IfModule>
+    # Without these headers nothing reaches dcd (an error here would stop the
+    # whole QTS web server instead)
+    <IfModule !headers_module>
+        Require all denied
+    </IfModule>
 </Location>
 EOF
+	chmod 600 "$tmp" && mv -f "$tmp" "$APACHE_CONF"
 }
 
 # The UI lives in the QTS admin servers (8080/8081): reload only those.
@@ -110,8 +157,11 @@ dcd_start() {
 	[ -x "$DCD" ] || { log "dcd binary missing" 2; return 1; }
 	# Keep the previous log for one restart
 	[ -f "${LOGDIR}/dcd.log" ] && mv -f "${LOGDIR}/dcd.log" "${LOGDIR}/dcd.log.1"
+	# Its log and pid file are private (dcd sets its own umask for downloads)
+	umask 077
 	setsid "$DCD" serve -root "$QPKG_ROOT" -port "$(http_port)" >> "${LOGDIR}/dcd.log" 2>&1 < /dev/null &
 	echo $! > "$PIDFILE"
+	umask 022
 	i=0
 	while [ $i -lt 10 ]; do
 		[ -f "${DATA}/run/ready" ] && return 0

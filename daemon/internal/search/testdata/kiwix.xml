@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:dc="http://purl.org/dc/terms/"
+      xmlns:opds="https://specs.opds.io/opds-1.2"
+      xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <id>50eed06d-7a23-a375-91e2-a4593b7d337e</id>
+
+  <link rel="self"
+        href="/catalog/v2/entries?q=wikipedia&amp;lang=eng&amp;count=20"
+        type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  <link rel="start"
+        href="/catalog/v2/root.xml"
+        type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <link rel="up"
+        href="/catalog/v2/root.xml"
+        type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+
+  <title>Filtered Entries (q=wikipedia&amp;lang=eng&amp;count=20)</title>
+  <updated>2026-11-20T06:10:05Z</updated>
+  <totalResults>65</totalResults>
+  <startIndex>0</startIndex>
+  <itemsPerPage>20</itemsPerPage>
+  <entry>
+    <id>urn:uuid:dd8a2bd2-c05b-ac6c-8074-6c30e14803fb</id>
+    <title>Wikipedia 100</title>
+    <updated>2026-08-20T00:00:00Z</updated>
+    <summary>Top one hundred Wikipedia articles</summary>
+    <language>eng</language>
+    <name>wikipedia_en_100</name>
+    <flavour></flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_details:yes;_ftindex:yes;_pictures:yes;_videos:yes</tags>
+    <articleCount>5056</articleCount>
+    <mediaCount>4122</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/dd8a2bd2-c05b-ac6c-8074-6c30e14803fb/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_100_2026-08" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-08-20T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_100_2026-08.zim.meta4" length="333430784" />
+  </entry>
+  <entry>
+    <id>urn:uuid:e2d9936a-d36f-1521-4cc9-b78c6a823573</id>
+    <title>Football by Wikipedia</title>
+    <updated>2026-10-08T00:00:00Z</updated>
+    <summary>All Wikipedia articles on football</summary>
+    <language>eng</language>
+    <name>wikipedia_en_football</name>
+    <flavour>maxi</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:yes;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>710067</articleCount>
+    <mediaCount>257462</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/e2d9936a-d36f-1521-4cc9-b78c6a823573/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_football_maxi_2026-10" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-10-08T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_football_maxi_2026-10.zim.meta4" length="3989071872" />
+  </entry>
+  <entry>
+    <id>urn:uuid:cce751cf-cfd6-5667-e070-00fb2f4300c3</id>
+    <title>Football by Wikipedia</title>
+    <updated>2026-10-08T00:00:00Z</updated>
+    <summary>All Wikipedia articles on football</summary>
+    <language>eng</language>
+    <name>wikipedia_en_football</name>
+    <flavour>nopic</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:no;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>710067</articleCount>
+    <mediaCount>371</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/cce751cf-cfd6-5667-e070-00fb2f4300c3/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_football_nopic_2026-10" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-10-08T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_football_nopic_2026-10.zim.meta4" length="2826483712" />
+  </entry>
+  <entry>
+    <id>urn:uuid:c22094d0-6ad1-6360-36b7-dab953595143</id>
+    <title>Wikipedia</title>
+    <updated>2026-06-17T00:00:00Z</updated>
+    <summary>The free encyclopedia</summary>
+    <language>eng</language>
+    <name>wikipedia_en_all</name>
+    <flavour>nopic</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:no;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>19191219</articleCount>
+    <mediaCount>515775</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/c22094d0-6ad1-6360-36b7-dab953595143/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_all_nopic_2026-06" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-06-17T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_all_nopic_2026-06.zim.meta4" length="52690707456" />
+  </entry>
+  <entry>
+    <id>urn:uuid:50e94998-c1ec-b5e7-ec34-499f1d907c30</id>
+    <title>Wikipedia</title>
+    <updated>2026-08-25T00:00:00Z</updated>
+    <summary>The free encyclopedia</summary>
+    <language>eng</language>
+    <name>wikipedia_en_all</name>
+    <flavour>maxi</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:yes;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>21673012</articleCount>
+    <mediaCount>8469385</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/50e94998-c1ec-b5e7-ec34-499f1d907c30/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_all_maxi_2026-08" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-08-25T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_all_maxi_2026-08.zim.meta4" length="127418088448" />
+  </entry>
+  <entry>
+    <id>urn:uuid:299eb9dc-88e5-6494-1a4b-132d4e897f3d</id>
+    <title>Wikipedia</title>
+    <updated>2026-09-09T00:00:00Z</updated>
+    <summary>The free encyclopedia</summary>
+    <language>eng</language>
+    <name>wikipedia_en_all</name>
+    <flavour>mini</flavour>
+    <category>wikipedia</category>
+    <tags>wikipedia;_category:wikipedia;_pictures:no;_videos:no;_details:no;_ftindex:yes</tags>
+    <articleCount>18095848</articleCount>
+    <mediaCount>33992</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/299eb9dc-88e5-6494-1a4b-132d4e897f3d/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/wikipedia_en_all_mini_2026-09" />
+    <author>
+      <name>Wikipedia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-09-09T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/wikipedia/wikipedia_en_all_mini_2026-09.zim.meta4" length="14386799616" />
+  </entry>
+</feed>

@@ -150,7 +150,8 @@ func (s *Server) extract(w http.ResponseWriter, r *http.Request, p *auth.Princip
 	} else if pr != nil {
 		proxy = s.M.ProxyURL(pr.ID)
 	}
-	cl := netutil.Client(20*time.Second, !p.Admin, proxy)
+	// Only an administrator's own session may read pages on the NAS itself
+	cl := netutil.Client(20*time.Second, !(p.Admin && p.Interactive()), proxy)
 	req, _ := http.NewRequest("GET", pu.String(), nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; DownloadCenter/1.0)")
 	resp, err := cl.Do(req)

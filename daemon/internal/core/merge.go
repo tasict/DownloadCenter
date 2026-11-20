@@ -44,7 +44,7 @@ func (m *Manager) addContentSource(taskHash string, b []byte, meta *torrent.Meta
 	if t == nil || t.Kind != KindBT {
 		return nil, ErrNotFound
 	}
-	if !o.Admin && t.Owner != o.Owner {
+	if !o.AllTasks && t.Owner != o.Owner {
 		return nil, ErrNotOwner
 	}
 	cur, err := os.ReadFile(m.torrentPath(m.activeSource(t)))

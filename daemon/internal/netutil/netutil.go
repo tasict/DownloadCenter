@@ -5,6 +5,7 @@ package netutil
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -52,28 +53,41 @@ func maxRedirects(n int) func(*http.Request, []*http.Request) error {
 	}
 }
 
-// dialRace connects to the first address that answers, like the standard
-// dialer does for host names (RFC 8305): IPv6 and IPv4 addresses take
-// turns, a new attempt starts every 250 ms while earlier ones are pending,
-// so one unreachable family does not cost a whole connect timeout.
-func dialRace(ctx context.Context, d *net.Dialer, network string, ips []net.IP, port string) (net.Conn, error) {
-	var v6, v4 []net.IP
+// interleave orders addresses for racing (RFC 8305): the families take
+// turns, starting with the family of the first address. The resolver has
+// sorted them by RFC 6724, which puts IPv4 first on a NAS whose IPv6 has no
+// global address (a ULA behind NAT66 often is the broken path).
+func interleave(ips []net.IP) []net.IP {
+	var first, second []net.IP
 	for _, ip := range ips {
-		if ip.To4() == nil {
-			v6 = append(v6, ip)
+		if (ip.To4() == nil) == (ips[0].To4() == nil) {
+			first = append(first, ip)
 		} else {
-			v4 = append(v4, ip)
+			second = append(second, ip)
 		}
 	}
 	var order []net.IP
-	for i := 0; i < len(v6) || i < len(v4); i++ {
-		if i < len(v6) {
-			order = append(order, v6[i])
+	for i := 0; i < len(first) || i < len(second); i++ {
+		if i < len(first) {
+			order = append(order, first[i])
 		}
-		if i < len(v4) {
-			order = append(order, v4[i])
+		if i < len(second) {
+			order = append(order, second[i])
 		}
 	}
+	return order
+}
+
+// dialRace connects to the first address that answers, like the standard
+// dialer does for host names (RFC 8305): the families take turns (see
+// interleave), a new attempt starts every 250 ms while earlier ones are
+// pending, so one unreachable family does not cost a whole connect
+// timeout.
+func dialRace(ctx context.Context, d *net.Dialer, network string, ips []net.IP, port string) (net.Conn, error) {
+	if len(ips) == 0 {
+		return nil, errors.New("no address")
+	}
+	order := interleave(ips)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	type res struct {
@@ -123,67 +137,253 @@ func dialRace(ctx context.Context, d *net.Dialer, network string, ips []net.IP, 
 	return nil, lastErr
 }
 
+// Waits of dialTLSRace before it tries the next address as well: while
+// the connection is not made, and while a made connection's TLS handshake
+// is not done (a path that lets the handshake's small packets through and
+// drops the server's answer, as broken IPv6 does).
+const (
+	connectStagger   = 250 * time.Millisecond
+	handshakeStagger = 2 * time.Second
+)
+
+// dialTLSRace is dialRace up to a finished TLS handshake: the winner is the
+// first address whose handshake completes, so an address that connects but
+// never answers the handshake does not hold up the others.
+func dialTLSRace(ctx context.Context, d *net.Dialer, ips []net.IP, port string, cfg *tls.Config) (net.Conn, error) {
+	if len(ips) == 0 {
+		return nil, errors.New("no address")
+	}
+	order := interleave(ips)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type event struct {
+		i         int
+		conn      net.Conn
+		err       error
+		connected bool
+	}
+	events := make(chan event, 2*len(order))
+	next, pending := 0, 0
+	var wait <-chan time.Time
+	start := func() {
+		i := next
+		next++
+		pending++
+		go func() {
+			c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(order[i].String(), port))
+			if err != nil {
+				events <- event{i: i, err: err}
+				return
+			}
+			events <- event{i: i, connected: true}
+			tc := tls.Client(c, cfg.Clone())
+			if err := tc.HandshakeContext(ctx); err != nil {
+				c.Close()
+				events <- event{i: i, err: err}
+				return
+			}
+			events <- event{i: i, conn: tc}
+		}()
+		wait = time.After(connectStagger)
+	}
+	start()
+	var lastErr error
+	for pending > 0 {
+		if next == len(order) {
+			wait = nil
+		}
+		select {
+		case e := <-events:
+			if e.connected {
+				if e.i == next-1 {
+					wait = time.After(handshakeStagger)
+				}
+				continue
+			}
+			pending--
+			if e.err == nil {
+				// Close the connections that lose the race
+				go func(n int) {
+					for n > 0 {
+						if o := <-events; !o.connected {
+							n--
+							if o.conn != nil {
+								o.conn.Close()
+							}
+						}
+					}
+				}(pending)
+				return e.conn, nil
+			}
+			lastErr = e.err
+			if next < len(order) {
+				start()
+			}
+		case <-wait:
+			start()
+		case <-ctx.Done():
+			// A handshake that finishes now must not stay open
+			go func(n int) {
+				for n > 0 {
+					if o := <-events; !o.connected {
+						n--
+						if o.conn != nil {
+							o.conn.Close()
+						}
+					}
+				}
+			}(pending)
+			return nil, ctx.Err()
+		}
+	}
+	return nil, lastErr
+}
+
 // ErrTooManyRedirects is returned when a redirect chain is too long.
 var ErrTooManyRedirects = errors.New("too many redirects")
 
 // Transport is the round tripper behind Client: header timeout, address
-// guard and proxy.
+// guard (the usual one, see Guard) and proxy.
 func Transport(headerTimeout time.Duration, guard bool, proxyURL string) http.RoundTripper {
+	var r *Rule
+	if guard {
+		r = Guard
+	}
+	return TransportRule(headerTimeout, proxyURL, r)
+}
+
+// TransportRule is Transport with the targets checked by r (nil: none).
+// proxyURL ("" = direct) is an http://, socks5:// or socks5h:// proxy; one
+// that cannot be used fails every request instead of going direct. Through
+// an http or socks5 proxy a checked target is handed to the proxy as the
+// address that was checked, so the proxy cannot resolve its name to
+// another one; a socks5h proxy resolves names itself, so only literal
+// addresses, localhost and ports can be checked there.
+func TransportRule(headerTimeout time.Duration, proxyURL string, r *Rule) http.RoundTripper {
 	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	// resolve is the target's addresses in the resolver's order, without
+	// the ones the rule refuses
+	resolve := func(ctx context.Context, host, port string) ([]net.IP, error) {
+		if r != nil {
+			return r.resolve(ctx, host, port)
+		}
+		if ip := HostIP(host); ip != nil {
+			return []net.IP{ip}, nil
+		}
+		return lookupIP(ctx, host)
+	}
 	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
 			return nil, err
 		}
-		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		ips, err := resolve(ctx, host, port)
 		if err != nil {
 			return nil, err
 		}
-		var ok []net.IP
-		var lastErr error = errors.New("no address")
-		for _, ip := range ips {
-			if guard && Forbidden(ip.IP) {
-				lastErr = fmt.Errorf("address %s is not allowed", ip.IP)
-				continue
-			}
-			ok = append(ok, ip.IP)
+		return dialRace(ctx, dialer, network, ips, port)
+	}
+	// HTTPS without a proxy races the addresses up to the TLS handshake
+	dialTLS := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
 		}
-		if len(ok) == 0 {
-			return nil, lastErr
+		ips, err := resolve(ctx, host, port)
+		if err != nil {
+			return nil, err
 		}
-		return dialRace(ctx, dialer, network, ok, port)
+		return dialTLSRace(ctx, dialer, ips, port, &tls.Config{ServerName: host, NextProtos: []string{"http/1.1"}, RootCAs: RootCAs()})
 	}
 	tr := &http.Transport{
+		// Where Go makes the TLS handshake itself (through a proxy)
+		TLSClientConfig:       TLSConfig(),
 		DialContext:           dial,
+		DialTLSContext:        dialTLS,
 		Proxy:                 nil,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ResponseHeaderTimeout: headerTimeout,
 		MaxIdleConns:          10,
 		IdleConnTimeout:       60 * time.Second,
 	}
-	if proxyURL != "" {
-		if u, err := url.Parse(proxyURL); err == nil {
-			switch u.Scheme {
-			case "http", "https":
-				tr.Proxy = http.ProxyURL(u)
-				tr.DialContext = dialer.DialContext
-			case "socks5", "socks5h":
-				user, pass := "", ""
-				if u.User != nil {
-					user = u.User.Username()
-					pass, _ = u.User.Password()
+	if proxyURL == "" {
+		return tr
+	}
+	u, err := url.Parse(proxyURL)
+	if err != nil || u.Host == "" {
+		return failRT{ErrBadProxy}
+	}
+	tr.DialTLSContext = nil
+	switch u.Scheme {
+	case "https":
+		// A proxy reached over TLS: only for unguarded requests (the
+		// settings never make one)
+		if r != nil {
+			return failRT{ErrBadProxy}
+		}
+		tr.Proxy = http.ProxyURL(u)
+		tr.DialContext = dialer.DialContext
+		return tr
+	case "http":
+		// The proxy is dialled as it is: it is often on the LAN
+		tr.Proxy = http.ProxyURL(u)
+		tr.DialContext = dialer.DialContext
+		if r == nil {
+			return tr
+		}
+		// Guarded: every request, plain http too, goes in a CONNECT tunnel
+		// to the checked address, so that the proxy never gets a name it
+		// could resolve to another address; a refused tunnel fails the
+		// request (ErrTunnelRefused)
+		tunnel := tr.Clone()
+		tunnel.Proxy = nil
+		tunnel.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			return dialThrough(ctx, dialer, u, r, host, port, false)
+		}
+		tunnel.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			return dialThrough(ctx, dialer, u, r, host, port, true)
+		}
+		return tunnel
+	case "socks5", "socks5h":
+		user, pass := "", ""
+		if u.User != nil {
+			user = u.User.Username()
+			pass, _ = u.User.Password()
+		}
+		remoteDNS := u.Scheme == "socks5h"
+		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if r != nil {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, err
 				}
-				tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-					return DialSOCKS5(u.Host, user, pass, addr, 15*time.Second)
+				if remoteDNS {
+					// The proxy resolves names: resolving here would leak
+					// the name to the local resolver
+					if err := r.CheckLiteral(host, port); err != nil {
+						return nil, err
+					}
+				} else {
+					ips, err := r.resolve(ctx, host, port)
+					if err != nil {
+						return nil, err
+					}
+					addr = net.JoinHostPort(ips[0].String(), port)
 				}
 			}
+			return DialSOCKS5(u.Host, user, pass, addr, 15*time.Second)
 		}
+		return tr
 	}
-	if guard && proxyURL != "" {
-		// Through a proxy the dialer never sees the target: check it here
-		return guardRT{next: tr, remoteDNS: strings.HasPrefix(proxyURL, "socks5h:")}
-	}
-	return tr
+	return failRT{ErrBadProxy}
 }
 
 // SOCKS5 error kinds, matching the official V4 error codes 4608-4617.
@@ -416,22 +616,6 @@ func SocksCode(err error) int {
 		return 4617
 	}
 	return 4613
-}
-
-// guardRT refuses requests whose target resolves to a forbidden address
-// (used when a proxy hides the target from the dialer). With remoteDNS the
-// proxy resolves names, so only literal addresses are checked: resolving
-// here would leak the name to the local resolver.
-type guardRT struct {
-	next      http.RoundTripper
-	remoteDNS bool
-}
-
-func (g guardRT) RoundTrip(req *http.Request) (*http.Response, error) {
-	if err := CheckHost(req.Context(), req.URL.Hostname(), g.remoteDNS); err != nil {
-		return nil, err
-	}
-	return g.next.RoundTrip(req)
 }
 
 // CheckHost refuses a host that is or resolves to a forbidden address.

@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "kiwix",
+  "name": "Kiwix",
+  "version": "1.0",
+  "description": "Offline copies of Wikipedia, Stack Exchange, Project Gutenberg, TED and other open content, from the Kiwix library.",
+  "homepage": "https://library.kiwix.org/",
+  "type": "rss",
+  "prefer": "torrent",
+  "webseed": true,
+  "request": {
+    "url": "https://opds.library.kiwix.org/catalog/v2/entries?q={query}&count={limit}"
+  },
+  "categories": {"books": "", "other": ""},
+  "test_query": "wikipedia",
+  "response": {
+    "fields": {
+      "title": "{title} {ns:flavour} – {ns:summary}",
+      "size": "enclosure.length",
+      "torrent": {"from": "enclosure.url", "replace": [".meta4", ".torrent"]},
+      "page": "link",
+      "date": "pubDate"
+    }
+  }
+}

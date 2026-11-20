@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -116,13 +117,15 @@ func (s *Service) send(ch *Channel, msg *Message) (int, error) {
 		case "task.failed", "task.likely_dead", "disk.low", "engine.down", "notify.disabled":
 			color = 0xFF3B30
 		}
-		embed := map[string]any{"title": truncate(msg.Title, 250), "description": truncate(msg.Body, 4000), "color": color}
+		embed := map[string]any{"title": truncate(discordEscape(msg.Title), 250), "description": truncate(discordEscape(msg.Body), 4000), "color": color}
 		if u := s.uiURL(); u != "" {
 			embed["url"] = u
 		}
-		return postJSON(cl, cfg["webhook_url"], map[string]any{"username": "Download Center", "embeds": []any{embed}}, nil)
+		// Task names never mention anyone
+		return postJSON(cl, cfg["webhook_url"], map[string]any{"username": "Download Center", "embeds": []any{embed},
+			"allowed_mentions": map[string]any{"parse": []string{}}}, nil)
 	case "slack":
-		return postJSON(cl, cfg["webhook_url"], map[string]any{"text": "*" + msg.Title + "*\n" + msg.Body}, nil)
+		return postJSON(cl, cfg["webhook_url"], map[string]any{"text": "*" + slackEscape(msg.Title) + "*\n" + slackEscape(msg.Body)}, nil)
 	case "line":
 		return s.linePush(cl, cfg, msg.Text(), msg.Buttons)
 	case "ntfy":
@@ -199,6 +202,11 @@ func do(cl *http.Client, req *http.Request) (int, error) {
 	}
 	resp, err := cl.Do(req)
 	if err != nil {
+		// The address may hold the channel's secret: only its host is said
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			return 0, fmt.Errorf("%s %s: %v", ue.Op, req.URL.Host, ue.Err)
+		}
 		return 0, err
 	}
 	defer resp.Body.Close()
@@ -332,10 +340,43 @@ func (s *Service) TestChannel(ch *Channel) (bool, string) {
 	status, err := s.send(ch, msg)
 	st, errText := "ok", ""
 	if err != nil {
-		st, errText = "failed", truncate(err.Error(), 300)
+		st, errText = "failed", truncate(scrubURLs(err.Error()), 300)
 	}
 	s.db.X(`INSERT INTO deliveries (channel_id, event_id, delivery, attempt, next_at, status, http_status, duration_ms, error, time) VALUES (?, 0, ?, 1, 0, ?, ?, ?, ?, ?)`,
 		ch.ID, msg.Delivery, st, status, time.Since(start).Milliseconds(), errText, s.now().Unix())
 	s.trim(ch.ID)
 	return err == nil, errText
+}
+
+// slackEscape keeps task text from being read as Slack markup: mentions
+// such as <!channel> and links <address|text> are made of these.
+func slackEscape(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
+}
+
+// discordEscape keeps task text from being read as Discord markdown (links
+// [text](address), emphasis, code, headings, quotes, mentions).
+func discordEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune("\\*_~`|>[]()#-@<:", r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+var urlRe = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>]+`)
+
+// scrubURLs shortens every address in s to its scheme and host: paths and
+// queries of webhook addresses hold secrets.
+func scrubURLs(s string) string {
+	return urlRe.ReplaceAllStringFunc(s, func(m string) string {
+		u, err := url.Parse(m)
+		if err != nil || u.Host == "" {
+			return "<address>"
+		}
+		return u.Scheme + "://" + u.Hostname() + "/…"
+	})
 }

@@ -2,11 +2,17 @@
 #
 # release.sh uploads the packages, SHA256SUMS and SHA256SUMS.sig to a draft
 # release and then pushes the tag v<version>. This workflow runs on that tag:
-# it downloads the draft's files, checks every package against SHA256SUMS and
-# the signature against tools/release-key.pub, runs the tests, publishes the
-# draft with its CHANGELOG.md notes; pages.yml then refreshes the site and
-# updates.json (it runs from master, which the github-pages environment allows).
-# Nothing is built here, and no secret beyond the built-in token is needed.
+# it runs the tests of the tagged commit without write access, then, from the
+# default branch, makes sure the tag is part of that branch, downloads the
+# draft's files, checks every package against SHA256SUMS and the signature
+# against the default branch's tools/release-key.pub, with the default
+# branch's dcrelease, and publishes the draft with its CHANGELOG.md notes.
+# GitHub runs this file as it is in the tagged commit, so these checks hold
+# for tags made from this repository's history; who may push v* tags is a
+# repository setting (tag rules). pages.yml then refreshes the site and
+# updates.json (it runs from master, which the github-pages environment
+# allows). Nothing is built here, and no secret beyond the built-in token is
+# needed.
 name: Release
 
 on:
@@ -14,19 +20,21 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: daemon/go.mod
           cache-dependency-path: daemon/go.sum
@@ -36,6 +44,27 @@ jobs:
         run: |
           go vet ./...
           go test ./...
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The tag is on the default branch
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" HEAD || { echo "$GITHUB_REF_NAME ($GITHUB_SHA) is not on the default branch"; exit 1; }
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
 
       - name: Check the draft release
         working-directory: daemon

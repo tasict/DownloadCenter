@@ -20,6 +20,7 @@ import (
 
 	"downloadcenter/internal/engine"
 	"downloadcenter/internal/qts"
+	"downloadcenter/internal/safefs"
 	"downloadcenter/internal/store"
 	"downloadcenter/internal/torrent"
 )
@@ -55,6 +56,11 @@ type Manager struct {
 	Hosters Resolver
 	Public  PublicTrackers // the public tracker list (nil: none)
 
+	// Dev: a development instance (dcd serve -dev-user), which shares the
+	// NAS with the installed package: none of the housekeeping that walks
+	// the NAS's shared folders runs.
+	Dev bool
+
 	mu         sync.Mutex
 	live       map[string]*Task
 	applied    map[string][2]int64
@@ -67,9 +73,11 @@ type Manager struct {
 	resolving  map[string]bool   // file-hosting links being resolved
 	stall      map[string]*stall // torrents without peers (watchPeers)
 	guards     map[string]bool   // torrents: the address guard the engine has (guardFor)
+	adopting   map[string]bool   // torrents: the engine is checking the data in the destination (said once)
 	clock      func() time.Time
 	health     sync.Map    // engine name -> down (bool), readable without mu
 	inMinute   atomic.Bool // housekeeping pass running
+	lastFiles  time.Time   // when the engines last gave the file lists
 	busy       bool        // something is downloading (for queue.idle)
 	schedMode  string      // schedule mode at the last tick (for schedule.changed)
 	rates      rateHistory // download rates of the last 15 minutes (own lock)
@@ -98,6 +106,7 @@ func New(db *store.DB, dataDir string) *Manager {
 		resolving:  map[string]bool{},
 		stall:      map[string]*stall{},
 		guards:     map[string]bool{},
+		adopting:   map[string]bool{},
 		clock:      time.Now,
 		kick:       make(chan struct{}, 1),
 		stopCh:     make(chan struct{}),
@@ -139,6 +148,17 @@ func (m *Manager) Start() error {
 		if t.Kind == KindBT && t.State == StDone {
 			parts[t.Hash] = t.SaveDir()
 		}
+		if t.InTemp() && t.State != StMoving && m.oldWork(t) {
+			// Still downloading inside a user's tree: out of the engine
+			// now, the next add moves the data to its private folder first
+			if e := m.BTEngine(); e != nil && t.Kind == KindBT {
+				if t.EngineRef != "" && t.EngineRef != t.Hash {
+					e.Remove(t.EngineRef)
+				}
+				e.Remove(t.Hash)
+			}
+			t.EngineRef = ""
+		}
 		m.live[t.Hash] = t
 	}
 	for _, t := range resume {
@@ -150,6 +170,9 @@ func (m *Manager) Start() error {
 	m.wg.Add(2)
 	go func() {
 		defer m.wg.Done()
+		if m.Dev {
+			return
+		}
 		for h, dir := range parts {
 			m.removePartFiles(h, dir)
 		}
@@ -252,6 +275,42 @@ func (m *Manager) loop() {
 	}
 }
 
+// fileLister is an engine that can report its tasks without their file
+// lists, which are the costly part of a status for torrents of many files.
+type fileLister interface {
+	StatusAllFiles(files bool) (map[string]*engine.Status, error)
+}
+
+// fileEvery is how often the engines are asked for the tasks' file lists.
+const fileEvery = 10 * time.Second
+
+// RefreshFiles stores what the engine says of one task's files now:
+// someone looks at them, and the regular poll brings them only every
+// fileEvery. The engine is asked outside the manager lock.
+func (m *Manager) RefreshFiles(hash string) {
+	m.mu.Lock()
+	t, ok := m.live[hash]
+	var e engine.Engine
+	ref := ""
+	if ok && t.State != StDone && !m.moving[hash] {
+		e, ref = m.engineOf(t), t.EngineRef
+	}
+	m.mu.Unlock()
+	if e == nil || ref == "" {
+		return
+	}
+	st, err := e.Status(ref)
+	if err != nil || st.IsMetadata || len(st.Files) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.live[hash]; ok && t.EngineRef == ref {
+		t.filesAt = time.Now().Unix()
+		m.syncFiles(t, st.Files)
+	}
+}
+
 // engineOf returns the engine a task runs in.
 func (m *Manager) engineOf(t *Task) engine.Engine {
 	if t.Kind != KindBT {
@@ -283,7 +342,13 @@ func (m *Manager) tick() {
 	}
 	m.lastTick = now
 
-	// Poll every engine once
+	// Poll every engine once. The complete file lists cost most (torrents
+	// of many files): they are asked for every fileEvery, or right away
+	// when someone looks at one task's files (RefreshFiles)
+	withFiles := m.clock().Sub(m.lastFiles) >= fileEvery
+	if withFiles {
+		m.lastFiles = m.clock()
+	}
 	statuses := map[engine.Engine]map[string]*engine.Status{}
 	seen := map[engine.Engine]bool{}
 	for _, e := range append([]engine.Engine{m.URL}, m.engineList()...) {
@@ -291,7 +356,13 @@ func (m *Manager) tick() {
 			continue
 		}
 		seen[e] = true
-		st, err := e.StatusAll()
+		var st map[string]*engine.Status
+		var err error
+		if fl, ok := e.(fileLister); ok {
+			st, err = fl.StatusAllFiles(withFiles)
+		} else {
+			st, err = e.StatusAll()
+		}
 		if err != nil {
 			m.engineDown(e, err)
 			continue
@@ -438,6 +509,37 @@ func (m *Manager) addToEngine(t *Task, e engine.Engine) {
 			ref, err = st.Ref, nil
 		}
 	}
+	if errors.Is(err, engine.ErrPending) {
+		// The engine checks the data already in the destination: added
+		// again at a later tick
+		if !m.adopting[t.Hash] {
+			m.adopting[t.Hash] = true
+			m.Log(t.Hash, "Checking the files already in the destination folder")
+		}
+		return
+	}
+	delete(m.adopting, t.Hash)
+	if err == nil && req.AdoptFrom != "" {
+		m.adopted(t, req, e, ref)
+	}
+	if err != nil && errors.Is(err, engine.ErrFolderNotPrivate) && t.Kind == KindBT && t.FinishedAt > 0 && !t.InTemp() {
+		// Handed over, and the engine no longer has it: it never runs from
+		// the destination folder, so its seeding is over
+		m.Log(t.Hash, "Seeding ended: the data is in its destination folder")
+		if t.SeededAt == 0 {
+			t.SeededAt = time.Now().Unix()
+		}
+		if t.DataPath == "" && t.MoveDir != "" && t.MoveDir != t.TempDir && t.Name != "" {
+			// Torrents of 0.9.x seed in place and move when seeding ends
+			m.startMove(t, filepath.Join(t.TempDir, t.Name), t.MoveDir, false)
+			return
+		}
+		if t.DataPath == "" && t.Name != "" {
+			t.DataPath = filepath.Join(t.TempDir, t.Name)
+		}
+		m.finish(t)
+		return
+	}
 	if err != nil {
 		m.fail(t, "add", err.Error())
 		return
@@ -451,6 +553,24 @@ func (m *Manager) addToEngine(t *Task, e engine.Engine) {
 	t.Options.Check = false
 	delete(m.applied, t.Hash)
 	delete(m.running, t.Hash)
+	m.markDirty(t)
+}
+
+// adopted follows an add that asked the engine to take over the data
+// already in the destination: when it did, the data stays where it is
+// (DataPath), else the torrent downloads as new. Caller holds m.mu.
+func (m *Manager) adopted(t *Task, req engine.AddRequest, e engine.Engine, ref string) {
+	ad, ok := e.(engine.Adopter)
+	took := ok && ad.Adopted(ref)
+	if took && t.InTemp() {
+		t.DataPath = filepath.Join(req.AdoptFrom, req.AdoptRoot)
+		t.Options.Root = ""
+		m.Log(t.Hash, "The files already in the destination folder are used")
+	}
+	if took {
+		t.Options.Adopted = true
+	}
+	t.Options.AdoptFrom = ""
 	m.markDirty(t)
 }
 
@@ -468,12 +588,50 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 	s := m.Settings()
 	req := engine.AddRequest{MaxDown: t.Options.MaxDown, MaxUp: t.Options.MaxUp}
 	if t.Kind == KindBT {
-		req.Dir = t.SaveDir()
-		if t.InTemp() {
-			if err := os.MkdirAll(req.Dir, 0775); err != nil {
-				return req, fmt.Errorf("Cannot create temporary folder: %v", err)
+		// The engine runs torrents only from private folders: one still
+		// downloading where its data sits elsewhere moves it there first
+		// (data the engine took over stays where it is, see below)
+		if t.State != StDone && t.FinishedAt == 0 && (t.WorkDir == "" || t.DataPath != "") && !t.Options.Adopted {
+			if e := m.engineOf(t); e != nil && e.Caps().MoveWhileSeeding {
+				if err := m.stageInPlace(t); err != nil {
+					return req, err
+				}
 			}
 		}
+		req.Dir = t.SaveDir()
+		e := m.engineOf(t)
+		adopt := e != nil && e.Caps().AdoptData
+		if adopt && t.DataPath != "" && !t.InTemp() && (t.FinishedAt > 0 || t.Options.Adopted) {
+			// Its data is at its destination (handed over, seeded from there
+			// by an earlier version, or taken over when added): the engine
+			// takes it over again into a private folder and seeds from
+			// there; when nothing can be taken over its seeding is over
+			dir, err := m.prepareWork(t)
+			if err != nil {
+				return req, err
+			}
+			req.Dir = dir
+			req.AdoptFrom, req.AdoptRoot, req.AdoptRequired = filepath.Dir(t.DataPath), filepath.Base(t.DataPath), true
+		} else if t.InTemp() {
+			dir, err := m.prepareWork(t)
+			if err != nil {
+				return req, err
+			}
+			req.Dir = dir
+			if adopt && t.Options.AdoptFrom != "" && t.Name != "" {
+				req.AdoptFrom, req.AdoptRoot = t.Options.AdoptFrom, t.Name
+			}
+		} else if d, err := safefs.OpenDir(req.Dir); err == nil {
+			d.Close()
+		} else if errors.Is(err, safefs.ErrLink) {
+			return req, errDataUnsafe
+		}
+		// Every torrent's destination is treated as a folder others can
+		// change: the engine downloads and seeds only in private folders and
+		// hands the data over without following links, the files given to
+		// the account that should own them
+		req.UntrustedDir = true
+		req.OwnerUID, req.OwnerGID = m.handOwner(t)
 		req.Root = t.Options.Root
 		if b, err := os.ReadFile(m.torrentPath(t.Hash)); err == nil {
 			req.Torrent = b
@@ -502,13 +660,11 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 		req.Check = t.Options.Check
 		return req, nil
 	}
-	if t.WorkDir == "" {
-		t.WorkDir = m.workDirFor(t.TempDir, t.Hash)
+	dir, err := m.prepareWork(t)
+	if err != nil {
+		return req, err
 	}
-	if err := os.MkdirAll(t.WorkDir, 0775); err != nil {
-		return req, fmt.Errorf("Cannot create temporary folder: %v", err)
-	}
-	req.Dir = t.WorkDir
+	req.Dir = dir
 	req.Out = t.Options.OutName
 	req.Headers = t.Options.Headers
 	req.URIs = []string{t.Source}
@@ -523,13 +679,12 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 	} else if user, pass, ok := m.siteCredentials(t); ok {
 		req.User, req.Pass = user, pass
 	}
-	var err error
 	if req.Proxy, err = m.proxyFor(t); err != nil {
 		return req, err
 	}
 	t.ProxyUsed = req.Proxy
 	// Regular users cannot reach the NAS itself through a download
-	req.Guard = !m.isAdminOwner(t.Owner)
+	req.Guard = !m.isAdminOwner(t.Owner) || t.Options.Guarded
 	return req, nil
 }
 
@@ -757,7 +912,8 @@ func (m *Manager) applyStatus(t *Task, st *engine.Status, e engine.Engine, elaps
 		if t.Comment == "" && st.Comment != "" {
 			t.Comment = st.Comment
 		}
-		if len(st.Files) > 0 && (m.dirty[t.Hash] || time.Now().Unix()%5 == 0 || t.FilesTotal == 0) {
+		if len(st.Files) > 0 && (m.dirty[t.Hash] || t.FilesTotal == 0 || time.Now().Unix()-t.filesAt >= 5) {
+			t.filesAt = time.Now().Unix()
 			m.syncFiles(t, st.Files)
 		}
 		// A magnet's file list has just arrived: pick its main video, once
@@ -833,18 +989,22 @@ func (m *Manager) syncFiles(t *Task, files []engine.File) {
 func (m *Manager) metadataDone(t *Task, st *engine.Status, e engine.Engine) {
 	old := t.EngineRef
 	t.EngineRef = st.FollowedBy
-	// The engine may save the metadata as <infohash>.torrent in the download folder
-	saved := filepath.Join(t.TempDir, t.Hash+".torrent")
-	if b, err := os.ReadFile(saved); err == nil {
-		if meta, perr := torrent.Parse(b); perr == nil && meta.InfoHash == t.Hash {
-			os.WriteFile(m.torrentPath(t.Hash), b, 0600)
-			os.Remove(saved)
-			t.Name = meta.Name
-			t.IsFolder = meta.IsFolder
-			if t.Comment == "" {
-				t.Comment = meta.Comment
+	// The engine may save the metadata as <infohash>.torrent in the download
+	// folder (read without following a link)
+	if d, err := safefs.OpenDir(t.TempDir); err == nil {
+		saved := t.Hash + ".torrent"
+		if b, err := d.ReadFile(saved, 64<<20); err == nil {
+			if meta, perr := torrent.Parse(b); perr == nil && meta.InfoHash == t.Hash {
+				os.WriteFile(m.torrentPath(t.Hash), b, 0600)
+				d.Remove(saved)
+				t.Name = meta.Name
+				t.IsFolder = meta.IsFolder
+				if t.Comment == "" {
+					t.Comment = meta.Comment
+				}
 			}
 		}
+		d.Close()
 	}
 	if fe, ok := e.(interface{ Forget(string) }); ok {
 		fe.Forget(old)
@@ -955,11 +1115,17 @@ func (m *Manager) moveTorrent(t *Task, st *engine.Status, e engine.Engine) {
 	}
 	dst := t.finalDir()
 	dir, root := dst, t.Options.Root
+	via := ""
 	if !sameVolume(t.WorkDir, dst) {
-		dir = m.workDirFor(dst, t.Hash)
-		if ownTemp(dir) {
-			os.RemoveAll(dir) // what an interrupted copy left behind
+		via = m.workDirFor(m.userData(t), dst, "", t.Hash)
+		if via == "" {
+			m.moveFailed(t, e, errNoStaging.Error())
+			return
 		}
+	}
+	if via != "" && filepath.Clean(via) != filepath.Clean(t.WorkDir) {
+		dir = via
+		removeTempDir(dir) // what an interrupted copy left behind
 	} else if name := torrentRoot(t, st); name != "" {
 		p := filepath.Join(dst, name)
 		q := uniquePath(p)
@@ -970,10 +1136,23 @@ func (m *Manager) moveTorrent(t *Task, st *engine.Status, e engine.Engine) {
 			root = filepath.Base(q)
 		}
 	}
-	if err := os.MkdirAll(dir, 0775); err != nil {
+	// The folder must be reached without a link: a staging folder is made
+	// private, a destination is made like MkdirAll would
+	var d *safefs.Dir
+	var err error
+	if dir != dst {
+		d, err = openWork(dir, true)
+	} else {
+		d, err = safefs.MkdirAll(dir, 0775)
+	}
+	if err != nil {
+		if errors.Is(err, safefs.ErrLink) || errors.Is(err, safefs.ErrOwner) {
+			err = errDataUnsafe
+		}
 		m.moveFailed(t, e, err.Error())
 		return
 	}
+	d.Close()
 	if err := mv.MoveStorage(t.EngineRef, dir, root); err != nil {
 		m.moveFailed(t, e, err.Error())
 		return
@@ -1002,7 +1181,7 @@ func (m *Manager) checkMove(t *Task, st *engine.Status, e engine.Engine) {
 	switch {
 	case dir == dst:
 		m.torrentMoved(t, st, e)
-	case dir != filepath.Clean(t.WorkDir) && dir == m.workDirFor(dst, t.Hash):
+	case dir != filepath.Clean(t.WorkDir) && dir == m.workDirFor(m.userData(t), dst, "", t.Hash):
 		// Copied to the destination's volume: now rename it into place
 		old := t.WorkDir
 		t.WorkDir = dir
@@ -1155,6 +1334,9 @@ func (m *Manager) startMove(t *Task, src, dst string, urlTask bool) {
 			}
 		} else {
 			final, err = moveInto(src, dst)
+			if errors.Is(err, safefs.ErrLink) || errors.Is(err, safefs.ErrOwner) {
+				err = errDataUnsafe
+			}
 		}
 		if err == nil {
 			if u := ownerFor(owner, admin, final); u != "" {
@@ -1188,17 +1370,29 @@ func (m *Manager) startMove(t *Task, src, dst string, urlTask bool) {
 // moveURLResult moves the downloaded file(s) of a URL task from its temp
 // folder into dst and returns the path of the (first) result.
 func moveURLResult(work, dst string) (string, error) {
-	ents, err := os.ReadDir(work)
+	wd, err := openWork(work, false)
+	if err != nil {
+		if errors.Is(err, safefs.ErrLink) || errors.Is(err, safefs.ErrOwner) {
+			return "", errWorkUnsafe
+		}
+		return "", err
+	}
+	defer wd.Close()
+	names, err := wd.Names()
 	if err != nil {
 		return "", err
 	}
+	sort.Strings(names)
 	first := ""
-	for _, e := range ents {
-		if isControlFile(e.Name()) {
+	for _, n := range names {
+		if isControlFile(n) {
 			continue
 		}
-		p, err := moveInto(filepath.Join(work, e.Name()), dst)
+		p, err := moveEntry(wd, n, dst)
 		if err != nil {
+			if errors.Is(err, safefs.ErrLink) || errors.Is(err, safefs.ErrOwner) {
+				err = errDataUnsafe
+			}
 			return "", err
 		}
 		if first == "" {
@@ -1519,6 +1713,7 @@ func (m *Manager) minute() {
 	}
 	m.mu.Unlock()
 	m.syncGuards()
+	m.expireProbes(now)
 	m.askTrackers()
 	if now.Sub(m.lastDay) >= 24*time.Hour {
 		m.lastDay = now
@@ -1529,7 +1724,9 @@ func (m *Manager) minute() {
 		m.db.X(`DELETE FROM events WHERE time < ?`, now.Unix()-30*86400)
 		m.db.X(`DELETE FROM audit WHERE time < ?`, now.Unix()-90*86400)
 		m.db.X(`DELETE FROM deliveries WHERE time < ? AND status != 'pending'`, now.Unix()-30*86400)
-		m.cleanTempFolders()
+		if !m.Dev {
+			m.cleanTempFolders()
+		}
 	}
 	m.db.X(`DELETE FROM pair_codes WHERE expires_at < ?`, now.Unix())
 }
@@ -1544,7 +1741,8 @@ func (m *Manager) checkDisk(min int64) {
 		if t.State != StDownloading && t.State != StQueued && t.State != StMetadata {
 			continue
 		}
-		dir := t.TempDir
+		// The data stays on the volume of its destination until complete
+		dir := t.finalDir()
 		free := FreeSpace(dir)
 		if free >= 0 && free < min {
 			low[dir] = true
@@ -1578,9 +1776,13 @@ func (m *Manager) checkDisk(min int64) {
 func (m *Manager) cleanTempFolders() {
 	m.mu.Lock()
 	owned := map[string]bool{}
-	for _, t := range m.live {
+	known := map[string]bool{}
+	for h, t := range m.live {
+		known[h] = true
 		if t.WorkDir != "" {
 			owned[t.WorkDir] = true
+			// The engine seeds a regular user's torrent from beside it
+			owned[t.WorkDir+".seed"] = true
 		}
 	}
 	m.mu.Unlock()
@@ -1588,22 +1790,34 @@ func (m *Manager) cleanTempFolders() {
 	for _, d := range m.tempRoots() {
 		roots[d] = true
 	}
-	cut := time.Now().Add(-7 * 24 * time.Hour)
+	cut := time.Now().Add(-7 * 24 * time.Hour).Unix()
 	for root := range roots {
-		ents, err := os.ReadDir(root)
+		// Opened without following links: a link in a user's tree must not
+		// make this sweep another folder
+		parent, err := safefs.OpenDir(filepath.Dir(root))
 		if err != nil {
 			continue
 		}
-		for _, e := range ents {
-			p := filepath.Join(root, e.Name())
-			if owned[p] {
+		d, err := parent.Sub(TempDirName)
+		if err != nil {
+			parent.Close()
+			continue
+		}
+		names, _ := d.Names()
+		for _, n := range names {
+			// Never anything of a task that is still in the list, wherever it is
+			if owned[filepath.Join(root, n)] || known[n] || known[strings.TrimSuffix(n, ".seed")] {
 				continue
 			}
-			if info, err := e.Info(); err == nil && info.ModTime().Before(cut) {
-				os.RemoveAll(p)
+			if st, err := d.Lstat(n); err == nil && int64(st.Mtim.Sec) < cut {
+				d.RemoveAll(n)
 			}
 		}
-		os.Remove(root)
+		d.Close()
+		if !isStagingBase(filepath.Dir(root)) {
+			parent.RemoveEmpty(TempDirName)
+		}
+		parent.Close()
 	}
 }
 

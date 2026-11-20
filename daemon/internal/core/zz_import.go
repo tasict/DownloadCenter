@@ -119,10 +119,11 @@ func (m *Manager) ImportTask(s ImportSpec) error {
 		return nil
 	}
 	if t.WorkDir == "" {
+		admin := m.isAdminOwner(t.Owner)
 		if t.Kind == KindBT {
-			m.stageTorrent(t, t.Name)
+			m.stageTorrent(t, admin)
 		} else {
-			t.WorkDir = m.workDirFor(t.TempDir, t.Hash)
+			t.WorkDir = m.workDirFor(userDest(admin, t.TempDir, t.MoveDir), t.TempDir, t.MoveDir, t.Hash)
 		}
 	}
 	m.mu.Lock()

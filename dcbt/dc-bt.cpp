@@ -30,9 +30,12 @@
 #include <libtorrent/parse_url.hpp>
 #include <libtorrent/session_stats.hpp>
 #include <libtorrent/extensions.hpp>
+#include <libtorrent/hasher.hpp>
+#include <openssl/x509.h>
 
 #include "json.hpp"
 
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -45,6 +48,8 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <signal.h>
+#include <pthread.h>
+#include <atomic>
 #include <cerrno>
 #include <cstdarg>
 #include <cstdio>
@@ -61,11 +66,15 @@
 #include <string>
 #include <vector>
 
+#ifndef FS_IOC_GETVERSION
+#define FS_IOC_GETVERSION _IOR('v', 1, long) // as <linux/fs.h>: the inode's generation
+#endif
+
 namespace lt = libtorrent;
 using json = nlohmann::json;
 using clk = std::chrono::steady_clock;
 
-static const char *DCBT_VERSION = "1.4";
+static const char *DCBT_VERSION = "1.7";
 
 static volatile sig_atomic_t g_stop = 0;
 static void on_signal(int) { g_stop = 1; }
@@ -101,9 +110,10 @@ static bool read_file(std::string const &path, std::vector<char> &out)
 static bool write_file(std::string const &path, char const *data, size_t len)
 {
 	std::string tmp = path + ".tmp";
-	int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
 	if (fd < 0)
 		return false;
+	::fchmod(fd, 0600); // also when an old one was left behind
 	size_t off = 0;
 	while (off < len)
 	{
@@ -119,6 +129,919 @@ static bool write_file(std::string const &path, char const *data, size_t len)
 	::fsync(fd);
 	::close(fd);
 	return ::rename(tmp.c_str(), path.c_str()) == 0;
+}
+
+// --- folders a regular user can change ---
+//
+// dc-bt runs as root. A regular user's torrent (untrusted_dir) is downloaded
+// and seeded only in a folder only root can enter; its data reaches the
+// user's folder as hard links made through folder descriptors, never by
+// path, so no link the user put there is followed (see PROTOCOL.md).
+
+struct Fd
+{
+	int fd = -1;
+	Fd() = default;
+	explicit Fd(int f) : fd(f) {}
+	Fd(Fd const &) = delete;
+	Fd &operator=(Fd const &) = delete;
+	Fd(Fd &&o) noexcept : fd(o.fd) { o.fd = -1; }
+	Fd &operator=(Fd &&o) noexcept
+	{
+		if (this != &o)
+		{
+			reset();
+			fd = o.fd;
+			o.fd = -1;
+		}
+		return *this;
+	}
+	~Fd() { reset(); }
+	void reset()
+	{
+		if (fd >= 0)
+			::close(fd);
+		fd = -1;
+	}
+	bool ok() const { return fd >= 0; }
+};
+
+static std::vector<std::string> split_path(std::string const &p)
+{
+	std::vector<std::string> out;
+	size_t i = 0;
+	while (i < p.size())
+	{
+		size_t j = p.find('/', i);
+		if (j == std::string::npos)
+			j = p.size();
+		if (j > i)
+			out.push_back(p.substr(i, j - i));
+		i = j + 1;
+	}
+	return out;
+}
+
+static bool plain_name(std::string const &n)
+{
+	return !n.empty() && n != "." && n != ".." && n.find('/') == std::string::npos;
+}
+
+// open_dir opens an absolute folder without following a link anyone but
+// root could have made: a link is followed only when root owns it and the
+// folder it sits in is root's and writable by nobody else, or sticky (the
+// links QTS keeps itself, like /share/homes). Every step is opened with
+// O_NOFOLLOW from the folder before it, so nothing changes under the walk.
+static Fd open_dir(std::string const &path, std::string &err)
+{
+	if (path.empty() || path[0] != '/')
+	{
+		err = "not an absolute path: " + path;
+		return Fd();
+	}
+	std::vector<std::string> todo = split_path(path);
+	for (auto const &c : todo)
+		if (c == "..")
+		{
+			err = "not a plain path: " + path;
+			return Fd();
+		}
+	Fd cur(::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+	int links = 0;
+	size_t at = 0;
+	while (cur.ok() && at < todo.size())
+	{
+		std::string c = todo[at++];
+		if (c.empty() || c == ".")
+			continue;
+		struct stat st;
+		if (::fstatat(cur.fd, c.c_str(), &st, AT_SYMLINK_NOFOLLOW) != 0)
+		{
+			err = path + ": " + strerror(errno);
+			return Fd();
+		}
+		if (S_ISLNK(st.st_mode))
+		{
+			struct stat ds;
+			bool trusted = ::fstat(cur.fd, &ds) == 0 && st.st_uid == 0 && ds.st_uid == 0 &&
+				(!(ds.st_mode & (S_IWGRP | S_IWOTH)) || (ds.st_mode & S_ISVTX));
+			if (!trusted || ++links > 16)
+			{
+				err = path + ": leads through a link (" + c + ")";
+				return Fd();
+			}
+			char buf[4096];
+			ssize_t n = ::readlinkat(cur.fd, c.c_str(), buf, sizeof buf - 1);
+			if (n <= 0)
+			{
+				err = path + ": " + strerror(errno);
+				return Fd();
+			}
+			std::string target(buf, size_t(n));
+			std::vector<std::string> rest(todo.begin() + long(at), todo.end());
+			todo = split_path(target);
+			todo.insert(todo.end(), rest.begin(), rest.end());
+			at = 0;
+			if (target[0] == '/')
+				cur = Fd(::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+			continue;
+		}
+		Fd next(::openat(cur.fd, c.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+		if (!next.ok())
+		{
+			err = path + ": " + strerror(errno);
+			return Fd();
+		}
+		cur = std::move(next);
+	}
+	if (!cur.ok())
+		err = path + ": " + strerror(errno);
+	return cur;
+}
+
+// not_shared: root owns the folder and nobody else may write in it.
+static bool not_shared(struct stat const &st)
+{
+	return S_ISDIR(st.st_mode) && st.st_uid == 0 && !(st.st_mode & (S_IWGRP | S_IWOTH));
+}
+
+// private_dir: a folder only root can change, in a folder only root can
+// change, so its path keeps leading to it while libtorrent uses the path.
+static bool private_dir(std::string const &path, std::string &err)
+{
+	Fd d = open_dir(path, err);
+	if (!d.ok())
+		return false;
+	struct stat st, pst;
+	Fd parent(::openat(d.fd, "..", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+	if (::fstat(d.fd, &st) != 0 || !parent.ok() || ::fstat(parent.fd, &pst) != 0)
+	{
+		err = path + ": " + strerror(errno);
+		return false;
+	}
+	if (!not_shared(st) || !not_shared(pst))
+	{
+		err = path + ": not a folder only root can change";
+		return false;
+	}
+	return true;
+}
+
+static std::string dir_name(std::string const &p)
+{
+	size_t i = p.find_last_of('/');
+	return i == std::string::npos || i == 0 ? std::string("/") : p.substr(0, i);
+}
+
+static std::string base_name(std::string const &p)
+{
+	size_t i = p.find_last_of('/');
+	return i == std::string::npos ? p : p.substr(i + 1);
+}
+
+// remove_tree deletes name in dir and everything below it, without
+// following links.
+static void remove_tree(int dir, std::string const &name, int depth = 0)
+{
+	if (depth > 64)
+		return;
+	if (::unlinkat(dir, name.c_str(), 0) == 0 || errno == ENOENT)
+		return;
+	Fd d(::openat(dir, name.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+	if (!d.ok())
+		return;
+	int dup = ::dup(d.fd);
+	DIR *dp = dup >= 0 ? ::fdopendir(dup) : nullptr;
+	if (!dp)
+	{
+		if (dup >= 0)
+			::close(dup);
+		return;
+	}
+	std::vector<std::string> names;
+	while (struct dirent *e = ::readdir(dp))
+	{
+		std::string n = e->d_name;
+		if (n != "." && n != "..")
+			names.push_back(n);
+	}
+	::closedir(dp);
+	for (auto const &n : names)
+		remove_tree(d.fd, n, depth + 1);
+	::unlinkat(dir, name.c_str(), AT_REMOVEDIR);
+}
+
+// One file to hand over: its path below the private folder and below the
+// destination, or no source for an empty file libtorrent never wrote.
+struct HandFile
+{
+	std::vector<std::string> src, dst;
+	bool empty = false;
+};
+
+// hand_over gives the files to the user's folder dst (an absolute path) as
+// hard links of the files in the private folder src. The top folder (or the
+// single file) is created new; with merge it may exist (files chosen later)
+// and what is there already is left alone. Folders are made through
+// descriptors with O_NOFOLLOW and stay root's until they are complete; then
+// they, and the linked files, belong to the owner of dst. Returns "" or why
+// it failed.
+static std::string hand_over(std::string const &src, std::string const &dst, std::vector<HandFile> const &files,
+	bool merge, int owner_uid, int owner_gid, std::vector<std::string> &skipped)
+{
+	std::string err;
+	Fd s = open_dir(src, err);
+	if (!s.ok())
+		return err;
+	Fd d = open_dir(dst, err);
+	if (!d.ok())
+		return err;
+	struct stat sst, dst_st;
+	if (::fstat(s.fd, &sst) != 0 || ::fstat(d.fd, &dst_st) != 0)
+		return strerror(errno);
+	if (sst.st_dev != dst_st.st_dev)
+		return "the temporary folder is on another volume than " + dst;
+	uid_t uid = owner_uid > 0 ? uid_t(owner_uid) : dst_st.st_uid;
+	gid_t gid = owner_uid > 0 && owner_gid >= 0 ? gid_t(owner_gid) : dst_st.st_gid;
+
+	// The open chain of destination folders, by path below dst. A folder
+	// made here stays root's (0700) while files go in and is given to the
+	// owner of dst when the walk leaves it
+	struct Step
+	{
+		std::string name;
+		Fd fd;
+		bool made;
+	};
+	std::vector<Step> chain;
+	auto leave = [&](size_t keep) {
+		while (chain.size() > keep)
+		{
+			if (chain.back().made)
+			{
+				::fchmod(chain.back().fd.fd, 0775);
+				::fchown(chain.back().fd.fd, uid, gid);
+			}
+			chain.pop_back();
+		}
+	};
+	std::string result;
+	// What the hand-over made at the top of dst (folder or single file)
+	bool top_made = false;
+	std::string top_name;
+	struct stat top_st;
+	auto made_top = [&](std::string const &name, struct stat const &st) {
+		if (!top_made)
+		{
+			top_made = true;
+			top_name = name;
+			top_st = st;
+		}
+	};
+	for (auto const &f : files)
+	{
+		if (f.dst.empty())
+			continue;
+		bool bad = false;
+		for (auto const &c : f.dst)
+			bad = bad || !plain_name(c);
+		for (auto const &c : f.src)
+			bad = bad || !plain_name(c);
+		if (bad)
+		{
+			skipped.push_back("bad name");
+			continue;
+		}
+		// Destination folder of this file, opened step by step
+		size_t keep = 0;
+		while (keep < chain.size() && keep + 1 < f.dst.size() && chain[keep].name == f.dst[keep])
+			++keep;
+		leave(keep);
+		int at = chain.empty() ? d.fd : chain.back().fd.fd;
+		bool ok = true;
+		for (size_t i = keep; i + 1 < f.dst.size(); ++i)
+		{
+			std::string const &c = f.dst[i];
+			bool fresh = false;
+			if (::mkdirat(at, c.c_str(), 0700) == 0)
+				fresh = true;
+			else if (errno != EEXIST || (i == 0 && !merge))
+			{
+				result = (errno == EEXIST ? "File exists: " : std::string(strerror(errno)) + ": ") + dst + "/" + c;
+				ok = false;
+				break;
+			}
+			Fd nd(::openat(at, c.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+			struct stat ns;
+			if (!nd.ok() || ::fstat(nd.fd, &ns) != 0 || (fresh && ns.st_uid != 0))
+			{
+				if (!merge)
+				{
+					result = "the destination changed while the files were handed over: " + dst + "/" + c;
+					ok = false;
+					break;
+				}
+				skipped.push_back(c);
+				ok = false;
+				break;
+			}
+			if (i == 0 && fresh)
+				made_top(c, ns);
+			chain.push_back(Step{c, std::move(nd), fresh});
+			at = chain.back().fd.fd;
+		}
+		if (!ok)
+		{
+			if (!merge)
+				break;
+			continue;
+		}
+		std::string const &leaf = f.dst.back();
+		if (f.empty)
+		{
+			Fd nf(::openat(at, leaf.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0664));
+			struct stat es;
+			if (nf.ok())
+			{
+				::fchown(nf.fd, uid, gid);
+				if (f.dst.size() == 1 && ::fstat(nf.fd, &es) == 0)
+					made_top(leaf, es);
+			}
+			else if (errno != EEXIST || !merge)
+			{
+				result = std::string(strerror(errno)) + ": " + dst + "/" + leaf;
+				break;
+			}
+			continue;
+		}
+		// The source: a regular file in the private folder
+		Fd sd(::dup(s.fd));
+		for (size_t i = 0; sd.ok() && i + 1 < f.src.size(); ++i)
+			sd = Fd(::openat(sd.fd, f.src[i].c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+		struct stat fs;
+		if (!sd.ok() || ::fstatat(sd.fd, f.src.back().c_str(), &fs, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISREG(fs.st_mode))
+		{
+			if (!merge)
+			{
+				result = "missing in the temporary folder: " + f.src.back();
+				break;
+			}
+			skipped.push_back(leaf);
+			continue;
+		}
+		if (::linkat(sd.fd, f.src.back().c_str(), at, leaf.c_str(), 0) != 0)
+		{
+			struct stat es;
+			bool same = errno == EEXIST && ::fstatat(at, leaf.c_str(), &es, AT_SYMLINK_NOFOLLOW) == 0 &&
+				es.st_dev == fs.st_dev && es.st_ino == fs.st_ino;
+			if (!same)
+			{
+				if (merge)
+				{
+					skipped.push_back(leaf);
+					continue;
+				}
+				result = (errno == EEXIST ? "File exists: " : std::string(strerror(errno)) + ": ") + dst + "/" + leaf;
+				break;
+			}
+		}
+		if (f.dst.size() == 1)
+			made_top(leaf, fs);
+		::fchownat(sd.fd, f.src.back().c_str(), uid, gid, AT_SYMLINK_NOFOLLOW);
+	}
+	// The name the data was handed over under must still be it: renamed
+	// meanwhile (and something else put in its place), the data is not where
+	// dcd will look for it
+	if (result.empty() && !merge && top_made)
+	{
+		struct stat now;
+		if (::fstatat(d.fd, top_name.c_str(), &now, AT_SYMLINK_NOFOLLOW) != 0 || now.st_dev != top_st.st_dev || now.st_ino != top_st.st_ino)
+			result = "the destination changed while the files were handed over: " + dst + "/" + top_name;
+	}
+	leave(0);
+	return result;
+}
+
+// --- data already in the destination ---
+//
+// A torrent whose data already sits in the user's folder (seeded from there
+// before 1.5, removed and added again, or copied there) takes it over
+// instead of downloading it anew. Each file is opened there without
+// following a link and must be a regular file with a single name, belong to
+// the account the data goes to and be no larger than the torrent says, and
+// what it holds must be the torrent's: every piece it holds whole (together
+// with the files it shares that piece with) matches the piece's hash, and at
+// least one of those pieces is not a run of a single byte value. A file that
+// only shares a name, or a block of zeros, with the torrent's is never
+// written to. The file is then hard-linked into the private folder through
+// a descriptor that is first found to be the very file that was checked,
+// unchanged since (see FileId), never by name, and libtorrent checks it
+// again: only pieces that verify are seeded; what is missing (past the end
+// of the file, or in a piece shared with a file that is not there) is
+// written into it. A later hard link the user makes to it only gives them
+// torrent data.
+
+// open_rel opens comps below dir without following a link: folders, then
+// the last one as a file for reading. -1 and errno when it fails.
+static Fd open_rel(int dir, std::vector<std::string> const &comps)
+{
+	Fd cur(::dup(dir));
+	for (size_t i = 0; cur.ok() && i + 1 < comps.size(); ++i)
+		cur = Fd(::openat(cur.fd, comps[i].c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+	if (!cur.ok() || comps.empty())
+		return Fd();
+	return Fd(::openat(cur.fd, comps.back().c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC));
+}
+
+// takeable: what a file in the user's folder must be to be taken over: a
+// regular file of the owner (or, when no owner is named, an administrator's
+// task, of root, which wrote it), no larger than the torrent's file, with a
+// single name, or with a second one that is the private copy itself (taken
+// over or handed over earlier: ours is the same inode).
+static bool takeable(struct stat const &st, uid_t uid, bool root_too, std::int64_t max, bool ours)
+{
+	return S_ISREG(st.st_mode) && (st.st_nlink == 1 || (st.st_nlink == 2 && ours)) &&
+		(st.st_uid == uid || (root_too && st.st_uid == 0)) && st.st_size <= max;
+}
+
+// stat_rel is fstatat of comps below dir, without following a link.
+static bool stat_rel(int dir, std::vector<std::string> const &comps, struct stat &st)
+{
+	Fd cur(::dup(dir));
+	for (size_t i = 0; cur.ok() && i + 1 < comps.size(); ++i)
+		cur = Fd(::openat(cur.fd, comps[i].c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+	return cur.ok() && !comps.empty() && ::fstatat(cur.fd, comps.back().c_str(), &st, AT_SYMLINK_NOFOLLOW) == 0;
+}
+
+// link_open hard-links the open file fd as name in dir.
+static bool link_open(int fd, int dir, std::string const &name)
+{
+	if (::linkat(fd, "", dir, name.c_str(), AT_EMPTY_PATH) == 0)
+		return true;
+	char p[64];
+	snprintf(p, sizeof p, "/proc/self/fd/%d", fd);
+	return ::linkat(AT_FDCWD, p, dir, name.c_str(), AT_SYMLINK_FOLLOW) == 0;
+}
+
+// FileId is a file of the user's as it was found: whenever it is opened
+// again (to read the next piece, or to link it) it must still be that file,
+// unchanged. The inode number alone does not tell: a file system hands the
+// number of a deleted file to the next new one at once. A new file differs
+// in its generation (where the file system has one) and its change time; a
+// change to the file (data, owner, links) moves its times and link count.
+struct FileId
+{
+	dev_t dev = 0;
+	ino_t ino = 0;
+	nlink_t nlink = 0;
+	off_t size = 0;
+	std::int64_t mtime = 0, mtime_ns = 0, ctime = 0, ctime_ns = 0;
+	long gen = 0;
+	bool has_gen = false;
+
+	bool operator==(FileId const &o) const
+	{
+		return dev == o.dev && ino == o.ino && nlink == o.nlink && size == o.size && mtime == o.mtime &&
+			mtime_ns == o.mtime_ns && ctime == o.ctime && ctime_ns == o.ctime_ns && has_gen == o.has_gen && gen == o.gen;
+	}
+};
+
+static FileId file_id(int fd, struct stat const &st)
+{
+	FileId r;
+	r.dev = st.st_dev;
+	r.ino = st.st_ino;
+	r.nlink = st.st_nlink;
+	r.size = st.st_size;
+	r.mtime = st.st_mtim.tv_sec;
+	r.mtime_ns = st.st_mtim.tv_nsec;
+	r.ctime = st.st_ctim.tv_sec;
+	r.ctime_ns = st.st_ctim.tv_nsec;
+	long g = 0;
+	if (::ioctl(fd, FS_IOC_GETVERSION, &g) == 0)
+	{
+		r.gen = g;
+		r.has_gen = true;
+	}
+	return r;
+}
+
+// open_same opens comps below dir (see open_rel) when it is still the file
+// id describes.
+static Fd open_same(int dir, std::vector<std::string> const &comps, FileId const &id)
+{
+	Fd f = open_rel(dir, comps);
+	struct stat st;
+	if (!f.ok() || ::fstat(f.fd, &st) != 0 || !S_ISREG(st.st_mode) || !(file_id(f.fd, st) == id))
+		return Fd();
+	return f;
+}
+
+struct Adopted
+{
+	bool ok = false;
+	int files = 0;
+	std::string why;
+};
+
+// A file of the torrent found in the user's folder.
+struct AdoptFile
+{
+	std::vector<std::string> src, dst; // below the private folder, below adopt_from
+	FileId id;
+	bool ours = false;     // the private copy's own inode (taken over or handed over earlier)
+	bool linked = false;   // and the private folder has it already
+	bool verified = false; // its data is the torrent's (ours, or checked)
+};
+
+// What adopt_check found; adopt_link takes it over.
+struct AdoptCheck
+{
+	bool ok = false;
+	std::string why;
+	uid_t uid = 0;
+	bool root_too = false;
+	std::map<int, AdoptFile> files;
+};
+
+// What one check may cost before it gives up (the data then counts as data
+// that cannot be checked, and nothing is taken over): bytes read, files
+// opened and time.
+static const std::int64_t adopt_max_bytes = std::int64_t(2) << 40;
+static const std::int64_t adopt_max_opens = 2000000;
+static const int adopt_max_hours = 6;
+
+// adopt_check looks at the torrent's files in from/root (see above). It only
+// reads (it runs away from the control loop) and stops when cancel is set.
+// All or nothing: a file of the torrent that is there but does not qualify,
+// or holds a piece that does not match, makes nothing taken over. Pieces are
+// read in order, each at most once, and what one shows counts for every file
+// it covers; a piece is only read when all its data is there, judged from
+// the sizes before anything is opened: one that reaches past the end of a
+// file or into a file that is not there counts neither way. A wanted file
+// without a matching piece that is not a run of one byte value cannot be
+// told by its data: it is left out (downloaded privately; the user's file is
+// left alone). Files not wanted are read, never taken over, to complete the
+// pieces they share with wanted ones (so they count like those).
+// wanted: the priority of each file (0 = not wanted).
+static AdoptCheck adopt_check(lt::torrent_info const &ti, std::string const &save, std::string const &from, std::string const &root,
+	std::vector<int> const &wanted, int owner_uid, std::atomic<bool> const &cancel)
+{
+	AdoptCheck r;
+	std::string err;
+	if (!ti.info_hashes().has_v1())
+	{
+		r.why = "the torrent has no SHA-1 piece hashes";
+		return r;
+	}
+	if (!plain_name(root))
+	{
+		r.why = "bad name: " + root;
+		return r;
+	}
+	Fd d = open_dir(from, err);
+	Fd s, seed;
+	if (d.ok())
+		s = open_dir(save, err);
+	if (!d.ok() || !s.ok())
+	{
+		r.why = err;
+		return r;
+	}
+	std::string serr;
+	seed = open_dir(save + ".seed", serr); // where a hand-over left its copy (may be missing)
+	struct stat dst, sst;
+	if (::fstat(d.fd, &dst) != 0 || ::fstat(s.fd, &sst) != 0 || dst.st_dev != sst.st_dev)
+	{
+		r.why = "the temporary folder is on another volume than " + from;
+		return r;
+	}
+	r.uid = owner_uid > 0 ? uid_t(owner_uid) : dst.st_uid;
+	r.root_too = owner_uid <= 0;
+	std::string const where = from + "/" + root;
+	auto const until = std::chrono::steady_clock::now() + std::chrono::hours(adopt_max_hours);
+	std::int64_t opens = 0, bytes = 0;
+	// stopped: cancelled, or over the budget (why says which)
+	auto stopped = [&]() -> bool {
+		if (cancel.load())
+			r.why = "the check was stopped";
+		else if (opens > adopt_max_opens || bytes > adopt_max_bytes || std::chrono::steady_clock::now() > until)
+			r.why = "the data in " + where + " is too large to be checked";
+		else
+			return false;
+		return true;
+	};
+	lt::file_storage const &fs = ti.files();
+	std::string top;
+	{
+		std::string p0 = fs.file_path(lt::file_index_t(0));
+		size_t i = p0.find('/');
+		top = i == std::string::npos ? p0 : p0.substr(0, i);
+	}
+	std::map<int, AdoptFile> extra; // not wanted, only read
+	for (lt::file_index_t i : fs.file_range())
+	{
+		if (stopped())
+			return r;
+		int idx = static_cast<int>(i);
+		std::int64_t size = fs.file_size(i);
+		bool want = !(size_t(idx) < wanted.size() && wanted[size_t(idx)] == 0);
+		if (fs.pad_file_at(i) || size == 0)
+			continue;
+		AdoptFile c;
+		c.src = split_path(fs.file_path(i));
+		c.dst = c.src;
+		if (c.dst.empty() || c.dst[0] != top)
+			continue;
+		c.dst[0] = root;
+		bool bad = false;
+		for (auto const &n : c.src)
+			bad = bad || !plain_name(n);
+		if (bad)
+			continue;
+		++opens;
+		Fd f = open_rel(d.fd, c.dst);
+		if (!f.ok())
+		{
+			if (errno == ENOENT || !want)
+				continue; // not there: downloaded
+			r.why = where + ": " + fs.file_path(i) + " cannot be taken over";
+			return r;
+		}
+		struct stat st, pst;
+		if (::fstat(f.fd, &st) != 0)
+		{
+			if (!want)
+				continue;
+			r.why = where + ": " + fs.file_path(i) + " cannot be taken over";
+			return r;
+		}
+		if (!want)
+		{
+			// Read only where it completes a piece of a wanted file
+			if (takeable(st, r.uid, r.root_too, size, false))
+			{
+				c.id = file_id(f.fd, st);
+				extra[idx] = c;
+			}
+			continue;
+		}
+		bool in_s = stat_rel(s.fd, c.src, pst);
+		bool same = (in_s && pst.st_dev == st.st_dev && pst.st_ino == st.st_ino) ||
+			(seed.ok() && stat_rel(seed.fd, c.src, pst) && pst.st_dev == st.st_dev && pst.st_ino == st.st_ino);
+		if (in_s && !same)
+			continue; // the private folder has a copy of its own: that one is used
+		if (!takeable(st, r.uid, r.root_too, size, same))
+		{
+			r.why = where + ": " + fs.file_path(i) + " cannot be taken over";
+			return r;
+		}
+		c.id = file_id(f.fd, st);
+		c.ours = same;
+		c.verified = same; // ours already
+		c.linked = in_s && same;
+		r.files[idx] = c;
+	}
+	if (r.files.empty())
+	{
+		r.why = "none of the torrent's files is in " + where;
+		return r;
+	}
+	auto present = [&](int idx) -> AdoptFile const * {
+		auto fi = r.files.find(idx);
+		if (fi != r.files.end())
+			return &fi->second;
+		auto xi = extra.find(idx);
+		return xi != extra.end() ? &xi->second : nullptr;
+	};
+	std::map<int, bool> told; // the files checked: whether a matching piece tells them by their data
+	std::vector<char> buf(size_t(1) << 20);
+	std::vector<char> const zeros(buf.size(), 0); // pad files hash as zeros
+	int cur_idx = -1;
+	Fd cur;
+	int next = 0; // the pieces before it are done
+	for (auto &kv : r.files)
+	{
+		if (kv.second.ours)
+			continue;
+		told.emplace(kv.first, false); // (a piece read for an earlier file may have told it already)
+		lt::file_index_t fi(kv.first);
+		std::int64_t have = std::min<std::int64_t>(kv.second.id.size, fs.file_size(fi));
+		if (have <= 0)
+			continue;
+		int last = static_cast<int>(fs.map_file(fi, have - 1, 1).piece);
+		for (int pc = std::max(next, static_cast<int>(fs.map_file(fi, 0, 0).piece)); pc <= last; ++pc)
+		{
+			if (stopped())
+				return r;
+			lt::piece_index_t p(pc);
+			int psize = ti.piece_size(p);
+			std::vector<lt::file_slice> slices = fs.map_block(p, 0, psize);
+			bool whole = true;
+			for (auto const &sl : slices)
+			{
+				if (fs.pad_file_at(sl.file_index))
+					continue;
+				AdoptFile const *c = present(static_cast<int>(sl.file_index));
+				if (!c || sl.offset + sl.size > c->id.size)
+				{
+					whole = false;
+					break;
+				}
+			}
+			if (!whole)
+				continue;
+			bytes += psize;
+			lt::hasher h;
+			bool uniform = true, any = false;
+			char first = 0;
+			for (auto const &sl : slices)
+			{
+				int sidx = static_cast<int>(sl.file_index);
+				bool pad = fs.pad_file_at(sl.file_index);
+				if (!pad && sidx != cur_idx)
+				{
+					cur = Fd();
+					cur_idx = -1;
+					++opens;
+					cur = open_same(d.fd, present(sidx)->dst, present(sidx)->id);
+					if (!cur.ok())
+					{
+						r.why = where + ": " + fs.file_path(sl.file_index) + " changed while it was checked";
+						return r;
+					}
+					cur_idx = sidx;
+				}
+				std::int64_t off = sl.offset, left = sl.size;
+				while (left > 0)
+				{
+					if (stopped())
+						return r;
+					size_t n = size_t(std::min<std::int64_t>(left, std::int64_t(buf.size())));
+					char const *data = zeros.data();
+					if (!pad)
+					{
+						size_t got = 0;
+						while (got < n)
+						{
+							ssize_t k = ::pread(cur.fd, buf.data() + got, n - got, off_t(off + std::int64_t(got)));
+							if (k <= 0)
+								break;
+							got += size_t(k);
+						}
+						if (got != n)
+						{
+							r.why = where + ": " + fs.file_path(sl.file_index) + " changed while it was checked";
+							return r;
+						}
+						data = buf.data();
+					}
+					h.update(data, int(n));
+					if (uniform)
+					{
+						if (!any)
+						{
+							first = data[0];
+							any = true;
+						}
+						uniform = data[0] == first && (n < 2 || std::memcmp(data, data + 1, n - 1) == 0);
+					}
+					off += std::int64_t(n);
+					left -= std::int64_t(n);
+				}
+			}
+			bool match = h.final() == ti.hash_for_piece(p);
+			for (auto const &sl : slices)
+			{
+				auto ci = r.files.find(static_cast<int>(sl.file_index));
+				if (ci == r.files.end() || ci->second.ours)
+					continue;
+				if (!match)
+				{
+					r.why = where + ": " + fs.file_path(sl.file_index) + " differs from the torrent";
+					return r;
+				}
+				if (!uniform)
+					told[ci->first] = true;
+			}
+		}
+		next = std::max(next, last + 1);
+	}
+	cur = Fd();
+	for (auto const &kv : told)
+	{
+		if (kv.second)
+			r.files[kv.first].verified = true;
+		else
+			r.files.erase(kv.first);
+	}
+	if (r.files.empty())
+	{
+		r.why = "no file in " + where + " can be checked against the torrent";
+		return r;
+	}
+	r.ok = true;
+	return r;
+}
+
+// adopt_link links what adopt_check found into the private folder save,
+// each through a descriptor of the file that was checked (see FileId),
+// unchanged and still takeable, never by name. Undone when one fails.
+static Adopted adopt_link(lt::torrent_info const &ti, std::string const &save, std::string const &from, AdoptCheck const &chk)
+{
+	Adopted r;
+	std::string err;
+	Fd d = open_dir(from, err);
+	Fd s;
+	if (d.ok())
+		s = open_dir(save, err);
+	if (!d.ok() || !s.ok())
+	{
+		r.why = err;
+		return r;
+	}
+	lt::file_storage const &fs = ti.files();
+	std::vector<std::pair<std::vector<std::string>, std::string>> made; // folder, name (to undo)
+	auto undo = [&]() {
+		for (auto const &m : made)
+		{
+			Fd u(::dup(s.fd));
+			for (size_t i = 0; u.ok() && i < m.first.size(); ++i)
+				u = Fd(::openat(u.fd, m.first[i].c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+			if (u.ok())
+				::unlinkat(u.fd, m.second.c_str(), 0);
+		}
+	};
+	for (auto const &kv : chk.files)
+	{
+		AdoptFile const &c = kv.second;
+		std::string what = from + "/" + c.dst[0] + ": " + fs.file_path(lt::file_index_t(kv.first)) + " cannot be taken over";
+		if (c.linked)
+		{
+			++r.files;
+			continue;
+		}
+		Fd f = open_same(d.fd, c.dst, c.id);
+		struct stat st;
+		if (!f.ok() || ::fstat(f.fd, &st) != 0 ||
+			!takeable(st, chk.uid, chk.root_too, fs.file_size(lt::file_index_t(kv.first)), c.ours))
+		{
+			r.why = what + " (it changed since it was checked)";
+			undo();
+			return r;
+		}
+		Fd at(::dup(s.fd));
+		for (size_t i = 0; at.ok() && i + 1 < c.src.size(); ++i)
+		{
+			::mkdirat(at.fd, c.src[i].c_str(), 0700);
+			at = Fd(::openat(at.fd, c.src[i].c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+		}
+		if (!at.ok() || !link_open(f.fd, at.fd, c.src.back()))
+		{
+			r.why = what;
+			undo();
+			return r;
+		}
+		made.emplace_back(std::vector<std::string>(c.src.begin(), c.src.end() - 1), c.src.back());
+		++r.files;
+	}
+	r.ok = true;
+	return r;
+}
+
+// A check of data in the destination, running away from the control loop.
+struct AdoptJob
+{
+	std::mutex mu;
+	bool done = false;
+	AdoptCheck res;
+	std::string from, root;
+	std::atomic<bool> cancel{false}; // the torrent was removed, or is to be taken from elsewhere
+};
+
+// The checks run in threads of their own: at most two at a time, one per
+// account (no owner: one), so that one account cannot hold up the others'.
+// A thread holds its slot until it ends, also after its torrent was removed
+// (which stops it soon).
+static std::mutex adopt_mu;
+static int adopt_running = 0;
+static std::set<int> adopt_owners;
+
+static bool adopt_slot(int owner)
+{
+	std::lock_guard<std::mutex> l(adopt_mu);
+	if (adopt_running >= 2 || adopt_owners.count(owner))
+		return false;
+	++adopt_running;
+	adopt_owners.insert(owner);
+	return true;
+}
+
+static void adopt_slot_free(int owner)
+{
+	std::lock_guard<std::mutex> l(adopt_mu);
+	--adopt_running;
+	adopt_owners.erase(owner);
 }
 
 static const char b64tab[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -201,6 +1124,13 @@ struct Options
 	bool metadata_only = false;
 	bool guard = false;       // a regular user's torrent: see the address guard
 	bool guard_known = true;  // the saved options said (before 1.4 they did not; not saved)
+	bool untrusted = false;   // the destination folder is a regular user's (untrusted_dir)
+	bool untrusted_known = true; // the saved options said (before 1.5 they did not; not saved)
+	std::string handed_to;    // untrusted: the folder the data was handed over to
+	std::string handed_root;  // ... and the name of its top folder (or single file) there
+	std::string seed_dir;     // untrusted: the private folder it seeds from after the hand-over
+	int owner_uid = -1, owner_gid = -1; // untrusted: who the handed-over files go to (-1: the destination's owner)
+	bool handed = false;      // the hand-over is complete (seed_dir holds the data)
 	bool has_select = false;
 	std::vector<int> select;
 	std::map<int, int> priorities;
@@ -369,6 +1299,20 @@ static json opt_json(Options const &o)
 	j["seed_time"] = o.seed_time;
 	j["complete"] = o.complete;
 	j["guard"] = o.guard;
+	j["untrusted"] = o.untrusted;
+	if (!o.handed_to.empty())
+	{
+		j["handed_to"] = o.handed_to;
+		j["handed_root"] = o.handed_root;
+	}
+	if (!o.seed_dir.empty())
+		j["seed_dir"] = o.seed_dir;
+	if (o.owner_uid > 0)
+	{
+		j["owner_uid"] = o.owner_uid;
+		j["owner_gid"] = o.owner_gid;
+	}
+	j["handed"] = o.handed;
 	if (o.has_select)
 		j["select"] = o.select;
 	json pr = json::object();
@@ -378,14 +1322,41 @@ static json opt_json(Options const &o)
 	return j;
 }
 
+// jget reads a field of a type, or gives def (never throws on a wrong type).
+template <class T>
+static T jget(json const &j, char const *key, T def)
+{
+	if (!j.is_object())
+		return def;
+	auto it = j.find(key);
+	if (it == j.end() || it->is_null())
+		return def;
+	try
+	{
+		return it->get<T>();
+	}
+	catch (...)
+	{
+		return def;
+	}
+}
+
 static Options opt_from(json const &j)
 {
 	Options o;
-	o.seed_ratio = j.value("seed_ratio", 0.0);
-	o.seed_time = j.value("seed_time", 0);
-	o.complete = j.value("complete", false);
-	o.guard = j.value("guard", false);
+	o.seed_ratio = jget(j, "seed_ratio", 0.0);
+	o.seed_time = jget(j, "seed_time", 0);
+	o.complete = jget(j, "complete", false);
+	o.guard = jget(j, "guard", false);
 	o.guard_known = j.contains("guard");
+	o.untrusted = jget(j, "untrusted", false);
+	o.untrusted_known = j.contains("untrusted");
+	o.handed_to = jget(j, "handed_to", std::string());
+	o.handed_root = jget(j, "handed_root", std::string());
+	o.seed_dir = jget(j, "seed_dir", std::string());
+	o.handed = jget(j, "handed", false);
+	o.owner_uid = jget(j, "owner_uid", -1);
+	o.owner_gid = jget(j, "owner_gid", -1);
 	if (j.contains("select") && j["select"].is_array())
 	{
 		o.has_select = true;
@@ -572,6 +1543,11 @@ struct Engine
 	std::map<std::string, Options> opts;
 	int listen_fd = -1, client_fd = -1;
 	std::string inbuf;
+	// What dcd has not read yet: dc-bt never waits for it, and a client that
+	// stops reading is dropped once this much waits
+	std::string outbuf;
+	size_t outoff = 0;
+	static constexpr size_t max_out = size_t(256) << 20;
 	int pending_saves = 0;
 	json settings = json::object();
 	Hardware hw = detect_hardware();
@@ -586,6 +1562,7 @@ struct Engine
 	bool dht_on = false;           // the settings turn DHT on (pack_from)
 
 	std::map<std::string, Found *> found;  // see FoundPlugin; userdata of each torrent
+	std::map<std::string, std::shared_ptr<AdoptJob>> adopt_jobs; // checks of data in the destination (see adopt_check)
 	std::vector<lt::address> external;     // our external addresses, as libtorrent learnt them
 
 	// The tracker proxy's addresses, looked up away from the loop: a name
@@ -599,6 +1576,93 @@ struct Engine
 		clk::time_point at;
 	};
 	std::shared_ptr<ProxyAddrs> pxa = std::make_shared<ProxyAddrs>();
+
+	// Web seeds of guarded torrents given by name, looked up away from the
+	// loop: one that leads to the NAS, or to the tracker proxy the filter
+	// lets through (at any port), is removed. Shared with the lookups.
+	struct SeedCheck
+	{
+		std::mutex mu;
+		std::vector<std::pair<std::string, std::string>> bad; // infohash, url
+	};
+	std::shared_ptr<SeedCheck> seedchk = std::make_shared<SeedCheck>();
+
+	void check_web_seeds(lt::torrent_handle const &h)
+	{
+		std::vector<std::string> names;
+		for (auto const &u : h.url_seeds())
+			names.push_back(u);
+		for (auto const &u : h.http_seeds())
+			names.push_back(u);
+		if (names.empty())
+			return;
+		std::vector<lt::address> deny = own;
+		deny.insert(deny.end(), exempt.begin(), exempt.end());
+		std::string key = key_of(h.info_hashes());
+		std::shared_ptr<SeedCheck> st = seedchk;
+		std::thread([st, key, names, deny]() {
+			for (auto const &url : names)
+			{
+				lt::error_code ec;
+				std::string host;
+				std::tie(std::ignore, std::ignore, host, std::ignore, std::ignore) = lt::parse_url_components(url, ec);
+				lt::address lit;
+				if (ec || host.empty() || literal_address(host, lit))
+					continue;
+				struct addrinfo hints, *res = nullptr;
+				std::memset(&hints, 0, sizeof hints);
+				hints.ai_socktype = SOCK_STREAM;
+				if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0)
+					continue;
+				bool bad = false;
+				for (struct addrinfo *i = res; i && !bad; i = i->ai_next)
+				{
+					lt::address a;
+					if (i->ai_family == AF_INET)
+					{
+						lt::address_v4::bytes_type b;
+						std::memcpy(b.data(), &reinterpret_cast<struct sockaddr_in *>(i->ai_addr)->sin_addr, 4);
+						a = lt::address_v4(b);
+					}
+					else if (i->ai_family == AF_INET6)
+					{
+						lt::address_v6::bytes_type b;
+						std::memcpy(b.data(), &reinterpret_cast<struct sockaddr_in6 *>(i->ai_addr)->sin6_addr, 16);
+						a = lt::address_v6(b);
+					}
+					else
+						continue;
+					bad = forbidden_addr(a, deny) ||
+						(a.is_v6() && a.to_v6().is_v4_mapped() && forbidden_addr(lt::make_address_v4(lt::v4_mapped, a.to_v6()), deny));
+				}
+				freeaddrinfo(res);
+				if (bad)
+				{
+					std::lock_guard<std::mutex> l(st->mu);
+					st->bad.emplace_back(key, url);
+				}
+			}
+		}).detach();
+	}
+
+	// drop_bad_seeds removes what check_web_seeds found.
+	void drop_bad_seeds()
+	{
+		std::vector<std::pair<std::string, std::string>> bad;
+		{
+			std::lock_guard<std::mutex> l(seedchk->mu);
+			bad.swap(seedchk->bad);
+		}
+		for (auto const &b : bad)
+		{
+			auto it = handles.find(b.first);
+			if (it == handles.end() || !it->second.is_valid() || !opts[b.first].guard)
+				continue;
+			it->second.remove_url_seed(b.second);
+			it->second.remove_http_seed(b.second);
+			dlog("%s: web seed removed: its name leads to the NAS", b.first.c_str());
+		}
+	}
 
 	// exempt_host is the HTTP proxy trackers go through: libtorrent checks
 	// its address against the filter. Other proxies are not checked (SOCKS5
@@ -758,6 +1822,7 @@ struct Engine
 		for (auto &u : h.http_seeds())
 			if (forbidden_url(u, own))
 				h.remove_http_seed(u);
+		check_web_seeds(h);
 	}
 
 	void set_guard(lt::torrent_handle const &h, bool on)
@@ -783,31 +1848,60 @@ struct Engine
 		write_file(opts_path(k), s.data(), s.size());
 	}
 
+	void drop_client()
+	{
+		if (client_fd >= 0)
+			::close(client_fd);
+		client_fd = -1;
+		inbuf.clear();
+		outbuf.clear();
+		outoff = 0;
+	}
+
+	// flush_out sends what the socket takes now.
+	void flush_out()
+	{
+		while (client_fd >= 0 && outoff < outbuf.size())
+		{
+			ssize_t n = ::send(client_fd, outbuf.data() + outoff, outbuf.size() - outoff, MSG_NOSIGNAL | MSG_DONTWAIT);
+			if (n > 0)
+			{
+				outoff += size_t(n);
+				continue;
+			}
+			if (n < 0 && errno == EINTR)
+				continue;
+			if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+				break;
+			drop_client();
+			return;
+		}
+		if (outoff == outbuf.size())
+		{
+			outbuf.clear();
+			outoff = 0;
+		}
+		else if (outoff > (size_t(1) << 20))
+		{
+			outbuf.erase(0, outoff);
+			outoff = 0;
+		}
+	}
+
 	void send_line(json const &j)
 	{
 		if (client_fd < 0)
 			return;
 		std::string s = j.dump(-1, ' ', false, json::error_handler_t::replace);
 		s.push_back('\n');
-		size_t off = 0;
-		while (off < s.size())
+		if (outbuf.size() - outoff + s.size() > max_out)
 		{
-			ssize_t n = ::send(client_fd, s.data() + off, s.size() - off, MSG_NOSIGNAL);
-			if (n < 0 && (errno == EAGAIN || errno == EINTR))
-			{
-				struct pollfd p = {client_fd, POLLOUT, 0};
-				if (::poll(&p, 1, 2000) <= 0)
-					break;
-				continue;
-			}
-			if (n <= 0)
-			{
-				::close(client_fd);
-				client_fd = -1;
-				return;
-			}
-			off += size_t(n);
+			dlog("dcd does not read its answers: connection dropped");
+			drop_client();
+			return;
 		}
+		outbuf += s;
+		flush_out();
 	}
 
 	void event(json j) { send_line(j); }
@@ -824,42 +1918,62 @@ struct Engine
 		p.set_str(lt::settings_pack::listen_interfaces, "0.0.0.0:" + std::to_string(from) + ",[::]:" + std::to_string(from));
 		p.set_int(lt::settings_pack::max_retry_port_bind, to - from);
 		bool dht = s.value("dht", true), lsd = s.value("lsd", true), upnp = s.value("upnp", false);
-		bool utp = true, incoming = true;
+		bool utp = true, incoming = true, outgoing = true;
 		json px = s.value("proxy", json::object());
 		std::string ptype = px.value("type", std::string("none"));
+		std::string host = px.value("host", std::string());
 		bool force = px.value("force", true) && ptype != "none";
-		if (ptype == "none" || px.value("host", std::string()).empty())
+		if (ptype == "none" || (host.empty() && !force))
 		{
 			p.set_int(lt::settings_pack::proxy_type, lt::settings_pack::none);
 		}
 		else
 		{
-			bool auth = !px.value("user", std::string()).empty();
+			std::string user = px.value("user", std::string()), pass = px.value("pass", std::string());
+			int port = px.value("port", 0);
+			bool peers = px.value("peers", true), trackers = px.value("trackers", true);
 			int t = lt::settings_pack::none;
 			if (ptype == "socks5")
-				t = auth ? lt::settings_pack::socks5_pw : lt::settings_pack::socks5;
+				t = user.empty() ? lt::settings_pack::socks5 : lt::settings_pack::socks5_pw;
 			else if (ptype == "http")
-				t = auth ? lt::settings_pack::http_pw : lt::settings_pack::http;
+				t = user.empty() ? lt::settings_pack::http : lt::settings_pack::http_pw;
+			if (host.empty() || t == lt::settings_pack::none)
+			{
+				// No proxy to use while nothing may go direct: every
+				// connection goes to a port where nothing listens
+				t = lt::settings_pack::socks5;
+				host = "127.0.0.1";
+				port = 1;
+				user.clear();
+				pass.clear();
+				peers = trackers = true;
+			}
 			p.set_int(lt::settings_pack::proxy_type, t);
-			p.set_str(lt::settings_pack::proxy_hostname, px.value("host", std::string()));
-			p.set_int(lt::settings_pack::proxy_port, px.value("port", 0));
-			p.set_str(lt::settings_pack::proxy_username, px.value("user", std::string()));
-			p.set_str(lt::settings_pack::proxy_password, px.value("pass", std::string()));
+			p.set_str(lt::settings_pack::proxy_hostname, host);
+			p.set_int(lt::settings_pack::proxy_port, port);
+			p.set_str(lt::settings_pack::proxy_username, user);
+			p.set_str(lt::settings_pack::proxy_password, pass);
 			p.set_bool(lt::settings_pack::proxy_hostnames, px.value("hostnames", true));
-			p.set_bool(lt::settings_pack::proxy_peer_connections, px.value("peers", true));
-			p.set_bool(lt::settings_pack::proxy_tracker_connections, px.value("trackers", true));
 			if (ptype == "http")
 				utp = false; // an HTTP proxy cannot carry UDP
 			if (force)
 			{
 				// Never connect directly: no incoming peers, no port mapping,
-				// no local discovery, no UDP that might bypass the proxy
+				// no local discovery, no UDP that might bypass the proxy.
+				// Trackers and web seeds go through the proxy; peers only when
+				// the proxy carries them (an HTTP proxy is only offered for
+				// trackers), otherwise there are none
 				incoming = false;
 				upnp = false;
 				lsd = false;
 				dht = false;
 				utp = false;
+				if (!peers || t == lt::settings_pack::http || t == lt::settings_pack::http_pw)
+					outgoing = false;
+				peers = trackers = true;
 			}
+			p.set_bool(lt::settings_pack::proxy_peer_connections, peers);
+			p.set_bool(lt::settings_pack::proxy_tracker_connections, trackers);
 		}
 		p.set_bool(lt::settings_pack::enable_dht, dht);
 		dht_on = dht;
@@ -869,6 +1983,7 @@ struct Engine
 		p.set_bool(lt::settings_pack::enable_outgoing_utp, utp);
 		p.set_bool(lt::settings_pack::enable_incoming_utp, utp && incoming);
 		p.set_bool(lt::settings_pack::enable_incoming_tcp, incoming);
+		p.set_bool(lt::settings_pack::enable_outgoing_tcp, outgoing);
 		p.set_bool(lt::settings_pack::incoming_starts_queued_torrents, false);
 		bool enc = s.value("encrypt", false);
 		p.set_int(lt::settings_pack::out_enc_policy, enc ? lt::settings_pack::pe_forced : lt::settings_pack::pe_enabled);
@@ -965,7 +2080,10 @@ struct Engine
 				dlog("resume %s: %s", k.c_str(), ec.message().c_str());
 				continue;
 			}
+			// Without readable options nothing is known: whose torrent it is
+			// (guard) and whether its folder is a regular user's
 			Options o;
+			o.guard_known = o.untrusted_known = false;
 			std::vector<char> ob;
 			if (read_file(opts_path(k), ob))
 			{
@@ -976,6 +2094,15 @@ struct Engine
 				catch (...)
 				{
 				}
+			}
+			// A regular user's torrent runs only from a folder only root can
+			// change. One saved before 1.5, or without readable options, is
+			// left alone until dcd adds it again and says whose it is
+			std::string perr;
+			if (!o.metadata_only && (!o.untrusted_known || (o.untrusted && !private_dir(atp.save_path, perr))))
+			{
+				dlog("restore %s: waits for dcd%s%s", k.c_str(), perr.empty() ? "" : ": ", perr.c_str());
+				continue;
 			}
 			atp.flags &= ~lt::torrent_flags::auto_managed;
 			// Saved before 1.4, without guard: whose torrent it is shows when
@@ -1003,9 +2130,22 @@ struct Engine
 		dlog("restored %d torrents", int(handles.size()));
 	}
 
+	// key_arg is the infohash of a request: 40 lower-case hex digits, as
+	// key_of makes them (it names files in the state folder)
+	static std::string key_arg(json const &req)
+	{
+		std::string k = jget(req, "infohash", std::string());
+		bool ok = k.size() == 40;
+		for (char c : k)
+			ok = ok && ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+		if (!ok)
+			throw std::runtime_error("torrent not found");
+		return k;
+	}
+
 	lt::torrent_handle find(json const &req)
 	{
-		std::string k = req.value("infohash", std::string());
+		std::string k = key_arg(req);
 		auto it = handles.find(k);
 		if (it == handles.end() || !it->second.is_valid())
 			throw std::runtime_error("torrent not found");
@@ -1048,6 +2188,57 @@ struct Engine
 		}
 	}
 
+	Options load_opts(std::string const &k)
+	{
+		Options o;
+		std::vector<char> ob;
+		if (read_file(opts_path(k), ob))
+		{
+			try
+			{
+				o = opt_from(json::parse(ob.begin(), ob.end()));
+			}
+			catch (...)
+			{
+			}
+		}
+		return o;
+	}
+
+	// resume_finished: the saved resume data of k has every piece of the
+	// files it wants (their size in wanted).
+	bool resume_finished(std::string const &k, std::shared_ptr<lt::torrent_info> ti, std::int64_t &wanted)
+	{
+		std::vector<char> buf;
+		if (!read_file(resume_path(k), buf))
+			return false;
+		lt::error_code ec;
+		lt::add_torrent_params p = lt::read_resume_data(buf, ec);
+		if (ec)
+			return false;
+		if (!p.ti)
+			p.ti = ti;
+		if (!p.ti || !p.ti->is_valid())
+			return false;
+		lt::file_storage const &fs = p.ti->files();
+		wanted = 0;
+		for (lt::file_index_t i : fs.file_range())
+		{
+			int idx = static_cast<int>(i);
+			auto prio = size_t(idx) < p.file_priorities.size() ? p.file_priorities[size_t(idx)] : lt::default_priority;
+			std::int64_t size = fs.file_size(i);
+			if (fs.pad_file_at(i) || prio == lt::dont_download || size == 0)
+				continue;
+			wanted += size;
+			int first = static_cast<int>(fs.map_file(i, 0, 0).piece);
+			int last = static_cast<int>(fs.map_file(i, size - 1, 1).piece);
+			for (int pc = first; pc <= last; ++pc)
+				if (pc >= p.have_pieces.size() || !p.have_pieces.get_bit(lt::piece_index_t(pc)))
+					return false;
+		}
+		return true;
+	}
+
 	json cmd_add(json const &req)
 	{
 		lt::add_torrent_params atp;
@@ -1082,9 +2273,54 @@ struct Engine
 		o.seed_time = req.value("seed_time", 0);
 		o.metadata_only = req.value("metadata_only", false);
 		o.guard = req.value("guard", false);
+		o.untrusted = req.value("untrusted_dir", false);
+		o.owner_uid = req.value("owner_uid", -1);
+		o.owner_gid = req.value("owner_gid", -1);
 		read_select(req, o);
 
 		auto ex = handles.find(key);
+		if (ex != handles.end() && ex->second.is_valid() && o.untrusted && !o.metadata_only && !opts[key].metadata_only)
+		{
+			// A regular user's torrent only runs from a folder only root can
+			// change. One that runs elsewhere (added for an administrator, or
+			// before 1.5) stops there and is taken as added anew
+			Options &eo = opts[key];
+			std::string cur = ex->second.status(lt::torrent_handle::query_save_path).save_path, perr;
+			if (!private_dir(cur, perr))
+			{
+				dlog("%s: stops running from %s (%s)", key.c_str(), cur.c_str(), perr.c_str());
+				ses->remove_torrent(ex->second);
+				handles.erase(key);
+				opts.erase(key);
+				forget_found(key);
+				ex = handles.end();
+			}
+			else if (!eo.handed && cur != save && (eo.seed_dir.empty() || cur != eo.seed_dir) && private_dir(save, perr))
+			{
+				// dcd moved the unfinished data to another such folder
+				ex->second.move_storage(save, lt::move_flags_t::reset_save_path);
+			}
+		}
+		if (o.untrusted && !o.metadata_only && (ex == handles.end() || !ex->second.is_valid()))
+		{
+			std::string perr;
+			if (!private_dir(save, perr))
+			{
+				// dcd believes the data is in the user's folder, where dc-bt
+				// never reads or writes: as far as dc-bt goes its seeding is over
+				std::int64_t wanted = 0;
+				if (resume_finished(key, ti, wanted))
+				{
+					Options so = load_opts(key);
+					so.untrusted = so.untrusted_known = true;
+					std::string js = opt_json(so).dump();
+					write_file(opts_path(key), js.data(), js.size());
+					dlog("%s: not started from %s (%s): its seeding counts as finished", key.c_str(), save.c_str(), perr.c_str());
+					return json{{"infohash", key}, {"existed", false}, {"resumed", false}, {"seed_done", true}, {"total_wanted", wanted}};
+				}
+				throw std::runtime_error("not a private folder: " + perr);
+			}
+		}
 		if (ex != handles.end() && ex->second.is_valid() && opts[key].metadata_only && !o.metadata_only)
 		{
 			// A pending file-list probe of the same torrent: the real task wins
@@ -1100,10 +2336,15 @@ struct Engine
 					ex->second.add_tracker(lt::announce_entry(t.get<std::string>()));
 			// A probe never changes the guard of the task it found
 			Options &eo = opts[key];
-			if (!o.metadata_only && (eo.guard != o.guard || !eo.guard_known))
+			if (!o.metadata_only && (eo.guard != o.guard || !eo.guard_known || eo.untrusted != o.untrusted || !eo.untrusted_known ||
+				eo.owner_uid != o.owner_uid || eo.owner_gid != o.owner_gid))
 			{
 				eo.guard = o.guard;
 				eo.guard_known = true;
+				eo.untrusted = o.untrusted;
+				eo.untrusted_known = true;
+				eo.owner_uid = o.owner_uid;
+				eo.owner_gid = o.owner_gid;
 				save_opts(key);
 			}
 			set_guard(ex->second, eo.guard);
@@ -1128,6 +2369,115 @@ struct Engine
 			else
 				dlog("fastresume %s not usable: %s", key.c_str(), rec ? rec.message().c_str() : "info hash mismatch");
 		}
+		// Data already in the user's folder (see adopt): taken over, then
+		// checked; the torrent then counts as handed over to that folder
+		int adopted = 0;
+		std::string adopt_from = req.value("adopt_from", std::string()), adopt_root = req.value("adopt_root", std::string());
+		if (o.untrusted && !o.metadata_only && !adopt_from.empty() && !resumed)
+		{
+			Adopted a;
+			if (ti)
+			{
+				if (adopt_root.empty())
+					adopt_root = ti->name();
+				int n = ti->num_files();
+				std::vector<int> wanted(size_t(n), o.has_select ? 0 : 4);
+				for (int i : o.select)
+					if (i >= 0 && i < n)
+						wanted[size_t(i)] = 4;
+				for (auto &kv : o.priorities)
+					if (kv.first >= 0 && kv.first < n)
+						wanted[size_t(kv.first)] = kv.second;
+				// The check reads and hashes data: it runs away from the
+				// control loop (see adopt_slot), and dcd adds the torrent
+				// again until it is done
+				auto ji = adopt_jobs.find(key);
+				if (ji != adopt_jobs.end() && (ji->second->from != adopt_from || ji->second->root != adopt_root))
+				{
+					ji->second->cancel = true;
+					adopt_jobs.erase(ji);
+					ji = adopt_jobs.end();
+				}
+				if (ji == adopt_jobs.end())
+				{
+					int slot = o.owner_uid > 0 ? o.owner_uid : 0;
+					if (adopt_slot(slot))
+					{
+						auto job = std::make_shared<AdoptJob>();
+						job->from = adopt_from;
+						job->root = adopt_root;
+						adopt_jobs[key] = job;
+						std::shared_ptr<lt::torrent_info const> tic = ti;
+						int owner = o.owner_uid;
+						try
+						{
+							std::thread([job, tic, save, adopt_from, adopt_root, wanted, owner, slot]() {
+								struct Held
+								{
+									int slot;
+									~Held() { adopt_slot_free(slot); }
+								} held{slot};
+								pthread_setname_np(pthread_self(), "dc-bt adopt");
+								AdoptCheck r;
+								try
+								{
+									r = adopt_check(*tic, save, adopt_from, adopt_root, wanted, owner, job->cancel);
+								}
+								catch (std::exception const &e)
+								{
+									r = AdoptCheck();
+									r.why = e.what();
+								}
+								catch (...)
+								{
+									r = AdoptCheck();
+									r.why = "the check failed";
+								}
+								std::lock_guard<std::mutex> l(job->mu);
+								job->res = std::move(r);
+								job->done = true;
+							}).detach();
+						}
+						catch (...)
+						{
+							adopt_slot_free(slot);
+							adopt_jobs.erase(key);
+							throw;
+						}
+					}
+					return json{{"infohash", key}, {"adopting", true}};
+				}
+				std::shared_ptr<AdoptJob> job = ji->second;
+				{
+					std::lock_guard<std::mutex> l(job->mu);
+					if (!job->done)
+						return json{{"infohash", key}, {"adopting", true}};
+				}
+				adopt_jobs.erase(ji);
+				if (job->res.ok)
+					a = adopt_link(*ti, save, adopt_from, job->res);
+				else
+					a.why = job->res.why;
+			}
+			else
+				a.why = "the file list is not known yet";
+			if (a.ok)
+			{
+				adopted = a.files;
+				check = true;
+				o.handed = true;
+				o.handed_to = adopt_from;
+				o.handed_root = adopt_root;
+				o.seed_dir = save;
+				dlog("%s: %d files taken over from %s/%s", key.c_str(), adopted, adopt_from.c_str(), adopt_root.c_str());
+			}
+			else
+			{
+				dlog("%s: data in %s not taken over: %s", key.c_str(), adopt_from.c_str(), a.why.c_str());
+				if (req.value("adopt_required", false))
+					throw std::runtime_error("cannot take over the data: " + a.why);
+			}
+		}
 		if (!resumed && !check && read_file(resume_path(key), buf))
 		{
 			lt::error_code rec;
@@ -1142,7 +2492,7 @@ struct Engine
 		}
 		atp.save_path = save;
 		std::string root = req.value("root", std::string());
-		if (ti && !root.empty())
+		if (ti && !root.empty() && adopted == 0)
 			for (auto &kv : root_renames(ti->orig_files(), root))
 				atp.renamed_files[kv.first] = kv.second;
 		atp.flags &= ~lt::torrent_flags::auto_managed;
@@ -1205,12 +2555,113 @@ struct Engine
 		save_opts(key);
 		if (!o.metadata_only)
 			h.save_resume_data(lt::torrent_handle::save_info_dict);
-		return json{{"infohash", key}, {"existed", false}, {"resumed", resumed}};
+		return json{{"infohash", key}, {"existed", false}, {"resumed", resumed}, {"adopted", adopted}};
 	}
 
 	// Move the data to another folder; the torrent keeps running and reads
 	// from there once libtorrent is done (storage_moved). Nothing that already
 	// exists at the destination is replaced: the move fails instead.
+	// top_of: the top folder (or the single file) of a torrent's data as
+	// libtorrent has it now.
+	static std::string top_of(lt::file_storage const &fs)
+	{
+		std::string p = fs.num_files() > 0 ? fs.file_path(lt::file_index_t(0)) : std::string();
+		size_t i = p.find('/');
+		return i == std::string::npos ? p : p.substr(0, i);
+	}
+
+	// hand_files lists the complete, wanted files of a torrent: where they are
+	// below its save path and where they go below the destination (the top
+	// renamed to root).
+	std::vector<HandFile> hand_files(lt::torrent_handle const &h, std::shared_ptr<lt::torrent_info const> ti, std::string const &root)
+	{
+		lt::file_storage const &fs = ti->files();
+		std::string top = top_of(fs);
+		std::vector<std::int64_t> prog;
+		h.file_progress(prog, lt::torrent_handle::piece_granularity);
+		std::vector<lt::download_priority_t> pr = h.get_file_priorities();
+		std::vector<HandFile> out;
+		for (lt::file_index_t i : fs.file_range())
+		{
+			int idx = static_cast<int>(i);
+			if (fs.pad_file_at(i) || (size_t(idx) < pr.size() && pr[size_t(idx)] == lt::dont_download))
+				continue;
+			std::int64_t size = fs.file_size(i);
+			if (size_t(idx) >= prog.size() || prog[size_t(idx)] < size)
+				continue;
+			HandFile f;
+			f.src = split_path(fs.file_path(i));
+			f.dst = f.src;
+			if (!f.dst.empty() && f.dst[0] == top)
+				f.dst[0] = root;
+			f.empty = size == 0;
+			out.push_back(f);
+		}
+		// One folder after the other: each is entered once
+		std::sort(out.begin(), out.end(), [](HandFile const &a, HandFile const &b) { return a.dst < b.dst; });
+		return out;
+	}
+
+	// move_untrusted hands a regular user's data over to dst (see hand_over)
+	// and keeps seeding from a private folder beside the temporary one, which
+	// dcd deletes once the move is reported done.
+	json move_untrusted(lt::torrent_handle const &h, std::string const &k, std::shared_ptr<lt::torrent_info const> ti,
+		std::string const &dst, std::string const &root)
+	{
+		Options &o = opts[k];
+		std::string top = top_of(ti->files());
+		std::string want = root.empty() ? top : root;
+		auto failed = [&](std::string const &msg) {
+			o.move_error = msg;
+			dlog("move %s failed: %s", k.c_str(), msg.c_str());
+			event(json{{"event", "storage_move_failed"}, {"infohash", k}, {"error", msg}});
+			return json::object();
+		};
+		if (!plain_name(want))
+			return failed("bad name: " + want);
+		lt::torrent_status ts = h.status(lt::torrent_handle::query_save_path);
+		if (ts.moving_storage)
+			return json::object(); // on its way to its own folder
+		std::string cur = ts.save_path, perr;
+		while (cur.size() > 1 && cur.back() == '/')
+			cur.pop_back();
+		if (!o.handed && !o.seed_dir.empty() && cur == o.seed_dir)
+		{
+			o.handed = true; // moved, before the alert said so
+			save_opts(k);
+		}
+		if (o.handed && o.handed_to == dst && o.handed_root == want)
+			return json::object(); // there already
+		if (!private_dir(cur, perr))
+			return failed(perr);
+		o.move_error.clear();
+		std::vector<std::string> skipped;
+		std::string err = hand_over(cur, dst, hand_files(h, ti, want), false, o.owner_uid, o.owner_gid, skipped);
+		if (!err.empty())
+			return failed(err);
+		o.handed_to = dst;
+		o.handed_root = want;
+		if (o.handed)
+		{
+			// Seeding from its own folder already: handed over once more
+			save_opts(k);
+			event(json{{"event", "storage_moved"}, {"infohash", k}, {"save_path", dst}});
+			return json::object();
+		}
+		std::string seed = cur + ".seed";
+		Fd parent = open_dir(dir_name(seed), perr);
+		if (!parent.ok())
+			return failed(perr);
+		remove_tree(parent.fd, base_name(seed)); // what an interrupted move left
+		// Made here: libtorrent would make it writable by the group
+		if (::mkdirat(parent.fd, base_name(seed).c_str(), 0700) != 0)
+			return failed(seed + ": " + strerror(errno));
+		o.seed_dir = seed;
+		save_opts(k);
+		h.move_storage(seed, lt::move_flags_t::fail_if_exist);
+		return json::object();
+	}
+
 	json cmd_move(json const &req)
 	{
 		lt::torrent_handle h = find(req);
@@ -1222,6 +2673,8 @@ struct Engine
 		if (!ti)
 			throw std::runtime_error("no metadata yet");
 		std::string root = req.value("root", std::string());
+		if (opts[k].untrusted)
+			return move_untrusted(h, k, ti, dst, root);
 		if (!root.empty())
 		{
 			lt::file_storage const &cur = ti->files();
@@ -1236,6 +2689,8 @@ struct Engine
 
 	void forget(std::string const &k)
 	{
+		if (k.size() != 40 || k.find_first_not_of("0123456789abcdef") != std::string::npos)
+			return;
 		handles.erase(k);
 		opts.erase(k);
 		forget_found(k);
@@ -1250,7 +2705,10 @@ struct Engine
 		json j;
 		j["infohash"] = k;
 		j["name"] = s.name;
-		j["save_path"] = s.save_path;
+		// A regular user's data that was handed over: dcd sees it where it
+		// was handed to (dc-bt seeds from its own folder)
+		bool handed = o.handed && !o.handed_to.empty();
+		j["save_path"] = handed ? o.handed_to : s.save_path;
 		j["state"] = state_name(s.state);
 		j["paused"] = bool(s.flags & lt::torrent_flags::paused);
 		j["complete"] = o.complete;
@@ -1307,12 +2765,17 @@ struct Engine
 				std::vector<lt::download_priority_t> pr = h.get_file_priorities();
 				json fa = json::array();
 				lt::file_storage const &fs = ti->files();
+				std::string top = handed ? top_of(fs) : std::string();
 				for (lt::file_index_t i : fs.file_range())
 				{
 					int idx = int(static_cast<int>(i));
 					json f;
 					f["index"] = idx;
-					f["path"] = fs.file_path(i);
+					std::string path = fs.file_path(i);
+					if (handed && !o.handed_root.empty() && o.handed_root != top &&
+						(path == top || path.compare(0, top.size() + 1, top + "/") == 0))
+						path = o.handed_root + path.substr(top.size());
+					f["path"] = path;
 					f["size"] = fs.file_size(i);
 					f["done"] = size_t(idx) < prog.size() ? prog[size_t(idx)] : 0;
 					f["priority"] = size_t(idx) < pr.size() ? int(static_cast<std::uint8_t>(pr[size_t(idx)])) : 4;
@@ -1429,9 +2892,9 @@ struct Engine
 		json arr = json::array();
 		for (lt::announce_entry const &ae : h.trackers())
 		{
-			int seeds = -1, leechers = -1, fails = -1;
+			int seeds = -1, leechers = -1, fails = -1, skipfails = -1;
 			bool updating = false;
-			std::string warning, failure;
+			std::string warning, failure, skipped;
 			for (auto const &ep : ae.endpoints)
 				for (auto const &ih : ep.info_hashes)
 				{
@@ -1440,6 +2903,17 @@ struct Engine
 					updating = updating || ih.updating;
 					if (ih.fails == 0 && !ih.start_sent)
 						continue; // not tried yet
+					if (ih.fails > 0 && ih.last_error == lt::errors::announce_skipped)
+					{
+						// A listen socket that cannot reach the tracker's
+						// address (loopback, a bridge without a route) skips
+						// the announce: that says nothing about the tracker
+						if (skipfails < 0 || int(ih.fails) < skipfails)
+							skipfails = int(ih.fails);
+						if (skipped.empty())
+							skipped = ih.last_error.message();
+						continue;
+					}
 					if (fails < 0 || int(ih.fails) < fails)
 						fails = int(ih.fails);
 					if (ih.fails == 0)
@@ -1450,6 +2924,12 @@ struct Engine
 					else if (failure.empty())
 						failure = !ih.message.empty() ? ih.message : ih.last_error ? ih.last_error.message() : std::string();
 				}
+			if (fails < 0 && skipfails >= 0)
+			{
+				// No listen socket can reach it at all
+				fails = skipfails;
+				failure = skipped;
+			}
 			json t;
 			t["url"] = ae.url;
 			t["tier"] = int(ae.tier);
@@ -1558,11 +3038,27 @@ struct Engine
 		}
 		if (cmd == "remove")
 		{
-			std::string k = req.value("infohash", std::string());
+			std::string k = key_arg(req);
+			auto aj = adopt_jobs.find(k);
+			if (aj != adopt_jobs.end())
+			{
+				aj->second->cancel = true; // the thread stops soon
+				adopt_jobs.erase(aj);
+			}
+			Options o = opts.count(k) ? opts[k] : load_opts(k);
 			auto it = handles.find(k);
 			if (it != handles.end() && it->second.is_valid())
 				ses->remove_torrent(it->second);
 			forget(k);
+			if (o.untrusted && !o.seed_dir.empty())
+			{
+				// The folder it seeded from after the hand-over; the user has
+				// the data
+				std::string perr;
+				Fd parent = open_dir(dir_name(o.seed_dir), perr);
+				if (parent.ok())
+					remove_tree(parent.fd, base_name(o.seed_dir));
+			}
 			return json::object();
 		}
 		if (cmd == "force_recheck")
@@ -1701,6 +3197,29 @@ struct Engine
 		}
 	}
 
+	// hand_over_more: files of a handed-over torrent chosen later are
+	// downloaded into its own folder; once they are complete they are handed
+	// over beside the others. What the user has put in their place stays.
+	void hand_over_more(std::string const &k, lt::torrent_handle const &h, Options const &o)
+	{
+		auto ti = h.torrent_file();
+		if (!ti || o.handed_to.empty())
+			return;
+		std::string cur = h.status(lt::torrent_handle::query_save_path).save_path, perr;
+		if (!private_dir(cur, perr))
+		{
+			dlog("%s: files not handed over: %s", k.c_str(), perr.c_str());
+			return;
+		}
+		std::vector<std::string> skipped;
+		std::string err = hand_over(cur, o.handed_to, hand_files(h, ti, o.handed_root.empty() ? top_of(ti->files()) : o.handed_root), true,
+			o.owner_uid, o.owner_gid, skipped);
+		if (!err.empty())
+			dlog("%s: files not handed over: %s", k.c_str(), err.c_str());
+		if (!skipped.empty())
+			dlog("%s: %d files not handed over: something else is in their place", k.c_str(), int(skipped.size()));
+	}
+
 	void handle_alerts()
 	{
 		std::vector<lt::alert *> alerts;
@@ -1747,17 +3266,30 @@ struct Engine
 			{
 				std::string k = key_of(f->handle.info_hashes());
 				f->handle.save_resume_data(lt::torrent_handle::save_info_dict);
+				auto oi = opts.find(k);
+				if (oi != opts.end() && oi->second.untrusted && oi->second.handed)
+					hand_over_more(k, f->handle, oi->second);
 				event(json{{"event", "torrent_finished"}, {"infohash", k}});
 			}
 			else if (auto *mv = lt::alert_cast<lt::storage_moved_alert>(a))
 			{
 				std::string k = key_of(mv->handle.info_hashes());
 				auto it = opts.find(k);
+				std::string where = mv->storage_path();
 				if (it != opts.end())
+				{
 					it->second.move_error.clear();
+					if (it->second.untrusted && !it->second.seed_dir.empty() && where == it->second.seed_dir)
+					{
+						// Handed over, and seeding from its own folder
+						it->second.handed = true;
+						save_opts(k);
+						where = it->second.handed_to;
+					}
+				}
 				// The new save path must survive a restart right away
 				mv->handle.save_resume_data(lt::torrent_handle::save_info_dict);
-				event(json{{"event", "storage_moved"}, {"infohash", k}, {"save_path", mv->storage_path()}});
+				event(json{{"event", "storage_moved"}, {"infohash", k}, {"save_path", where}});
 			}
 			else if (auto *mf = lt::alert_cast<lt::storage_moved_failed_alert>(a))
 			{
@@ -1899,7 +3431,7 @@ struct Engine
 			return;
 		}
 		json resp;
-		resp["id"] = req.value("id", 0LL);
+		resp["id"] = jget(req, "id", 0LL);
 		try
 		{
 			resp["result"] = dispatch(req);
@@ -1936,47 +3468,38 @@ struct Engine
 
 	void run()
 	{
-		auto last_seed = clk::now(), last_save = clk::now(), last_guard = clk::now();
 		while (!g_stop)
 		{
 			struct pollfd fds[2];
 			int n = 0;
 			fds[n++] = {listen_fd, POLLIN, 0};
 			if (client_fd >= 0)
-				fds[n++] = {client_fd, POLLIN, 0};
+				fds[n++] = {client_fd, short(POLLIN | (outoff < outbuf.size() ? POLLOUT : 0)), 0};
 			int r = ::poll(fds, nfds_t(n), 100);
 			if (r > 0)
 			{
 				if (fds[0].revents & POLLIN)
 				{
-					int c = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+					int c = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
 					if (c >= 0)
 					{
-						if (client_fd >= 0)
-							::close(client_fd);
+						drop_client();
 						client_fd = c;
-						inbuf.clear();
 					}
 				}
+				if (n > 1 && client_fd >= 0 && (fds[1].revents & POLLOUT))
+					flush_out();
 				if (n > 1 && client_fd >= 0 && (fds[1].revents & (POLLIN | POLLHUP | POLLERR)))
 				{
 					char buf[65536];
 					ssize_t got = ::recv(client_fd, buf, sizeof buf, 0);
-					if (got <= 0)
-					{
-						::close(client_fd);
-						client_fd = -1;
-						inbuf.clear();
-					}
-					else
+					if (got == 0 || (got < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+						drop_client();
+					else if (got > 0)
 					{
 						inbuf.append(buf, size_t(got));
 						if (inbuf.size() > (64u << 20))
-						{
-							::close(client_fd);
-							client_fd = -1;
-							inbuf.clear();
-						}
+							drop_client();
 						size_t pos;
 						while ((pos = inbuf.find('\n')) != std::string::npos)
 						{
@@ -1988,30 +3511,29 @@ struct Engine
 					}
 				}
 			}
-			handle_alerts();
-			auto now = clk::now();
-			check_dht(now);
-			if (now - last_guard > std::chrono::seconds(60) || proxy_resolved())
+			// Nothing that goes wrong with one alert or check ends the engine
+			try
 			{
-				update_guard(false);
-				last_guard = now;
+				tick();
 			}
-			if (now - last_seed > std::chrono::seconds(1))
+			catch (std::exception const &e)
 			{
-				check_seeding();
-				last_seed = now;
+				dlog("error: %s", e.what());
 			}
-			if (now - last_save > std::chrono::minutes(5))
+			catch (...)
 			{
-				for (auto &kv : handles)
-					if (kv.second.is_valid() && !opts[kv.first].metadata_only && kv.second.need_save_resume_data())
-						kv.second.save_resume_data(lt::torrent_handle::save_info_dict);
-				save_session();
-				last_save = now;
+				dlog("error");
 			}
 		}
 		dlog("shutting down");
-		save_all(15000);
+		try
+		{
+			save_all(15000);
+		}
+		catch (std::exception const &e)
+		{
+			dlog("saving: %s", e.what());
+		}
 		if (client_fd >= 0)
 			::close(client_fd);
 		::close(listen_fd);
@@ -2019,7 +3541,66 @@ struct Engine
 		ses->pause();
 		ses.reset();
 	}
+
+	clk::time_point last_seed = clk::now(), last_save = clk::now(), last_guard = clk::now();
+
+	void tick()
+	{
+		handle_alerts();
+		drop_bad_seeds();
+		auto now = clk::now();
+		check_dht(now);
+		if (now - last_guard > std::chrono::seconds(60) || proxy_resolved())
+		{
+			update_guard(false);
+			last_guard = now;
+		}
+		if (now - last_seed > std::chrono::seconds(1))
+		{
+			check_seeding();
+			last_seed = now;
+		}
+		if (now - last_save > std::chrono::minutes(5))
+		{
+			for (auto &kv : handles)
+				if (kv.second.is_valid() && !opts[kv.first].metadata_only && kv.second.need_save_resume_data())
+					kv.second.save_resume_data(lt::torrent_handle::save_info_dict);
+			save_session();
+			last_save = now;
+		}
+	}
 };
+
+// trust_ca_file adds the certificate authorities in path (PEM) to those
+// HTTPS trackers and web seeds are checked against, beside the system's,
+// never in their place. OpenSSL takes one default file (SSL_CERT_FILE, else
+// its built-in path): that file and path are written together into a file
+// of dc-bt's own, which becomes the default file. libtorrent loads the
+// system's usual bundle files and the hashed folder (SSL_CERT_DIR) itself.
+static void trust_ca_file(std::string const &path, std::string const &state_dir)
+{
+	std::vector<char> extra, sys;
+	if (!read_file(path, extra) || extra.empty())
+	{
+		dlog("CA list %s cannot be read: the system's certificate authorities only", path.c_str());
+		return;
+	}
+	char const *env = getenv(X509_get_default_cert_file_env());
+	std::string sysfile = env && *env ? env : X509_get_default_cert_file();
+	read_file(sysfile, sys);
+	std::string merged(sys.begin(), sys.end());
+	if (!merged.empty() && merged.back() != '\n')
+		merged.push_back('\n');
+	merged.append(extra.begin(), extra.end());
+	std::string out = state_dir + "/ca.pem";
+	if (!write_file(out, merged.data(), merged.size()))
+	{
+		dlog("cannot write %s: the system's certificate authorities only", out.c_str());
+		return;
+	}
+	setenv(X509_get_default_cert_file_env(), out.c_str(), 1);
+	dlog("certificate authorities: the system's and %s", path.c_str());
+}
 
 static int check_resume(char const *fr, char const *tf)
 {
@@ -2054,7 +3635,7 @@ static int check_resume(char const *fr, char const *tf)
 int main(int argc, char **argv)
 {
 	Engine e;
-	std::string settings_path;
+	std::string settings_path, ca_file;
 	for (int i = 1; i < argc; ++i)
 	{
 		std::string a = argv[i];
@@ -2065,6 +3646,8 @@ int main(int argc, char **argv)
 			e.state_dir = next();
 		else if (a == "--torrents")
 			e.torrents_dir = next();
+		else if (a == "--ca-file")
+			ca_file = next();
 		else if (a == "--settings")
 			settings_path = next();
 		else if (a == "--version")
@@ -2077,7 +3660,7 @@ int main(int argc, char **argv)
 	}
 	if (e.socket_path.empty() || e.state_dir.empty())
 	{
-		fprintf(stderr, "usage: dc-bt --socket <path> --state <dir> [--torrents <dir>] [--settings <file>]\n");
+		fprintf(stderr, "usage: dc-bt --socket <path> --state <dir> [--torrents <dir>] [--settings <file>] [--ca-file <file>]\n");
 		return 2;
 	}
 	::mkdir(e.state_dir.c_str(), 0700);
@@ -2099,6 +3682,8 @@ int main(int argc, char **argv)
 		{
 		}
 	}
+	if (!ca_file.empty())
+		trust_ca_file(ca_file, e.state_dir);
 	try
 	{
 		e.start(initial);

@@ -233,3 +233,35 @@ func TestTokenState(t *testing.T) {
 		}
 	}
 }
+
+// Searching is counted by fixed names; what was searched for and which
+// sources exist never reach a report, only how many sources there are.
+func TestSearchCounters(t *testing.T) {
+	s := testService(t)
+	s.UI("alice", map[string]int64{"search_run": 3, "search_add": 1, "search_src_code": 1, "private keyword": 1, "search_q_private": 1, "my-jackett": 1, "dlm-mymodule": 1})
+	if s.counts["ui_search_run"] != 3 || s.counts["ui_search_add"] != 1 || s.counts["ui_search_src_code"] != 1 || len(s.counts) != 3 {
+		t.Fatalf("counts %v", s.counts)
+	}
+	old := SearchCounts
+	defer func() { SearchCounts = old }()
+	SearchCounts = func() (int, int, int, int) { return 5, 2, 1, 3 }
+	st := s.snapshot()
+	if st["st_search_sources"] != 5 || st["st_search_custom"] != 2 || st["st_search_torznab"] != 1 || st["st_search_code"] != 3 {
+		t.Fatalf("state %v", st)
+	}
+	SearchCounts = nil
+	if _, ok := s.snapshot()["st_search_code"]; ok {
+		t.Fatal("search state reported without a source of counts")
+	}
+}
+
+// Adds by the page's AI agent tools have a fixed category of their own;
+// any other name a client gives stays in a fixed one too.
+func TestViaAgent(t *testing.T) {
+	allowed := map[string]bool{"ui": true, "api": true, "chat": true, "widget": true, "webmcp": true, "v4": true}
+	for caller, want := range map[string]string{"AI agent": "webmcp", "AI agent x": "v4", "evil <script>": "v4", "": "ui"} {
+		if got := via(caller); got != want || !allowed[got] {
+			t.Errorf("%q: %q, want %q", caller, got, want)
+		}
+	}
+}

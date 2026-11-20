@@ -40,6 +40,9 @@ type Server struct {
 	Version string
 	mux     *http.ServeMux
 	Extra   map[string]any // values other packages expose to /me (e.g. import availability)
+	// MeHooks are values other packages add to /me for every caller,
+	// computed per request.
+	MeHooks map[string]func(p *auth.Principal) any
 	// DevUser (dcd serve -dev-user) treats direct loopback requests that did
 	// not come through Apache as this user. Development only: the service
 	// script never sets it.
@@ -72,7 +75,8 @@ func Count(key string) {
 }
 
 func New(m *core.Manager, a *auth.Service, webDir, version string) *Server {
-	s := &Server{M: m, Auth: a, WebDir: webDir, Version: version, mux: http.NewServeMux(), Extra: map[string]any{}, keys: map[string]string{}}
+	s := &Server{M: m, Auth: a, WebDir: webDir, Version: version, mux: http.NewServeMux(), Extra: map[string]any{},
+		MeHooks: map[string]func(*auth.Principal) any{}, keys: map[string]string{}}
 	s.routes()
 	return s
 }
@@ -130,6 +134,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, key, scope str
 		}
 		return
 	}
+	markAgent(p, r)
 	if p.Via == "token" {
 		Count(key)
 		Count("api_client_" + clientOf(r.UserAgent()))
@@ -199,7 +204,7 @@ func (r *statusRecorder) Flush() {
 // Authenticate resolves the caller of a request: Bearer token, or the QTS
 // session (NAS_SID cookie or X-NAS-SID header).
 func (s *Server) Authenticate(r *http.Request) (*auth.Principal, error) {
-	if s.DevUser != "" && r.Header.Get("X-DC-Remote") == "" && r.Header.Get("Authorization") == "" && strings.HasPrefix(r.RemoteAddr, "127.0.0.1:") {
+	if s.DevUser != "" && r.Header.Get("X-DC-Remote") == "" && !FromProxy(r) && r.Header.Get("Authorization") == "" && strings.HasPrefix(r.RemoteAddr, "127.0.0.1:") {
 		p, err := s.Auth.FromQTS(s.DevUser, qts.IsQTSAdmin(s.DevUser))
 		if err == nil {
 			p.Via = "session"
@@ -245,18 +250,23 @@ func (s *Server) authError(w http.ResponseWriter, err error) {
 	}
 }
 
-// ClientIP is the address of the browser. Apache (the only peer allowed on
-// the loopback port) sets X-DC-Remote; X-Forwarded-For's last hop is the
-// fallback.
+// ClientIP is the address of the browser. Apache and ds.cgi set
+// X-DC-Remote (X-Forwarded-For's last hop is the fallback); they are
+// believed only on a request that proves it came through them (FromProxy).
+// Any other request is the peer of the loopback connection.
 func ClientIP(r *http.Request) string {
-	if v := strings.TrimSpace(r.Header.Get("X-DC-Remote")); v != "" && net.ParseIP(v) != nil {
-		return v
-	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if ip := strings.TrimSpace(parts[len(parts)-1]); net.ParseIP(ip) != nil {
-			return ip
+	if FromProxy(r) {
+		if v := strings.TrimSpace(r.Header.Get("X-DC-Remote")); v != "" && net.ParseIP(v) != nil {
+			return v
 		}
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			if ip := strings.TrimSpace(parts[len(parts)-1]); net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
+	} else {
+		noteUntrusted(r)
 	}
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	return host
@@ -341,6 +351,8 @@ func coreError(err error) (status int, code, msg string) {
 		return 409, "task_moving", "The files of this task are being moved. Try again when the move has finished."
 	case errors.Is(err, core.ErrUnsupported):
 		return 400, "unsupported", "The current engine does not support this operation"
+	case errors.Is(err, core.ErrProbeLimit):
+		return 429, "probe_limit", "You are already looking up three magnet links. Wait for one to finish."
 	}
 	return 400, "failed", err.Error()
 }
@@ -418,4 +430,13 @@ func (s *Server) routes() {
 	s.previewRoutes()
 	s.widgetRoutes()
 	s.trackerRoutes()
+}
+
+// markAgent marks a session request sent by the page's tools for an AI
+// agent in the browser (X-DC-Via: webmcp): it is treated like a program's.
+// A token cannot claim it (it is a program already).
+func markAgent(p *auth.Principal, r *http.Request) {
+	if p != nil && p.Via == "session" && r.Header.Get("X-DC-Via") == "webmcp" {
+		p.Agent = true
+	}
 }

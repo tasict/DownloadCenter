@@ -3,7 +3,7 @@
 	'use strict';
 	var DC = window.DC, h = DC.h, add = DC.add, clear = DC.clear, icon = DC.icon, ibtn = DC.ibtn, btn = DC.btn, R = DC.R;
 
-	var KIND_ICON = {empty:'link', url:'link', mixed:'link', page:'link', magnet:'magnet', torrent:'torrent', bad:'error'};
+	var KIND_ICON = {empty:'link', url:'link', mixed:'link', page:'link', magnet:'magnet', torrent:'torrent', bad:'error', search:'search'};
 	var KIND_TEXT = {url:DC.t('URL'), page:DC.t('Web page'), magnet:DC.t('Magnet'), torrent:DC.t('Torrent file')};
 	var UNSUPPORTED = {'mega.nz':'MEGA', 'mega.co.nz':'MEGA'};
 
@@ -114,18 +114,28 @@
 		var list = protocols();
 		clear(pb.hint).className = 'addHint';
 		if(!pb.sheet) pb.hint.appendChild(h('span', {text:DC.t('Paste one or more URLs, magnet links, text containing links, or a web page URL. You can also drag .torrent files into the window.')}));
+		if(pb.searchable) pb.hint.appendChild(h('span', {text:DC.t('Or type a few words to search for torrents.')}));
 		if(list) pb.hint.appendChild(h('span', {'class':'protos', text:DC.t('Supported: {list}', {list:list})}));
 	}
+	/* One line of words without a link (2 to 200 characters), while a search source can be searched: the add window offers
+	   to search for them instead of saying there is nothing to add */
+	function searchWords(text){
+		var s = String(text || '').replace(/^\s+|\s+$/g, ''), n = s.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '_').length;
+		if(!DC.search || !DC.search.ready() || n < 2 || n > 200 || /[\r\n]/.test(s)) return '';
+		return s;
+	}
 	function onInput(pb){
-		var el = pb.input, d = detect(el.value), one, hint = pb.hint;
+		var el = pb.input, d = detect(el.value), one, hint = pb.hint, words = pb.searchable && d.kind === 'bad' ? searchWords(el.value) : '', kind = words ? 'search' : d.kind;
 		el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, pb.sheet ? 200 : 120) + 'px';
 		if(pb.go) pb.go.disabled = d.kind === 'empty' || d.kind === 'bad';
-		if(d.kind !== pb.lastKind){
-			pb.lastKind = d.kind;
-			pb.kind.className = 'kind k-' + d.kind;
-			clear(pb.kind).appendChild(icon(KIND_ICON[d.kind], d.kind === 'empty' ? '' : 'play'));
+		if(kind !== pb.lastKind){
+			pb.lastKind = kind;
+			pb.kind.className = 'kind k-' + kind;
+			clear(pb.kind).appendChild(icon(KIND_ICON[kind], kind === 'empty' ? '' : 'play'));
 		}
+		if(words !== (pb.words || '')){ pb.words = words; if(pb.onWords) pb.onWords(); }
 		if(d.kind === 'empty'){ hintIdle(pb); return; }
+		if(words){ hint.className = 'addHint'; hint.textContent = DC.t('Press Enter to search torrents for “{text}”.', {text:words}); return; }
 		hint.className = 'addHint' + (d.kind === 'bad' ? ' bad' : '');
 		one = d.items && d.items.length === 1 ? d.items[0] : null;
 		if(d.kind === 'bad') hint.textContent = DC.t('No downloadable link found. Supported: {list}.', {list:protocols()});
@@ -385,9 +395,25 @@
 		return [tools, list];
 	}
 	function loading(text){ return h('div', {'class':'loading'}, [icon('check'), text]); }
+	/* The NAS reads at most 16 MiB of each torrent file, in requests of up to 32 MiB (daemon/internal/api/tasks.go); room
+	   is left for the form's other fields. Larger batches go up in parts, a larger file is refused here. */
+	var MAX_FILE = 16 * 1048576, MAX_UPLOAD = 32 * 1048576, UPLOAD_ROOM = 256 * 1024;
+	function tooBig(file){ return (file && file.size || 0) > MAX_FILE; }
+	function tooLargeText(){ return DC.t('This torrent file is too large to add. Torrent files of up to {size} can be added.', {size:DC.fsize(MAX_FILE)}); }
+	function upErr(e){ return e && e.code === 'too_large' ? tooLargeText() : DC.errText(e); }
+	function uploadBatches(files){
+		var out = [], cur = [], size = 0, i, n;
+		for(i = 0; i < files.length; i++){
+			n = files[i].size || 0;
+			if(cur.length && size + n > MAX_UPLOAD - UPLOAD_ROOM){ out.push(cur); cur = []; size = 0; }
+			cur.push(files[i]); size += n;
+		}
+		if(cur.length) out.push(cur);
+		return out;
+	}
 	function torrentForm(files){
 		var fd = new FormData(), i;
-		for(i = 0; i < files.length; i++) fd.append('file', files[i]);
+		for(i = 0; i < files.length; i++) fd.append('file', files[i], files[i].name || 'download.torrent');
 		return fd;
 	}
 	/* Same torrent already listed: fold the new trackers in instead of a second task. */
@@ -403,18 +429,19 @@
 		});
 	}
 	/* The add dialog. With opts.compose it is the whole add flow in one window: the paste field sits on top and the files,
-	   links and options below follow what is pasted (re-rendered in place, no second window). Without it (dropped .torrent
-	   files, page links) it opens straight on the given items. */
+	   links and options below follow what is pasted (re-rendered in place, no second window); one line of words there turns
+	   the main button into Search. Without it (dropped .torrent files, page links, search results) it opens straight on the
+	   given items. opts.stay keeps the page shown after adding (the search page), opts.onAdded(results) hears what was added. */
 	function openAdd(items, pageUrl, opts){
 		opts = opts || {};
 		var compose = !!opts.compose;
 		var me = DC.S.me, admin = DC.isAdmin(), defs = me.defaults || {};
-		var one = null, single = null, files = null, picks = null, meta = null, free = -1, closed = false, contentOf = '', probeTimer = null, dupNote = false, privSame = '';
+		var one = null, single = null, files = null, picks = null, meta = null, free = -1, closed = false, contentOf = '', probeTimer = null, dupNote = false, privSame = '', waitProbe = false;
 		var hasBt = false, hasUrl = false, gen = 0, title = '', start = null, typing = null;
 		var body = h('div', {'class':'addbody'}), sum = h('div', {'class':'sum num'}), leadEl = h('p', {'class':'lead'});
 		var lastFolder = DC.pref('last_folder') || defs.folder || '';
 		var folder = admin ? folderPicker('addFolder', lastFolder, false, function(){ refreshFree(); }, {noFree:true}) : null;
-		var move = admin ? folderPicker('addMove', defs.move_to || '', true) : null;
+		var move = admin ? folderPicker('addMove', defs.move_to || '', true, function(){ refreshFree(); }) : null;
 		var moveLabel = h('label', {'for':'addMove', text:DC.t('Move to when finished')});
 		/* Site account for URL downloads, as in the official dialog: automatic by host, none, a saved account, or typed in for this task only. */
 		var manualOpt = h('option', {value:'manual', text:DC.t('Enter manually…')}), acctLoaded = false;
@@ -464,17 +491,20 @@
 			seededOpt.hidden = seededOpt.disabled = !(hasBt || pageUrl);
 			if(seededOpt.disabled && auto.value === 'seeded') auto.value = 'completed';
 		}
-		function where(){ return admin ? (folder.value || DC.t('Temporary location')) : (me.home_folder || 'home/Download'); }
+		/* Everything downloads on the volume of where it ends up: the "move to" folder when there is one */
+		function dest(){ return admin ? (move.value || folder.value) : ''; }
+		function where(){ return admin ? (dest() || DC.t('Temporary location')) : (me.home_folder || 'home/Download'); }
 		function freeText(){ return free >= 0 ? DC.t('{folder} has {size} available.', {folder:where(), size:DC.fsize(free)}) : ''; }
 		function refreshFree(){
 			if(!admin){
 				DC.api.get('stats', null, {quiet:true}).then(function(r){ if(r.folders && r.folders[0]){ free = r.folders[0].free; total(); } }, function(){});
 				return;
 			}
-			if(!folder.value) return;
-			DC.api.get('folders', {path:folder.value, free_only:'1'}, {quiet:true}).then(function(r){ if(r.free !== undefined){ free = r.free; total(); } }, function(e){
+			var d = dest();
+			if(!d) return;
+			DC.api.get('folders', {path:d, free_only:'1'}, {quiet:true}).then(function(r){ if(r.free !== undefined && d === dest()){ free = r.free; total(); } }, function(e){
 				/* The folder used last time is gone: back to the default one */
-				if(e.code === 'folder_not_found' && defs.folder && folder.value !== defs.folder){ folder.set(defs.folder); refreshFree(); }
+				if(e.code === 'folder_not_found' && d === folder.value && defs.folder && folder.value !== defs.folder){ folder.set(defs.folder); refreshFree(); }
 			});
 		}
 		function total(){
@@ -527,13 +557,31 @@
 			if(one && one.kind === 'magnet' && !meta && probeTimer !== null) DC.api.post('tasks/probe', {magnet:one.text, cancel:true}, {quiet:true}).then(null, function(){});
 			probeTimer = null;
 		}
+		function magnetWaiting(){
+			clear(body);
+			if(dupNote) body.appendChild(h('p', {'class':'note warn', text:DC.t('A file with the same name already exists at the destination; it may have been downloaded before.')}));
+			body.appendChild(loading(DC.t('Getting file list…')));
+			body.appendChild(h('p', {'class':'note', text:DC.t('No need to wait: click “Start download” now to put it in the download queue. Once the file list is available, choose files under “Files” in the task details.')}));
+		}
 		function probeMagnet(my){
-			DC.api.post('tasks/probe', {magnet:one.text, folder:admin ? folder.value : ''}).then(function(r){
+			var q = {magnet:one.text, folder:admin ? folder.value : ''};
+			if(admin) q.move_to = move.value;
+			DC.api.post('tasks/probe', q).then(function(r){
 				if(closed || my !== gen) return;
 				if(r.state === 'ready'){ useMeta(r); return; }
+				if(waitProbe){ waitProbe = false; magnetWaiting(); }
 				probeTimer = setTimeout(function(){ probeMagnet(my); }, 2000);
 			}, function(e){
 				if(closed || my !== gen) return;
+				/* Too many file lists are being fetched on the NAS: ask again by itself while the window is open */
+				if(e.code === 'probe_limit'){
+					waitProbe = true;
+					clear(body);
+					body.appendChild(h('p', {'class':'note warn', text:DC.errText(e)}));
+					body.appendChild(h('p', {'class':'note', text:DC.t('The file list is asked for again by itself in a few seconds. You can also start the download now and choose files later in the task details.')}));
+					probeTimer = setTimeout(function(){ probeMagnet(my); }, 5000);
+					return;
+				}
 				/* Someone else's torrent cannot be added either: no "you can still start" then */
 				clear(body); body.appendChild(h('p', {'class':'note warn', text:e.code === 'duplicate_other_owner' ? DC.errText(e) : DC.t('{error}. You can still start the download and choose files later in the task details.', {error:DC.errText(e)})}));
 			});
@@ -561,9 +609,11 @@
 			DC.api.post('tasks/check', {sources:srcs, folder:admin ? folder.value : ''}, {quiet:true}).then(function(r){ done(r.items || []); }, function(){ done(null); });
 		}
 		function loadTorrentFiles(my){
+			if(tooBig(one.file)){ clear(body); body.appendChild(h('p', {'class':'note warn', text:tooLargeText()})); return; }
 			var form = torrentForm([one.file]);
 			if(admin && folder.value) form.append('folder', folder.value);
-			DC.api.upload('tasks/probe', form).then(function(r){ if(!closed && my === gen) useMeta(r); }, function(e){ if(closed || my !== gen) return; clear(body); body.appendChild(h('p', {'class':'note warn', text:DC.errText(e)})); });
+			if(admin) form.append('move_to', move.value || '');
+			DC.api.upload('tasks/probe', form).then(function(r){ if(!closed && my === gen) useMeta(r); }, function(e){ if(closed || my !== gen) return; clear(body); body.appendChild(h('p', {'class':'note warn', text:upErr(e)})); });
 		}
 		/* The title is the heading's last span; the first one is its icon */
 		function setTitle(t){ var sp = box && box.querySelector('.mhead h2 > span:last-child'); if(sp) sp.textContent = t; if(box) box.setAttribute('aria-label', t); }
@@ -577,7 +627,7 @@
 			single = !pageUrl && items.length === 1 ? items[0] : null;
 			if(single && single.kind === 'page'){ pageUrl = single.text; items = []; single = null; }
 			one = single && (single.kind === 'magnet' || single.kind === 'torrentfile') ? single : null;
-			files = picks = meta = null; contentOf = ''; dupNote = false; privSame = '';
+			files = picks = meta = null; contentOf = ''; dupNote = false; privSame = ''; waitProbe = false;
 			hasBt = false; hasUrl = !!pageUrl;
 			for(i = 0; i < items.length; i++){
 				if(items[i].kind === 'magnet' || items[i].kind === 'torrentfile') hasBt = true;
@@ -633,10 +683,7 @@
 					}
 					dupNote = !!(s0 && s0.status === 'downloaded');
 					if(one.kind === 'magnet'){
-						clear(body);
-						if(dupNote) body.appendChild(h('p', {'class':'note warn', text:DC.t('A file with the same name already exists at the destination; it may have been downloaded before.')}));
-						body.appendChild(loading(DC.t('Getting file list…')));
-						body.appendChild(h('p', {'class':'note', text:DC.t('No need to wait: click “Start download” now to put it in the download queue. Once the file list is available, choose files under “Files” in the task details.')}));
+						magnetWaiting();
 						if(start) start.disabled = false;
 						probeTimer = 0;
 						probeMagnet(my);
@@ -656,7 +703,7 @@
 		function fromText(){
 			clearTimeout(typing);
 			var text = pb.input.value, d = detect(text);
-			if(d.kind === 'empty' || d.kind === 'bad'){ load([]); return; }
+			if(d.kind === 'empty' || d.kind === 'bad'){ load([]); syncStart(); return; }
 			if(d.loose && d.items.length > 1){
 				/* Pasted text: let the server classify the links (file hosts, pages) */
 				var my = gen;
@@ -673,10 +720,24 @@
 			}
 			load(d.items);
 		}
+		/* Words to search for: the main button searches, and the window gives way to the search page */
+		function syncStart(){
+			var o = box && box.querySelector('.mbody > .opts');
+			if(!start || !pb) return;
+			start.lastChild.textContent = pb.words ? DC.t('Search') : DC.t('Start download');
+			if(pb.words) start.disabled = false;
+			/* Folders and the other choices mean nothing to a search */
+			if(o) o.hidden = !!pb.words;
+		}
+		function toSearch(){
+			var w = pb.words;
+			closeBox();
+			DC.search.open(w);
+		}
 		if(compose){
 			pb = pasteBox(!!opts.sheet, {
 				type:function(){ clearTimeout(typing); typing = setTimeout(fromText, 450); },
-				enter:fromText,
+				enter:function(){ if(pb.words) toSearch(); else fromText(); },
 				paste:fromText,
 				files:function(fl){
 					var list = [], bad = [], i;
@@ -689,6 +750,8 @@
 					load(list);
 				}
 			});
+			pb.searchable = !!(DC.search && DC.search.ready());
+			pb.onWords = function(){ if(!pb.words && start) start.disabled = true; syncStart(); };
 		}
 		var pasteRow = compose ? [
 			h('div', {'class':'add add-cmp' + (opts.sheet ? ' add-sheet' : '')}, [pb.kind, pb.input,
@@ -748,7 +811,8 @@
 				if((DC.pref('last_folder') || '') !== keep) DC.savePref('last_folder', keep);
 			}
 			closeBox();
-			if(DC.S.view !== 'tasks') DC.go('tasks');
+			if(opts.onAdded) opts.onAdded(res);
+			if(!opts.stay && DC.S.view !== 'tasks') DC.go('tasks');
 			var parts = [];
 			if(ok) parts.push(ok === 1 && n === 1 ? DC.t('Added: {name}', {name:res[0].name || title}) : DC.t('{n} downloads added', {n:ok}));
 			if(merged) parts.push(DC.t('Merge into {n} existing tasks', {n:merged}));
@@ -760,9 +824,10 @@
 				flyIn(res[0].name || title, it0 ? it0.kind : 'url', function(){ DC.bumpCount(); DC.pollNow(); });
 			}else DC.pollNow();
 		}
-		function failed(e){ DC.busy(start, false); DC.toast(DC.errText(e)); }
+		function failed(e){ DC.busy(start, false); DC.toast(upErr(e)); }
 		function go(){
 			var o = options(), j, sel = [], list = [];
+			if(pb && pb.words){ toSearch(); return; }
 			if(hasUrl && acct.value === 'manual' && !DC.val('addUser')){ DC.toast(DC.t('Enter the site account')); return; }
 			if(admin && !o.folder){ DC.toast(DC.t('Select a temporary location')); return; }
 			DC.busy(start, true, DC.t('Adding…'));
@@ -774,6 +839,7 @@
 					if(files && sel.length < files.length) o.files = sel;
 					DC.api.post('tasks', o).then(function(r){ finished(r, 1); }, failed);
 				}else{
+					if(tooBig(one.file)){ failed({code:'too_large'}); return; }
 					var fd = torrentForm([one.file]);
 					if(o.folder) fd.append('folder', o.folder);
 					if(admin) fd.append('move_to', o.move_to || '');
@@ -792,17 +858,20 @@
 			}
 			var results = {results:[]}, pending = 0;
 			function part(r){ var k, res = r.results || (r.id ? [{id:r.id, name:r.name, merged:r.merged}] : []); for(k = 0; k < res.length; k++) results.results.push(res[k]); }
-			function partErr(e){ results.results.push({error:{code:e.code, message:e.message}}); }
+			function partErr(e){ results.results.push({error:{code:e.code, message:upErr(e)}}); }
 			function step(){ if(--pending === 0) finished(results, list.length + tfiles.length); }
 			if(list.length){ pending++; o.sources = list; DC.api.post('tasks', o).then(function(r){ part(r); step(); }, function(e){ if(e.body && e.body.error && e.code === 'duplicate') results.results.push({error:{code:'duplicate', message:e.message}}); else partErr(e); step(); }); }
-			if(tfiles.length){
+			/* Torrent files go up in requests the NAS accepts; one that is too large on its own is refused here */
+			uploadBatches(tfiles).forEach(function(batch){
+				if(batch.length === 1 && tooBig(batch[0])){ partErr({code:'too_large'}); return; }
 				pending++;
-				var form = torrentForm(tfiles);
+				var form = torrentForm(batch);
 				if(o.folder) form.append('folder', o.folder);
 				if(admin) form.append('move_to', o.move_to || '');
 				form.append('auto_remove', o.auto_remove || '');
 				DC.api.upload('tasks/torrent', form).then(function(r){ part(r); step(); }, function(e){ partErr(e); step(); });
-			}
+			});
+			if(!pending && results.results.length){ finished(results, list.length + tfiles.length); return; }
 			if(!pending){ DC.busy(start, false); DC.toast(DC.t('Select at least one item')); }
 		}
 
@@ -815,6 +884,13 @@
 	/* Opens the add window (desktop launcher, '/', the phone "+" and pasting a link on the task list all land here). */
 	function compose(text){ openAdd([], null, {compose:true, sheet:DC.phone(), text:text || ''}); }
 	function openPaste(){ compose(''); }
+	/* A search result: its magnet link as if pasted, or its .torrent (bytes fetched through the NAS) as if chosen */
+	function openMagnet(magnet, name, opts){ openAdd([{kind:'magnet', text:magnet, name:name || nameFrom(magnet)}], null, opts); }
+	function openTorrentData(data, fileName, name, opts){
+		var f;
+		try{ f = new File([data], fileName, {type:'application/x-bittorrent'}); }catch(e){ f = new Blob([data], {type:'application/x-bittorrent'}); f.name = fileName; }
+		openAdd([{kind:'torrentfile', file:f, text:fileName, name:name || fileName.replace(/\.torrent$/i, '')}], null, opts);
+	}
 
 	/* Pasting a link anywhere on the task list opens the add window with it: no need to aim for a field first */
 	document.addEventListener('paste', function(e){
@@ -849,5 +925,6 @@
 		anim.onfinish = end; setTimeout(end, 800);
 	}
 
-	DC.addFlow = {pasteBox:pasteBox, onInput:onInput, submit:submit, openPaste:openPaste, compose:compose, openTorrents:openTorrents, openAdd:openAdd, detect:detect};
+	DC.addFlow = {pasteBox:pasteBox, onInput:onInput, submit:submit, openPaste:openPaste, compose:compose, openTorrents:openTorrents, openAdd:openAdd, detect:detect,
+		openMagnet:openMagnet, openTorrentData:openTorrentData};
 })();

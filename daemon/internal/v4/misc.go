@@ -54,14 +54,20 @@ func (s *service) login(c *call) result {
 		return c.userEnv()
 	}
 	user = fixDoubleUTF8(user)
+	ip := api.ClientIP(c.r)
+	// Too many failed attempts from this client: QTS is not even asked
+	if !s.au.LoginAllowed(ip) {
+		return fail(errAuthFail)
+	}
 	pwd := base64.StdEncoding.EncodeToString([]byte(ezDecode(pass)))
-	a, err := qts.PasswordLogin(user, pwd, api.ClientIP(c.r), c.r.UserAgent())
+	a, err := qts.PasswordLogin(user, pwd, ip, c.r.UserAgent())
 	if err != nil {
 		return fail(errException)
 	}
 	if !a.Passed() || a["authSid"] == "" {
 		// Wrong credentials, expired password or a second factor required:
 		// the official clients cannot do 2-step verification
+		s.au.LoginFailed(ip)
 		return fail(errAuthFail)
 	}
 	name := a.User()
@@ -82,7 +88,13 @@ func (s *service) login(c *call) result {
 }
 
 func (s *service) logout(c *call) result {
-	if sid := c.sidFrom(); sid != "" && sid != "dev" {
+	sid := c.sidFrom()
+	// A session taken from a cookie is ended only by this NAS's own pages,
+	// like every other change: another site could sign the user out
+	if c.cookieSID && (c.r.Method != "POST" || !sameOrigin(c.r)) {
+		return fail(errPermission)
+	}
+	if sid != "" && sid != "dev" {
 		qts.Logout(sid, api.ClientIP(c.r), c.r.UserAgent())
 		s.au.ForgetSID(sid)
 	}

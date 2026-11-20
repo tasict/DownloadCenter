@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"downloadcenter/internal/engine"
+	"downloadcenter/internal/safefs"
 )
 
 const (
@@ -50,6 +53,7 @@ type task struct {
 	contSize int64  // size of a data file without progress record (continue after it)
 
 	// Current run
+	dir        *safefs.Dir // the task's folder, opened without following links
 	file       *os.File
 	workers    []*worker
 	streamDone bool  // single stream of unknown size reached its end
@@ -83,8 +87,6 @@ func (t *task) uri() string {
 	defer t.mu.Unlock()
 	return t.uris[0]
 }
-
-func (t *task) dataPath() string { return filepath.Join(t.req.Dir, t.name) }
 
 // resume starts the download unless it runs or has ended.
 func (t *task) resume() {
@@ -120,11 +122,15 @@ func (t *task) stop(st engine.State) {
 }
 
 func (t *task) run(ctx context.Context, done chan struct{}) {
-	err := t.download(ctx)
+	err := t.safely(func() error { return t.download(ctx) })
 	t.mu.Lock()
 	if t.file != nil {
 		t.file.Close()
 		t.file = nil
+	}
+	if t.dir != nil {
+		t.dir.Close()
+		t.dir = nil
 	}
 	t.workers = nil
 	t.cancel, t.runDone = nil, nil
@@ -147,13 +153,30 @@ func (t *task) run(ctx context.Context, done chan struct{}) {
 	close(done)
 }
 
+// safely runs f, turning a panic into an error of the task: whatever a
+// server or a file in the folder holds, it never ends dcd.
+func (t *task) safely(f func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("url engine: task %s: %v", t.ref, r)
+			err = &dlError{code: engine.ErrUnknown, msg: "The download stopped because of an internal error"}
+		}
+	}()
+	return f()
+}
+
 // download runs one attempt after another until the file is complete, the
 // context ends or an error is final. Restarts from zero happen when the
-// remote file changed or the server stopped honouring ranges.
+// remote file changed or the server stopped honouring ranges. The folder is
+// the core's: it must be there, and nothing in it is followed if a link.
 func (t *task) download(ctx context.Context) error {
-	if err := os.MkdirAll(t.req.Dir, 0775); err != nil {
-		return &dlError{code: engine.ErrCreateDir, msg: err.Error()}
+	d, err := openWorkDir(t.req.Dir)
+	if err != nil {
+		return &dlError{code: engine.ErrCreateDir, msg: fmt.Sprintf("%s: %v", errWorkDir, err)}
 	}
+	t.mu.Lock()
+	t.dir = d
+	t.mu.Unlock()
 	for restarts := 0; ; restarts++ {
 		err := t.attempt(ctx)
 		var de *dlError
@@ -182,6 +205,12 @@ func (t *task) attempt(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if inf.size > maxFileSize {
+			if s != nil {
+				s.Close()
+			}
+			return &dlError{code: engine.ErrBadResponse, msg: "The server reports an impossible file size"}
+		}
 		t.mu.Lock()
 		t.applyInfo(inf)
 		// A data file without progress record (an imported task, like
@@ -202,21 +231,21 @@ func (t *task) attempt(ctx context.Context) error {
 			s.Close()
 			s = nil
 		}
-		f, err := os.OpenFile(t.dataPath(), flags, 0664)
+		f, err := t.openData(flags)
 		if err != nil {
 			if s != nil {
 				s.Close()
 			}
-			return fileError(engine.ErrCreateFile, err)
+			return err
 		}
 		t.mu.Lock()
 		t.file = f
 		t.mu.Unlock()
 		first = s
 	} else {
-		f, err := os.OpenFile(t.dataPath(), os.O_RDWR|os.O_CREATE, 0664)
+		f, err := t.openData(os.O_RDWR | os.O_CREATE)
 		if err != nil {
-			return fileError(engine.ErrCreateFile, err)
+			return err
 		}
 		t.mu.Lock()
 		t.file = f
@@ -229,6 +258,41 @@ func (t *task) attempt(ctx context.Context) error {
 		return t.finalize()
 	}
 	return err
+}
+
+// openData opens the data file in the task's folder: never through a link,
+// only a regular file, and not one with other names (a hard link to a file
+// elsewhere).
+func (t *task) openData(flags int) (*os.File, error) {
+	t.mu.Lock()
+	d, name := t.dir, t.name
+	t.mu.Unlock()
+	// Emptied only once it is known to be the task's own
+	f, err := d.OpenFile(name, flags&^os.O_TRUNC, 0664)
+	if err != nil {
+		return nil, fileError(engine.ErrCreateFile, err)
+	}
+	var st syscall.Stat_t
+	if err := syscall.Fstat(int(f.Fd()), &st); err != nil || st.Nlink > 1 {
+		f.Close()
+		return nil, &dlError{code: engine.ErrCreateFile, msg: name + ": the file has other names"}
+	}
+	if flags&os.O_TRUNC != 0 {
+		if err := f.Truncate(0); err != nil {
+			f.Close()
+			return nil, fileError(engine.ErrFileIO, err)
+		}
+	}
+	return f, nil
+}
+
+// pieceCount is ceil(size/piece) without overflow.
+func pieceCount(size, piece int64) int64 {
+	n := size / piece
+	if size%piece != 0 {
+		n++
+	}
+	return n
 }
 
 // applyInfo takes over what the first response said. Caller holds t.mu.
@@ -247,7 +311,7 @@ func (t *task) applyInfo(inf *info) {
 		for t.size/t.pieceLen > maxPieces {
 			t.pieceLen *= 2
 		}
-		t.done = make([]bool, int((t.size+t.pieceLen-1)/t.pieceLen))
+		t.done = make([]bool, int(pieceCount(t.size, t.pieceLen)))
 	}
 }
 
@@ -269,7 +333,7 @@ func (t *task) supervise(ctx context.Context, first *stream) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results <- result{w, t.work(wctx, w, s)}
+			results <- result{w, t.safely(func() error { return t.work(wctx, w, s) })}
 		}()
 	}
 	t.mu.Lock()
@@ -546,14 +610,18 @@ func (t *task) finalize() error {
 				return fileError(engine.ErrFileIO, err)
 			}
 		}
+		// Dated like the server did, on the open file
+		if tm, err := http.ParseTime(t.modified); err == nil {
+			tv := syscall.NsecToTimeval(tm.UnixNano())
+			syscall.Futimes(int(t.file.Fd()), []syscall.Timeval{tv, tv})
+		}
 		if err := t.file.Close(); err != nil {
 			return fileError(engine.ErrFileIO, err)
 		}
 		t.file = nil
 	}
-	os.Remove(controlPath(t.req.Dir, t.name))
-	if tm, err := http.ParseTime(t.modified); err == nil {
-		os.Chtimes(t.dataPath(), tm, tm)
+	if t.dir != nil {
+		t.dir.Remove(controlName(t.name))
 	}
 	for i := range t.done {
 		t.done[i] = true

@@ -33,7 +33,7 @@ var ErrTooManyTrackers = errors.New("A task can have up to 200 added trackers")
 // engine.AddRequest.Guard): a regular user's torrent, and any torrent with
 // the public tracker list, whose names come from the internet.
 func (m *Manager) guardFor(t *Task) bool {
-	return !m.isAdminOwner(t.Owner) || len(t.Options.PublicTrackers) > 0
+	return !m.isAdminOwner(t.Owner) || len(t.Options.PublicTrackers) > 0 || t.Options.Guarded
 }
 
 // syncGuards runs every minute: a torrent whose owner became or stopped
@@ -54,7 +54,7 @@ func (m *Manager) syncGuards() {
 		}
 		e := m.engineOf(t)
 		if pf, ok := e.(engine.PeerFinder); ok && e.Caps().PeerRefresh {
-			list = append(list, item{h, t.EngineRef, t.Owner, len(t.Options.PublicTrackers) > 0, had, pf})
+			list = append(list, item{h, t.EngineRef, t.Owner, len(t.Options.PublicTrackers) > 0 || t.Options.Guarded, had, pf})
 		}
 	}
 	for h := range m.guards {

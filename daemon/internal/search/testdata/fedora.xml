@@ -1,0 +1,46 @@
+<?xml version="1.0" ?>
+<rss version="2.0">
+
+<channel>
+<title>Fedora Torrent</title>
+<link>https://torrent.fedoraproject.org/</link>
+<description>RSS feed for Fedora</description>
+<language>en-us</language>
+<copyright>admin at fedoraproject.org</copyright>
+<ttl>60</ttl>
+
+<item>
+            <title>Fedora Budgie Live x86_64 43</title>
+            <link>https://torrent.fedoraproject.org/torrents/Fedora-Budgie-Live-x86_64-43.torrent</link>
+            <pubDate>Tue, 28 Oct 2025 00:00:00</pubDate>
+           </item><item>
+            <title>Fedora COSMIC Atomic ostree aarch64 43</title>
+            <link>https://torrent.fedoraproject.org/torrents/Fedora-COSMIC-Atomic-ostree-aarch64-43.torrent</link>
+            <pubDate>Tue, 28 Oct 2025 00:00:00</pubDate>
+           </item><item>
+            <title>Fedora COSMIC Atomic ostree x86_64 43</title>
+            <link>https://torrent.fedoraproject.org/torrents/Fedora-COSMIC-Atomic-ostree-x86_64-43.torrent</link>
+            <pubDate>Tue, 28 Oct 2025 00:00:00</pubDate>
+           </item><item>
+            <title>Fedora COSMIC Live aarch64 43</title>
+            <link>https://torrent.fedoraproject.org/torrents/Fedora-COSMIC-Live-aarch64-43.torrent</link>
+            <pubDate>Tue, 28 Oct 2025 00:00:00</pubDate>
+           </item><item>
+            <title>Fedora COSMIC Live x86_64 43</title>
+            <link>https://torrent.fedoraproject.org/torrents/Fedora-COSMIC-Live-x86_64-43.torrent</link>
+            <pubDate>Tue, 28 Oct 2025 00:00:00</pubDate>
+           </item><item>
+            <title>Fedora Cinnamon Live x86_64 43</title>
+            <link>https://torrent.fedoraproject.org/torrents/Fedora-Cinnamon-Live-x86_64-43.torrent</link>
+            <pubDate>Tue, 28 Oct 2025 00:00:00</pubDate>
+           </item><item>
+            <title>Fedora KDE Desktop Live aarch64 43</title>
+            <link>https://torrent.fedoraproject.org/torrents/Fedora-KDE-Desktop-Live-aarch64-43.torrent</link>
+            <pubDate>Tue, 28 Oct 2025 00:00:00</pubDate>
+           </item><item>
+            <title>Fedora KDE Desktop Live x86_64 43</title>
+            <link>https://torrent.fedoraproject.org/torrents/Fedora-KDE-Desktop-Live-x86_64-43.torrent</link>
+            <pubDate>Tue, 28 Oct 2025 00:00:00</pubDate>
+           </item>
+</channel>
+</rss>

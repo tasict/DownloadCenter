@@ -130,8 +130,15 @@ func TestStatusAndUpgrade(t *testing.T) {
 	if err := s.Install("1.1.0", false); err != nil {
 		t.Fatal(err)
 	}
-	if j := wait(t, s, "install"); j.Phase != "install" {
+	// Running: how long since it started, measured by the NAS
+	if j := s.Status().Job; j.Elapsed == nil || *j.Elapsed < 0 || *j.Elapsed > 5 {
+		t.Fatalf("elapsed while running: %+v", j)
+	}
+	if j := wait(t, s, "install"); j.Phase != "install" || j.Elapsed == nil {
 		t.Fatalf("job = %+v", j)
+	}
+	if b, _ := json.Marshal(s.Status().Job); !strings.Contains(string(b), `"elapsed":`) || strings.Contains(string(b), "started") {
+		t.Fatalf("job JSON %s", b)
 	}
 	if len(*launched) != 1 {
 		t.Fatal("installer not launched")
@@ -165,7 +172,7 @@ func TestRejectsTamperedPackage(t *testing.T) {
 	if err := s.Install("1.1.0", false); err != nil {
 		t.Fatal(err)
 	}
-	if j := wait(t, s, "install"); j.Phase != "failed" || j.Error != "hash" {
+	if j := wait(t, s, "install"); j.Phase != "failed" || j.Error != "hash" || j.Elapsed != nil {
 		t.Fatalf("tampered package: %+v", j)
 	}
 	if len(*launched) != 0 {

@@ -14,7 +14,10 @@ VER_Z=1.3.2
 VER_NGHTTP2=1.70.0
 VER_SSH2=1.11.1
 VER_CURL=8.22.0
-B=/work/build/$T
+# Same flags version and tree as tools/dcbt/build-in-container.sh (OpenSSL
+# is shared); each library leaves a stamp with its version in the prefix
+FLAGS_V=2
+B=/work/build/f$FLAGS_V/$T
 P=$B/prefix
 mkdir -p "$B" "$P"
 JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
@@ -43,18 +46,23 @@ CC=${CROSS}gcc
 CXX=${CROSS}g++
 AR=${CROSS}ar
 RANLIB=${CROSS}ranlib
+STRIP=${CROSS}strip
 ARCHFLAGS=""
 [ "$T" = arm-x41 ] && ARCHFLAGS="-march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard"
+# Hardening as in tools/dcbt/build-in-container.sh: static PIE, stack
+# protector, fortified libc calls (fortify-headers for the cross compilers)
+HARDEN="-fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2"
+[ -n "$CROSS" ] && HARDEN="$HARDEN -isystem /usr/include/fortify"
 HOSTOPT=""
 [ -n "$HOST" ] && HOSTOPT="--host=$HOST"
 export CC CXX AR RANLIB
-export CFLAGS="-O2 $ARCHFLAGS"
+export CFLAGS="-O2 $ARCHFLAGS $HARDEN"
 # Only the prefix's libraries, never the build container's
 export PKG_CONFIG_LIBDIR="$P/lib/pkgconfig"
 export PKG_CONFIG_PATH=""
 
 # OpenSSL (shared with dc-bt)
-if [ ! -f "$P/lib/libssl.a" ]; then
+if [ ! -f "$P/.built-openssl-$VER_SSL" ]; then
 	rm -rf "$B/openssl-$VER_SSL"
 	tar -xzf /work/src/openssl-$VER_SSL.tar.gz -C "$B"
 	cd "$B/openssl-$VER_SSL"
@@ -62,30 +70,33 @@ if [ ! -f "$P/lib/libssl.a" ]; then
 		--prefix="$P" --libdir=lib --openssldir=/etc/ssl
 	make -j"$JOBS" build_libs >/dev/null
 	make install_dev >/dev/null
+	touch "$P/.built-openssl-$VER_SSL"
 fi
 
 # zlib
-if [ ! -f "$P/lib/libz.a" ]; then
+if [ ! -f "$P/.built-zlib-$VER_Z" ]; then
 	rm -rf "$B/zlib-$VER_Z"
 	tar -xJf /work/src/zlib-$VER_Z.tar.xz -C "$B"
 	cd "$B/zlib-$VER_Z"
 	./configure --static --prefix="$P" >/dev/null
 	make -j"$JOBS" >/dev/null
 	make install >/dev/null
+	touch "$P/.built-zlib-$VER_Z"
 fi
 
 # nghttp2 (library only)
-if [ ! -f "$P/lib/libnghttp2.a" ]; then
+if [ ! -f "$P/.built-nghttp2-$VER_NGHTTP2" ]; then
 	rm -rf "$B/nghttp2-$VER_NGHTTP2"
 	tar -xJf /work/src/nghttp2-$VER_NGHTTP2.tar.xz -C "$B"
 	cd "$B/nghttp2-$VER_NGHTTP2"
 	./configure $HOSTOPT --prefix="$P" --libdir="$P/lib" --enable-lib-only --disable-shared --enable-static >/dev/null
 	make -j"$JOBS" >/dev/null
 	make install >/dev/null
+	touch "$P/.built-nghttp2-$VER_NGHTTP2"
 fi
 
 # libssh2 (OpenSSL crypto)
-if [ ! -f "$P/lib/libssh2.a" ]; then
+if [ ! -f "$P/.built-libssh2-$VER_SSH2" ]; then
 	rm -rf "$B/libssh2-$VER_SSH2"
 	tar -xJf /work/src/libssh2-$VER_SSH2.tar.xz -C "$B"
 	cd "$B/libssh2-$VER_SSH2"
@@ -93,10 +104,11 @@ if [ ! -f "$P/lib/libssh2.a" ]; then
 		--with-libssl-prefix="$P" --with-libz --with-libz-prefix="$P" --disable-examples-build --disable-docker-tests >/dev/null
 	make -j"$JOBS" >/dev/null
 	make install >/dev/null
+	touch "$P/.built-libssh2-$VER_SSH2"
 fi
 
 # libcurl: only the protocols Download Center offers
-if [ ! -f "$P/lib/libcurl.a" ]; then
+if [ ! -f "$P/.built-curl-$VER_CURL" ]; then
 	rm -rf "$B/curl-$VER_CURL"
 	tar -xJf /work/src/curl-$VER_CURL.tar.xz -C "$B"
 	cd "$B/curl-$VER_CURL"
@@ -112,14 +124,25 @@ if [ ! -f "$P/lib/libcurl.a" ]; then
 	make -C lib install >/dev/null
 	make -C include install >/dev/null
 	make install-pkgconfigDATA >/dev/null
+	touch "$P/.built-curl-$VER_CURL"
 fi
 
-# dc-dl
+# dc-dl: a static PIE with full RELRO; the stripped copy is the result,
+# the unstripped one stays in the build tree
 rm -rf "$B/dcdl"
 mkdir -p "$B/dcdl"
 cd "$B/dcdl"
 LIBS=$(pkg-config --static --libs libcurl)
-$CXX -std=c++17 -O2 $ARCHFLAGS -Wall -I"$P/include" -I/work/src -DCURL_STATICLIB \
-	/work/dcdl/dc-dl.cpp -o dc-dl -L"$P/lib" $LIBS -static -no-pie -s -pthread
-cp -f dc-dl /work/out/dc-dl-$T
-echo "built /work/out/dc-dl-$T"
+if [ "$T" = arm-x41 ]; then
+	# gcc 11 for 32-bit ARM takes -static-pie but links a dynamic
+	# executable: the static PIE spelled out (see the dc-bt build)
+	L=$(dirname "$($CXX -print-file-name=rcrt1.o)")
+	$CXX -std=c++17 -O2 $ARCHFLAGS $HARDEN -Wall -I"$P/include" -I/work/src -DCURL_STATICLIB -c /work/dcdl/dc-dl.cpp -o dc-dl.o
+	$CXX -nostartfiles $L/rcrt1.o $L/crti.o "$($CXX -print-file-name=crtbeginS.o)" dc-dl.o -o dc-dl -L"$P/lib" $LIBS -pthread \
+		-static -pie -Wl,--no-dynamic-linker -Wl,-z,text -Wl,-z,relro,-z,now "$($CXX -print-file-name=crtendS.o)" $L/crtn.o
+else
+	$CXX -std=c++17 -O2 $ARCHFLAGS $HARDEN -Wall -I"$P/include" -I/work/src -DCURL_STATICLIB \
+		/work/dcdl/dc-dl.cpp -o dc-dl -L"$P/lib" $LIBS -static-pie -Wl,-z,relro,-z,now -pthread
+fi
+$STRIP -o /work/out/dc-dl-$T dc-dl
+echo "built /work/out/dc-dl-$T (unstripped: $B/dcdl/dc-dl)"

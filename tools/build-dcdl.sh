@@ -3,7 +3,9 @@
 # architectures as static musl binaries, in a Docker container.
 #
 # Usage: sh tools/build-dcdl.sh [x86_64|arm_64|arm-x41 ...]   (default: all)
-# Output: tools/cache/dc-dl-<arch>; build.sh copies them into <arch>/bin/.
+# Output: tools/cache/dc-dl-<arch> (or $DC_OUT/...: a folder inside the
+# repository, to build without replacing the binaries in tools/cache);
+# build.sh copies them into <arch>/bin/.
 #
 # Needs Docker (Container Station). Only needed when a library or dc-dl
 # itself changes; dcd is built with plain `go build`. Everything downloaded
@@ -13,14 +15,20 @@
 #   - nghttp2 1.70.0 (HTTP/2), libssh2 1.11.1 (SFTP/SCP), zlib 1.3.2
 #   - OpenSSL 3.5.9 and the musl toolchains are shared with dc-bt
 #     (tools/build-dcbt.sh pins them; the build tree under
-#     tools/cache/dcbt-build/<arch>/prefix is reused)
+#     tools/cache/dcbt-build/f<flags version>/<arch>/prefix is reused, see
+#     FLAGS_V in tools/*/build-in-container.sh)
+#   - Hardened like dc-bt: static PIE, stack protector, fortified libc
+#     calls, full RELRO (see tools/dcdl/build-in-container.sh)
 #   - The QTS 5.10 kernel answers fchmodat2 with EFAULT; the container runs
-#     with tools/dcbt/seccomp.json mapping it to ENOSYS (see build-dcbt.sh).
+#     with tools/dcbt/seccomp.json (Docker's default profile with fchmodat2
+#     answering ENOSYS, see build-dcbt.sh).
 
 set -e
 cd "$(dirname "$(readlink -f "$0")")/.."
 ROOT=$(pwd)
 SRC=tools/cache/src
+OUT=${DC_OUT:-tools/cache}
+mkdir -p "$OUT"
 mkdir -p "$SRC" tools/cache/dcbt-build
 
 CS=$(/sbin/getcfg container-station Install_Path -f /etc/config/qpkg.conf 2>/dev/null || true)
@@ -58,9 +66,9 @@ sources | while read -r f sum url; do
 	echo "  OK: $f"
 done
 
-if ! "$DOCKER" image inspect dcdl-builder:1 >/dev/null 2>&1; then
+if ! "$DOCKER" image inspect dcdl-builder:2 >/dev/null 2>&1; then
 	echo "Building the dcdl-builder image..."
-	"$DOCKER" build -t dcdl-builder:1 tools/dcdl
+	"$DOCKER" build -t dcdl-builder:2 tools/dcdl
 fi
 
 TARGETS="$*"
@@ -73,7 +81,7 @@ for t in $TARGETS; do
 		-v "$ROOT/dcdl:/work/dcdl:ro" \
 		-v "$ROOT/tools/dcdl:/work/tools:ro" \
 		-v "$ROOT/tools/cache/dcbt-build:/work/build" \
-		-v "$ROOT/tools/cache:/work/out" \
-		dcdl-builder:1 sh /work/tools/build-in-container.sh "$t"
-	ls -l "tools/cache/dc-dl-$t"
+		-v "$ROOT/$OUT:/work/out" \
+		dcdl-builder:2 sh /work/tools/build-in-container.sh "$t"
+	ls -l "$OUT/dc-dl-$t"
 done

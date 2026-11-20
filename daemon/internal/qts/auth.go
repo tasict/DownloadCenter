@@ -114,12 +114,27 @@ func parseQDoc(b []byte) AuthAnswer {
 // body), or passed without a user name.
 var ErrNoAnswer = errors.New("authLogin: no usable answer")
 
+// PlausibleSID reports what a QTS session id can look like: up to 128
+// letters, digits and -_.~+/=.
+func PlausibleSID(sid string) bool {
+	if sid == "" || len(sid) > 128 {
+		return false
+	}
+	for _, c := range sid {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || strings.ContainsRune("-_.~+/=", c)) {
+			return false
+		}
+	}
+	return true
+}
+
 // ValidateSID checks a QTS session id. The answer of a valid sid carries the
 // user name and the administrator flag. Only an explicit authPassed=0 means
 // the session is gone; anything else that is not a pass is an error, so
 // that a busy QTS does not sign the user out.
 func ValidateSID(sid, clientIP, agent string) (AuthAnswer, error) {
-	if sid == "" || len(sid) > 128 {
+	// What cannot be a session id is never sent to authLogin.cgi
+	if !PlausibleSID(sid) {
 		return AuthAnswer{"authPassed": "0"}, nil
 	}
 	a, err := AuthCall("authLogin.cgi", url.Values{"sid": {sid}, "service": {"1"}}, clientIP, agent)

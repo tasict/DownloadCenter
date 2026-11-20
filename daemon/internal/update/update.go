@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -67,6 +68,10 @@ type Job struct {
 	Error  string `json:"error,omitempty"`
 	Detail string `json:"detail,omitempty"`
 	At     int64  `json:"at,omitempty"` // when it failed
+	// Seconds since the update started, while it runs: measured by the NAS,
+	// so a page opened meanwhile, or a browser with another clock, agrees
+	Elapsed *int64    `json:"elapsed,omitempty"`
+	started time.Time // when Install started it
 }
 
 // Last is the outcome of the most recent update, recorded at the next start.
@@ -152,6 +157,7 @@ func New(m *core.Manager, db *store.DB, root, data, version string) *Service {
 	}
 	var f release.Feed
 	if c := db.Meta("update_feed_cache"); c != "" && json.Unmarshal([]byte(c), &f) == nil {
+		validReleases(&f)
 		s.feed = &f
 	}
 	if t, _ := strconv.ParseInt(db.Meta("update_checked"), 10, 64); t > 0 {
@@ -272,6 +278,9 @@ func (s *Service) Check() error {
 	if err == nil && f.Schema != 1 {
 		err = fmt.Errorf("unknown updates.json schema %d", f.Schema)
 	}
+	if err == nil {
+		validReleases(&f)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.checked = time.Now()
@@ -283,6 +292,21 @@ func (s *Service) Check() error {
 	s.feed, s.checkErr = &f, ""
 	s.db.SetMeta("update_feed_cache", string(b))
 	return nil
+}
+
+// validReleases drops the entries whose version is not one a release can
+// have (it ends up in file names and the installer script). Whether a
+// release is a pre-release follows from its version, which the signature
+// covers through the package names, never from the feed's own flag.
+func validReleases(f *release.Feed) {
+	valid := f.Releases[:0]
+	for _, r := range f.Releases {
+		if release.ValidVersion(r.Version) {
+			r.Prerelease = release.Prerelease(r.Version)
+			valid = append(valid, r)
+		}
+	}
+	f.Releases = valid
 }
 
 // Run checks every 12 hours while automatic checks are on.
@@ -324,6 +348,11 @@ func (s *Service) Status() View {
 	defer s.mu.Unlock()
 	v := View{Current: s.version, Arch: s.arch, Schema: s.schema, AutoCheck: s.metaBool("update_auto", true),
 		Prerelease: s.metaBool("update_pre", false), Skip: s.db.Meta("update_skip"), CheckError: s.checkErr, Job: s.job, Last: s.last, Releases: []Entry{}}
+	switch s.job.Phase {
+	case "download", "verify", "backup", "install":
+		e := int64(time.Since(s.job.started) / time.Second)
+		v.Job.Elapsed = &e
+	}
 	if !s.checked.IsZero() {
 		v.CheckedAt = s.checked.Unix()
 	}
@@ -334,7 +363,7 @@ func (s *Service) Status() View {
 		return v
 	}
 	for _, r := range s.feed.Releases {
-		if r.Prerelease && !v.Prerelease && r.Version != s.version {
+		if release.Prerelease(r.Version) && !v.Prerelease && r.Version != s.version {
 			continue
 		}
 		v.Releases = append(v.Releases, s.entry(r))
@@ -353,7 +382,7 @@ func (s *Service) Status() View {
 }
 
 func (s *Service) entry(r release.FeedRelease) Entry {
-	e := Entry{Version: r.Version, Date: r.Date, Prerelease: r.Prerelease, Notes: r.Notes, URL: r.URL, Schema: r.Schema}
+	e := Entry{Version: r.Version, Date: r.Date, Prerelease: release.Prerelease(r.Version), Notes: r.Notes, URL: r.URL, Schema: r.Schema}
 	if e.Schema < 1 {
 		e.Schema = 1
 	}
@@ -388,12 +417,41 @@ type backup struct {
 	at     int64
 }
 
+var backupRe = regexp.MustCompile(`^dc-[0-9A-Za-z._]+-s[0-9]+-[0-9]+\.db$`)
+
+// replacedRe: databases a going-back put aside (dc-replaced-<unix>.db).
+var replacedRe = regexp.MustCompile(`^dc-replaced-([0-9]+)\.db$`)
+
+// pruneReplaced deletes the databases put aside by going back once they
+// are older than 30 days, always keeping the newest two.
+func (s *Service) pruneReplaced(now time.Time) {
+	ents, _ := os.ReadDir(s.backupDir())
+	type item struct {
+		name string
+		at   int64
+	}
+	var list []item
+	for _, e := range ents {
+		if m := replacedRe.FindStringSubmatch(e.Name()); m != nil {
+			at, _ := strconv.ParseInt(m[1], 10, 64)
+			list = append(list, item{e.Name(), at})
+		}
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].at > list[j].at })
+	for i, it := range list {
+		if i >= 2 && now.Unix()-it.at > 30*86400 {
+			os.Remove(filepath.Join(s.backupDir(), it.name))
+		}
+	}
+}
+
 func (s *Service) backups() []backup {
 	ents, _ := os.ReadDir(s.backupDir())
 	var out []backup
 	for _, e := range ents {
 		n := e.Name()
-		if !strings.HasPrefix(n, "dc-") || !strings.HasSuffix(n, ".db") {
+		// Only names this package gives backups: they reach the installer script
+		if !backupRe.MatchString(n) {
 			continue
 		}
 		f := strings.Split(strings.TrimSuffix(n, ".db"), "-")
@@ -433,6 +491,7 @@ func (s *Service) makeBackup() error {
 	for i := keepBackups; i < len(all); i++ {
 		os.Remove(all[i].path)
 	}
+	s.pruneReplaced(time.Now())
 	return nil
 }
 
@@ -459,6 +518,9 @@ func (s *Service) Install(version string, restore bool) error {
 	if s.feed == nil {
 		return ErrNoFeed
 	}
+	if !release.ValidVersion(version) {
+		return ErrNotFound
+	}
 	var r *release.FeedRelease
 	for i := range s.feed.Releases {
 		if s.feed.Releases[i].Version == version {
@@ -481,8 +543,8 @@ func (s *Service) Install(version string, restore bool) error {
 	if e.NeedsRestore && !restore {
 		return ErrRestoreRequired
 	}
-	s.job = Job{Phase: "download", Target: version, Total: r.Assets[s.arch].Size}
-	go s.run(*r, r.Assets[s.arch])
+	s.job = Job{Phase: "download", Target: version, Total: r.Assets[s.arch].Size, started: time.Now()}
+	go s.run(*r, r.Assets[s.arch], restore)
 	return nil
 }
 
@@ -510,7 +572,10 @@ func (p *progress) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (s *Service) run(r release.FeedRelease, a release.FeedAsset) {
+// run downloads, checks and installs a release. restore is the
+// administrator's consent to replace the database when the signed release
+// says it reads an older layout (the feed's word for that is not trusted).
+func (s *Service) run(r release.FeedRelease, a release.FeedAsset, restore bool) {
 	dir := filepath.Join(s.data, "updates")
 	os.MkdirAll(dir, 0700)
 	old, _ := filepath.Glob(filepath.Join(dir, "*.qpkg*"))
@@ -584,22 +649,28 @@ func (s *Service) run(r release.FeedRelease, a release.FeedAsset) {
 		s.fail("download", err)
 		return
 	}
-	// Going back across a database change: restore the backup from that layout
-	restore := ""
+	// Going back across a database change: restore the backup from that
+	// layout, only with the administrator's consent
+	backupPath := ""
 	if schema < s.schema {
+		if !restore {
+			os.Remove(pkg)
+			s.fail("backup", ErrRestoreRequired)
+			return
+		}
 		p, _ := s.backupFor(schema)
 		if p == "" {
 			s.fail("backup", ErrNoBackup)
 			return
 		}
-		restore = p
+		backupPath = p
 	}
 	s.setJob(func(j *Job) { j.Phase = "backup" })
 	if err := s.makeBackup(); err != nil {
 		s.fail("backup", err)
 		return
 	}
-	st := state{From: s.version, To: r.Version, Restore: restore, Started: time.Now().Unix()}
+	st := state{From: s.version, To: r.Version, Restore: backupPath, Started: time.Now().Unix()}
 	sb, _ := json.Marshal(st)
 	if err := os.WriteFile(filepath.Join(dir, "state.json"), sb, 0600); err != nil {
 		s.fail("install", err)
@@ -866,14 +937,15 @@ func q(p string) string { return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'" 
 func (s *Service) script(st state, pkg string) string {
 	db := filepath.Join(s.data, "dc.db")
 	var b strings.Builder
-	fmt.Fprintf(&b, "#!/bin/sh\n# Written by dcd: installs Download Center %s over %s, detached from dcd\n", st.To, st.From)
+	// Every value is quoted: none of them is ever read as shell code
+	b.WriteString("#!/bin/sh\n# Written by dcd: installs a Download Center package, detached from dcd\numask 022\n# dcd's own temporary folder is not the installer's\nunset TMPDIR\n")
 	fmt.Fprintf(&b, "exec >> %s 2>&1\n", q(filepath.Join(s.data, "logs", "update.log")))
-	fmt.Fprintf(&b, "echo \"$(date '+%%Y-%%m-%%d %%H:%%M:%%S') update %s -> %s\"\n", st.From, st.To)
+	fmt.Fprintf(&b, "printf '%%s update %%s -> %%s\\n' \"$(date '+%%Y-%%m-%%d %%H:%%M:%%S')\" %s %s\n", q(st.From), q(st.To))
 	fmt.Fprintf(&b, "%s stop\n", q(filepath.Join(s.root, "DownloadCenter.sh")))
 	if st.Restore != "" {
 		fmt.Fprintf(&b, "mv %s %s 2>/dev/null\n", q(db), q(filepath.Join(s.backupDir(), fmt.Sprintf("dc-replaced-%d.db", st.Started))))
 		fmt.Fprintf(&b, "rm -f %s %s\n", q(db+"-wal"), q(db+"-shm"))
-		fmt.Fprintf(&b, "cp %s %s && chmod 600 %s && echo \"restored the database from %s\"\n", q(st.Restore), q(db), q(db), filepath.Base(st.Restore))
+		fmt.Fprintf(&b, "cp %s %s && chmod 600 %s && printf 'restored the database from %%s\\n' %s\n", q(st.Restore), q(db), q(db), q(filepath.Base(st.Restore)))
 	}
 	fmt.Fprintf(&b, "sh %s\n", q(pkg))
 	b.WriteString("rc=$?\n")

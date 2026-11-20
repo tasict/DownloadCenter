@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>FOSS Torrents - RSS Feed for Torrent Files </title>
+        <atom:link href="https://fosstorrents.com/feed/torrents.xml" rel="self" type="application/rss+xml"/>
+        <link>https://fosstorrents.com/feed/torrents.xml</link>
+        <description>This RSS Feed is designed be imported into qBittorrent and similar software that support RSS Feeds. This will allow your software to automatically fetch new torrents and remove old ones. Perfect for those Super Seeders out there.</description>
+        <language>en-CA</language>
+        <copyright>(c) 2026 FOSS Torrents </copyright>
+        <pubDate>Thu, 19 Nov 2026 23:04:03 -0400</pubDate>
+        <lastBuildDate>Thu, 19 Nov 2026 23:04:03 -0400</lastBuildDate>
+        <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
+        <ttl>30</ttl>
+        <item>
+            <title>0 A.D. 0.28.0 - Windows (x86_64)</title>
+            <description>Torrent for 0ad - Windows (x86_64)</description>
+            <link>https://fosstorrents.com/direct-files/0ad-0.28.0-win32.exe.torrent</link>
+            <guid isPermaLink="false">f279221e11f0bb27e87dddecc18a5303f920b0a4b19ff5aae0be1b2bf0409d7b</guid>
+            <pubDate>Wed, 11 Mar 2026 23:04:03 -0300</pubDate>
+        </item>
+        <item>
+            <title>Ubuntu 26.10 - Desktop (amd64)</title>
+            <description>Torrent for ubuntu - Desktop (amd64)</description>
+            <link>https://fosstorrents.com/direct-files/ubuntu-26.10-desktop-amd64.iso.torrent</link>
+            <guid isPermaLink="false">af47555381d8c51c4835cbd82f9b893a83c92bc60ae40618587fc12513735397</guid>
+            <pubDate>Mon, 19 Oct 2026 23:04:10 -0300</pubDate>
+        </item>
+        <item>
+            <title>Ubuntu 26.10 - Server (Live) (amd64)</title>
+            <description>Torrent for ubuntu - Server (Live) (amd64)</description>
+            <link>https://fosstorrents.com/direct-files/ubuntu-26.10-live-server-amd64.iso.torrent</link>
+            <guid isPermaLink="false">75189b632e98985504c65079f49dd0ff816dd1eb6a4b6273a9794c5078413a76</guid>
+            <pubDate>Mon, 19 Oct 2026 23:04:10 -0300</pubDate>
+        </item>
+        <item>
+            <title>Ubuntu 26.04 - Desktop (amd64)</title>
+            <description>Torrent for ubuntu - Desktop (amd64)</description>
+            <link>https://fosstorrents.com/direct-files/ubuntu-26.04-desktop-amd64.iso.torrent</link>
+            <guid isPermaLink="false">994f7d067741d90e99991b9c923c076ba8938c9017dcd7db9a4f308c59959298</guid>
+            <pubDate>Thu, 23 Apr 2026 23:04:10 -0300</pubDate>
+        </item>
+    </channel>
+</rss>

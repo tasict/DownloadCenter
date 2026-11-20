@@ -29,6 +29,8 @@
 			x.setRequestHeader('Accept', 'application/json');
 			if(method !== 'GET') x.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 			x.setRequestHeader('X-DC-Lang', DC.lang || 'ENG');
+			/* Requests made for an AI agent through WebMCP say so (the only value the page sends) */
+			if(opts.via === 'webmcp') x.setRequestHeader('X-DC-Via', 'webmcp');
 			x.timeout = opts.timeout || 120000;
 			x.onreadystatechange = function(){
 				if(x.readyState !== 4) return;
@@ -71,6 +73,27 @@
 					if(x.status >= 200 && x.status < 300) resolve(x.responseText);
 					else{ var d = null; try{ d = JSON.parse(x.responseText); }catch(e){} reject(fail(x.status, d)); }
 				};
+				x.send();
+			});
+		},
+		/* A file that may also come back as JSON (a search result's .torrent, or the magnet link its source sent instead):
+		   resolves with {type, data}, data an ArrayBuffer. */
+		file:function(path, opts){
+			opts = opts || {};
+			return new Promise(function(resolve, reject){
+				var x = new XMLHttpRequest();
+				x.open('GET', BASE + path, true);
+				x.responseType = 'arraybuffer';
+				x.setRequestHeader('X-DC-Lang', DC.lang || 'ENG');
+				x.timeout = opts.timeout || 120000;
+				x.onreadystatechange = function(){
+					if(x.readyState !== 4) return;
+					if(x.status >= 200 && x.status < 300 && x.response){ resolve({type:String(x.getResponseHeader('Content-Type') || ''), data:x.response}); return; }
+					var d = null;
+					try{ d = JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(x.response))); }catch(e){}
+					reject(fail(x.status, d));
+				};
+				x.ontimeout = function(){ reject({status:0, code:'timeout', message:DC.t('The NAS did not respond in time.'), body:{}}); };
 				x.send();
 			});
 		},

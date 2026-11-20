@@ -27,6 +27,9 @@ var retryDelays = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute
 // maxFailures consecutive failed attempts disable a channel.
 const maxFailures = 20
 
+// maxUserChannels is how many notification channels a regular user may have.
+const maxUserChannels = 10
+
 // Service is the notification service.
 type Service struct {
 	m    *core.Manager
@@ -37,15 +40,21 @@ type Service struct {
 	now     func() time.Time
 	client  func(guard bool) *http.Client
 	isAdmin func(user string) bool
+	// folders applies a token's folder allowlist to an add (the REST API's
+	// rule); nil refuses every add of a token that has one
+	folders func(p *auth.Principal, o *core.AddOptions) bool
 
 	mu      sync.Mutex
 	lists   map[string]listCtx // command numbering per caller
 	confirm map[string]string  // pending /del confirmations per caller
 	pollers map[string]chan struct{}
 
-	kick   chan struct{}
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	kick     chan struct{}
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	sending  sync.WaitGroup       // channels sending deliveries
+	inFlight map[string]bool      // channel id -> sending now
+	seen     map[string]time.Time // webhook events already handled (LINE)
 }
 
 // New creates the service without starting the worker (tests).
@@ -70,6 +79,7 @@ func New(m *core.Manager, au *auth.Service, data string) *Service {
 // returned func stops it.
 func Register(srv *api.Server, m *core.Manager, au *auth.Service, data string) (stop func()) {
 	s := New(m, au, data)
+	s.folders = srv.CheckFolders
 	s.routes(srv)
 	s.Start()
 	return s.Stop
@@ -105,7 +115,7 @@ func (s *Service) Start() {
 			case <-t.C:
 			case <-s.kick:
 			}
-			s.safe(func() { s.ProcessDeliveries() })
+			s.safe(func() { s.startDeliveries() })
 		}
 	}()
 	go func() {
@@ -140,6 +150,7 @@ func (s *Service) Stop() {
 	}
 	s.mu.Unlock()
 	s.wg.Wait()
+	s.sending.Wait()
 }
 
 func (s *Service) safe(fn func()) {
@@ -338,27 +349,82 @@ type delivery struct {
 	Attempt  int
 }
 
-// ProcessDeliveries sends every due delivery.
+// ProcessDeliveries sends every due delivery and waits until that is done.
 func (s *Service) ProcessDeliveries() {
+	s.startDeliveries()
+	s.sending.Wait()
+}
+
+// perChannelBatch is how many due deliveries of a channel one pass sends.
+const perChannelBatch = 20
+
+// startDeliveries sends the due deliveries without waiting for them: every
+// channel on its own, one delivery at a time each, so that a slow endpoint
+// only holds up its own channel. A channel still sending is left for the
+// next pass.
+func (s *Service) startDeliveries() {
 	now := s.now().Unix()
-	rows, err := s.db.Query(`SELECT id, channel_id, event_id, delivery, attempt FROM deliveries WHERE status = 'pending' AND next_at <= ? ORDER BY id LIMIT 100`, now)
+	// The channels with something due first, then each one's oldest: a
+	// backlog of one channel never keeps the others out
+	rows, err := s.db.Query(`SELECT channel_id FROM deliveries WHERE status = 'pending' AND next_at <= ? GROUP BY channel_id ORDER BY MIN(id)`, now)
 	if err != nil {
 		return
 	}
-	var due []delivery
+	var order []string
 	for rows.Next() {
-		var d delivery
-		rows.Scan(&d.ID, &d.Channel, &d.EventID, &d.Delivery, &d.Attempt)
-		due = append(due, d)
+		var id string
+		rows.Scan(&id)
+		order = append(order, id)
 	}
 	rows.Close()
-	for _, d := range due {
-		select {
-		case <-s.stopCh:
-			return
-		default:
+	s.mu.Lock()
+	if s.inFlight == nil {
+		s.inFlight = map[string]bool{}
+	}
+	var idle []string
+	for _, id := range order {
+		if !s.inFlight[id] {
+			idle = append(idle, id)
 		}
-		s.deliver(d)
+	}
+	s.mu.Unlock()
+	byChannel := map[string][]delivery{}
+	for _, id := range idle {
+		rows, err := s.db.Query(`SELECT id, channel_id, event_id, delivery, attempt FROM deliveries WHERE channel_id = ? AND status = 'pending' AND next_at <= ? ORDER BY id LIMIT ?`, id, now, perChannelBatch)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var d delivery
+			rows.Scan(&d.ID, &d.Channel, &d.EventID, &d.Delivery, &d.Attempt)
+			byChannel[id] = append(byChannel[id], d)
+		}
+		rows.Close()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range idle {
+		if s.inFlight[id] || len(byChannel[id]) == 0 {
+			continue
+		}
+		s.inFlight[id] = true
+		s.sending.Add(1)
+		go func(id string, list []delivery) {
+			defer s.sending.Done()
+			defer func() {
+				s.mu.Lock()
+				delete(s.inFlight, id)
+				s.mu.Unlock()
+			}()
+			for _, d := range list {
+				select {
+				case <-s.stopCh:
+					return
+				default:
+				}
+				s.safe(func() { s.deliver(d) })
+			}
+		}(id, byChannel[id])
 	}
 }
 
@@ -396,7 +462,9 @@ func (s *Service) deliver(d delivery) {
 		s.trim(ch.ID)
 		return
 	}
-	errText := truncate(err.Error(), 300)
+	// Addresses can hold secrets (webhook paths, tokens in the query): only
+	// their host is kept in what is stored and sent in events
+	errText := truncate(scrubURLs(err.Error()), 300)
 	final := attempt > len(retryDelays)
 	if final {
 		s.db.X(`UPDATE deliveries SET status = 'failed', attempt = ?, http_status = ?, duration_ms = ?, error = ?, time = ? WHERE id = ?`,

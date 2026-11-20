@@ -2,7 +2,7 @@
 
 A download manager for QNAP NAS running QTS. It downloads HTTP, HTTPS, FTP, FTPS, SFTP and SCP links, `.torrent` files and magnet links, and is an independent alternative to QNAP's Download Station.
 
-Download Center is not affiliated with, endorsed by or supported by QNAP Systems, Inc.
+Download Center is not affiliated with, endorsed by or supported by QNAP Systems, Inc. or Synology Inc.
 
 ## Features
 
@@ -11,6 +11,7 @@ Download Center is not affiliated with, endorsed by or supported by QNAP Systems
 - **Queues and limits.** Per-type concurrency and speed limits, a weekly schedule with full speed, limited and paused hours, timed pause, seeding by ratio or time.
 - **Where files go.** A temporary location and an optional "move when finished" folder, like Download Station. Regular users always download into their own home folder and own their files.
 - **Users and roles.** Sign in with your NAS account. Administrators see everything; regular users see only their own downloads.
+- **Torrent search.** Type a few words and every enabled search source is asked at once. The built-in sources cover freely distributable content (Internet Archive, Kiwix, Fedora, Arch Linux, FOSS Torrents) and, like Torznab servers and plugin files, describe a site's search API without being programs. Administrators can add a Torznab server, a plugin file, or a search plugin compatible with Synology or QNAP Download Station: those are programs, which run in a restricted environment only after an administrator agrees to the terms. Each source is for everyone or for administrators only ([docs/SEARCH-PLUGINS.md](docs/SEARCH-PLUGINS.md)).
 - **Proxies.** HTTP and SOCKS5 proxies for URL downloads and torrents, chosen per task or per site, with remote DNS.
 - **File-hosting accounts.** 1fichier, Rapidgator, Real-Debrid and AllDebrid through their official APIs with your own account, or cookies for other sites. Public Google Drive links download the file itself, no account needed.
 - **Preview while downloading.** Watch or listen to the part that is already downloaded, browse archives, and switch a torrent to sequential download.
@@ -18,7 +19,7 @@ Download Center is not affiliated with, endorsed by or supported by QNAP Systems
 - **AI agents.** Claude Code, Codex, Gemini CLI and other agents that read skill files can add and manage downloads for you, with a token of their own and a skill file served by your NAS. In a browser with WebMCP, the agent in the browser can use the open Download Center page directly, as you, and asks before deleting anything ([docs/AI-AGENT.md](docs/AI-AGENT.md)).
 - **Works with existing clients.** Qget, Qfile and browser extensions keep working through a compatible `/downloadstation/V4/` endpoint once Download Station is removed or disabled.
 - **Import from Download Station.** Settings, unfinished tasks, history and site accounts. The import only reads the official data and can be run again.
-- **Runs anywhere you open it.** Inside the QTS desktop, in its own browser tab, or on a phone; light and dark themes; 13 languages.
+- **Runs anywhere you open it.** Inside the QTS desktop, in its own browser tab, or on a phone; light and dark themes; 14 languages.
 - **Deskpane widgets.** With Deskpane installed, a download queue widget shows the speed, what is in progress and anything that needs a look, and an Add download widget takes links and `.torrent` files dropped on it, on the desktop and on the phone home screen.
 
 ## Requirements
@@ -59,9 +60,9 @@ GO=/path/to/go sh build.sh [arch] # vet, build dcd, lint, package with qbuild in
 
 ## Use it lawfully
 
-Download Center downloads whatever links, torrent files or magnet links you give it. It does not provide, search for or recommend any content.
+Download Center downloads whatever links, torrent files or magnet links you give it. It does not provide or recommend any content. Search asks third-party sites that Download Center does not run: the built-in sources are limited to sites whose content may be freely distributed, the license shown for an Internet Archive item is its uploader's statement, and any source an administrator adds is the administrator's responsibility. A search plugin from another NAS is a third party's program that Download Center has not reviewed; the administrator who installs it agrees to that first.
 
-- Only download content you have the right to obtain. Downloading or sharing copyrighted software, video, music or other works without permission may be illegal where you live.
+- Download only what you have the right to download. Downloading or sharing copyrighted software, video, music or other works without permission may be illegal where you live.
 - BitTorrent uploads the pieces you have to other people while you download, and they can see your IP address.
 - You are responsible for what you download and how you use this software. As stated in the [license](LICENSE), it comes without warranty, and the authors are not liable for any damage or legal consequence arising from its use.
 - **Client identity** (Settings → Download → Torrents): by default the torrent engine reports what it is, libtorrent (for libtorrent 2.0.15 the peer ID starts with `-LT20F0-` and the User-Agent is `libtorrent/2.0.15.0`). Whether a private tracker accepts it is up to the tracker. The other choices make the engine report itself as another BitTorrent client; some private trackers forbid this and may ban accounts that do it. Leave it at "Download Center" unless you know your tracker's rules.
@@ -71,7 +72,7 @@ The interface shows a short version of this notice the first time each account s
 
 ## Trademarks
 
-QNAP, QTS, Download Station, Qget, Qfile, File Station and App Center are trademarks of QNAP Systems, Inc. Other product and service names (such as uTorrent, Transmission, Deluge, Telegram, LINE, Discord, Slack, Google Drive and the file-hosting services) belong to their owners. They are used here only to describe compatibility; no endorsement is implied.
+QNAP, QTS, Download Station, Qget, Qfile, File Station and App Center are trademarks of QNAP Systems, Inc. Synology is a trademark of Synology Inc. Other product and service names (such as uTorrent, Transmission, Deluge, Telegram, LINE, Discord, Slack, Google Drive and the file-hosting services) belong to their owners. They are used here only to describe compatibility; no endorsement is implied.
 
 ## License
 

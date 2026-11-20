@@ -15,11 +15,14 @@ import (
 	"log"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"downloadcenter/internal/api"
 	"downloadcenter/internal/auth"
@@ -104,26 +107,127 @@ func (p params) addQuery(q string) {
 	}
 }
 
-// parseRequest reads GET query and POST form or multipart parameters.
-func parseRequest(r *http.Request) (params, []upFile, error) {
+// Request body limits. Before the caller is known only the first
+// preAuthBody bytes are read (enough for Misc/Login and for the sid), by at
+// most maxPreAuth requests at once; the rest only once the session is good,
+// up to maxBody (maxTorrentBody for Task/AddTorrent, which uploads files).
+const (
+	preAuthBody    = 64 << 10
+	maxBody        = 1 << 20
+	maxTorrentBody = 16 << 20
+	maxPreAuth     = 32
+)
+
+// Time a client has to send the start of a body, and the rest of it once
+// known (variables for tests).
+var (
+	preAuthTime  = 10 * time.Second
+	postAuthTime = 120 * time.Second
+)
+
+var (
+	preAuthSlots = newSlots(maxPreAuth, 4)
+	// Official clients send a torrent's sid after its file: such an upload
+	// is read whole before the session is known, two at a time at most
+	lateSIDSlots = newSlots(2, 1)
+)
+
+// slots bounds the requests not yet known that read a body: so many at
+// once in all (waiting a while for a place), so many per client address
+// (refused at once beyond that).
+type slots struct {
+	all   chan struct{}
+	each  int
+	mu    sync.Mutex
+	taken map[string]int
+}
+
+func newSlots(all, each int) *slots {
+	return &slots{all: make(chan struct{}, all), each: each, taken: map[string]int{}}
+}
+
+// take gets a place for a client address ("" = not known: counted in all
+// only).
+func (s *slots) take(src string) bool {
+	if src != "" {
+		s.mu.Lock()
+		if s.taken[src] >= s.each {
+			s.mu.Unlock()
+			return false
+		}
+		s.taken[src]++
+		s.mu.Unlock()
+	}
+	if acquire(s.all) {
+		return true
+	}
+	s.release(src)
+	return false
+}
+
+// give returns a place taken for src.
+func (s *slots) give(src string) {
+	<-s.all
+	s.release(src)
+}
+
+func (s *slots) release(src string) {
+	if src == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.taken[src]--; s.taken[src] <= 0 {
+		delete(s.taken, src)
+	}
+	s.mu.Unlock()
+}
+
+// sourceOf is the client address places are counted against: "" when it
+// is not known, as when the proxy's client address cannot be believed and
+// every request comes from loopback (then only the places in all count).
+func sourceOf(r *http.Request) string {
+	ip := net.ParseIP(api.ClientIP(r))
+	if ip == nil || ip.IsLoopback() {
+		return ""
+	}
+	return ip.String()
+}
+
+// readBody reads a POST body on from what was read already (have), up to
+// limit bytes in all; complete reports that the end of the body was reached
+// within the limit (otherwise one byte more than the limit was read).
+func readBody(r *http.Request, have []byte, limit int) (body []byte, complete bool, err error) {
+	if r.Method != "POST" || r.Body == nil {
+		return have, true, nil
+	}
+	if len(have) > limit {
+		return have, false, nil
+	}
+	rest, err := io.ReadAll(io.LimitReader(r.Body, int64(limit-len(have))+1))
+	body = append(have, rest...)
+	if err != nil {
+		return body, false, err
+	}
+	return body, len(body) <= limit, nil
+}
+
+// parseRequest takes the parameters from the query and from a POST body
+// (urlencoded or multipart). Of a body that is not complete, the pairs or
+// parts that are cut off are left out, and files are not kept.
+func parseRequest(r *http.Request, body []byte, complete bool) (params, []upFile) {
 	p := params{}
 	p.addQuery(r.URL.RawQuery)
-	if r.Method != "POST" || r.Body == nil {
-		return p, nil, nil
+	if r.Method != "POST" || len(body) == 0 {
+		return p, nil
 	}
-	ct := r.Header.Get("Content-Type")
-	mt, mp, _ := mime.ParseMediaType(ct)
-	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
-	if err != nil {
-		return p, nil, err
-	}
+	mt, mp, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if strings.HasPrefix(mt, "multipart/") {
 		boundary := mp["boundary"]
 		if boundary == "" {
 			boundary = boundaryFromBody(body)
 		}
 		if boundary == "" {
-			return p, nil, nil
+			return p, nil
 		}
 		var files []upFile
 		mr := multipart.NewReader(bytes.NewReader(body), boundary)
@@ -132,20 +236,36 @@ func parseRequest(r *http.Request) (params, []upFile, error) {
 			if err != nil {
 				break
 			}
-			data, _ := io.ReadAll(io.LimitReader(part, 32<<20))
-			name := bracketRe.ReplaceAllString(part.FormName(), "")
-			if part.FileName() != "" {
-				files = append(files, upFile{name: part.FileName(), data: data})
-				_ = name
-			} else {
-				p.add(part.FormName(), string(data))
+			data, err := io.ReadAll(io.LimitReader(part, maxTorrentBody))
+			if err == nil {
+				if part.FileName() != "" {
+					if complete {
+						files = append(files, upFile{name: part.FileName(), data: data})
+					}
+				} else {
+					p.add(part.FormName(), string(data))
+				}
 			}
 			part.Close()
 		}
-		return p, files, nil
+		return p, files
 	}
-	p.addQuery(string(body))
-	return p, nil, nil
+	s := string(body)
+	if !complete {
+		// The last pair may be cut off
+		if i := strings.LastIndexByte(s, '&'); i >= 0 {
+			s = s[:i]
+		} else {
+			s = ""
+		}
+	}
+	p.addQuery(s)
+	return p, nil
+}
+
+func isMultipart(r *http.Request) bool {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return strings.HasPrefix(mt, "multipart/")
 }
 
 // boundaryFromBody takes the boundary from the first line ("--<boundary>"),
@@ -261,29 +381,77 @@ func (s *service) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		api.Count("v4_unknown")
 	}
+	bodyRead := r.Method != "POST" || r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0
 	answer := func(res result) {
 		if code, _ := res["error"].(int); code < 0 {
 			api.Count("v4_err_neg" + strconv.Itoa(-code))
 		} else if code > 0 {
 			api.Count("v4_err_" + strconv.Itoa(code))
 		}
+		if !bodyRead {
+			// The rest of the body is not waited for: the connection ends
+			w.Header().Set("Connection", "close")
+		}
 		s.write(w, r, res)
 	}
 	c := &call{s: s, w: w, r: r}
-	var err error
-	c.p, c.files, err = parseRequest(r)
-	if err != nil {
-		answer(fail(errParameter))
-		return
-	}
 	if ns == "Rss" || ns == "Addon" || !ok {
 		answer(fail(errAPINotExists))
 		return
 	}
+	name := ns + "/" + action
+	limit := maxBody
+	if name == "Task/AddTorrent" {
+		limit = maxTorrentBody
+	}
+	// Until the caller is known, only the start of the body is read, by a
+	// bounded number of requests at once (in all and per client address)
+	// and within a time limit (a client sending slowly keeps its place no
+	// longer than that). A small body of known length needs no place.
+	hasBody := r.Method == "POST" && r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0
+	needSlot := hasBody && !(r.ContentLength > 0 && r.ContentLength <= preAuthBody)
+	src := sourceOf(r)
+	if needSlot && !preAuthSlots.take(src) {
+		answer(fail(errException))
+		return
+	}
+	rc := http.NewResponseController(w)
+	rc.SetReadDeadline(time.Now().Add(preAuthTime))
+	body, complete, err := readBody(r, nil, preAuthBody)
+	c.p, c.files = parseRequest(r, body, complete)
+	if err == nil && !complete && !ep.public && name == "Task/AddTorrent" && isMultipart(r) && c.p.get("sid") == "" && !hasSIDCookie(r) {
+		// Official clients send a torrent's sid after its file
+		if lateSIDSlots.take(src) {
+			body, complete, err = readBody(r, body, limit)
+			lateSIDSlots.give(src)
+			c.p, c.files = parseRequest(r, body, complete)
+		}
+	}
+	bodyRead = bodyRead || err == nil && complete
+	code := errOK
+	if err == nil && !ep.public {
+		code = c.authenticate()
+	}
+	if needSlot {
+		preAuthSlots.give(src)
+	}
+	rc.SetReadDeadline(time.Now().Add(postAuthTime))
+	if err != nil || ep.public && !complete {
+		answer(fail(errParameter))
+		return
+	}
 	if !ep.public {
-		if code := c.authenticate(); code != errOK {
+		if code != errOK {
 			answer(fail(code))
 			return
+		}
+		if !complete {
+			if body, complete, err = readBody(r, body, limit); err != nil || !complete {
+				answer(fail(errParameter))
+				return
+			}
+			bodyRead = true
+			c.p, c.files = parseRequest(r, body, true)
 		}
 		// A session taken from a cookie (not the sid parameter official
 		// clients send) is only good for state changes from the same
@@ -313,6 +481,32 @@ func (s *service) serve(w http.ResponseWriter, r *http.Request) {
 		res["error"] = errOK
 	}
 	answer(res)
+}
+
+// acquire takes a place in a bounded set of requests, waiting a while.
+func acquire(sem chan struct{}) bool {
+	select {
+	case sem <- struct{}{}:
+		return true
+	default:
+	}
+	t := time.NewTimer(10 * time.Second)
+	defer t.Stop()
+	select {
+	case sem <- struct{}{}:
+		return true
+	case <-t.C:
+		return false
+	}
+}
+
+func hasSIDCookie(r *http.Request) bool {
+	for _, name := range []string{"QDS_SID", "NAS_SID"} {
+		if ck, err := r.Cookie(name); err == nil && ck.Value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // write answers JSON with the content type ds.cgi chooses from Accept.
@@ -428,7 +622,7 @@ func sameOrigin(r *http.Request) bool {
 		return false
 	}
 	host := r.Host
-	if xf := r.Header.Get("X-Forwarded-Host"); xf != "" {
+	if xf := r.Header.Get("X-Forwarded-Host"); xf != "" && api.FromProxy(r) {
 		host = strings.TrimSpace(strings.Split(xf, ",")[0])
 	}
 	for _, h := range []string{r.Header.Get("Origin"), r.Header.Get("Referer")} {

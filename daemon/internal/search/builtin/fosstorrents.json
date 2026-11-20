@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "fosstorrents",
+  "name": "FOSS Torrents",
+  "version": "1.0",
+  "description": "Free and open-source software: Linux distributions and applications.",
+  "homepage": "https://fosstorrents.com/",
+  "type": "rss",
+  "match": "local",
+  "default_enabled": false,
+  "request": {
+    "url": "https://fosstorrents.com/feed/torrents.xml"
+  },
+  "categories": {"software": ""},
+  "test_query": "ubuntu",
+  "response": {
+    "fields": {
+      "title": "title",
+      "torrent": "link",
+      "date": "pubDate"
+    }
+  }
+}

@@ -6,11 +6,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"downloadcenter/internal/engine"
 	"downloadcenter/internal/qts"
+	"downloadcenter/internal/safefs"
 )
 
 // Pause pauses a task; minutes > 0 resumes it automatically (wake_time).
@@ -132,6 +135,12 @@ func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
 	}
 	e := m.engineOf(t)
 	ref := t.EngineRef
+	if ref == "" && m.adopting[hash] {
+		// Not added yet: the engine still checks the data in the
+		// destination, which it knows by the torrent's hash; that stops
+		ref = hash
+	}
+	delete(m.adopting, hash)
 	delete(m.live, hash)
 	delete(m.running, hash)
 	delete(m.applied, hash)
@@ -145,31 +154,20 @@ func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
 		e.Remove(ref)
 	}
 	finished := t.State == StDone
-	var paths []string
 	if t.Kind != KindBT {
 		if !finished {
 			removeTempDir(t.WorkDir)
-		} else if deleteData && t.DataPath != "" {
-			paths = append(paths, t.DataPath)
+		} else if deleteData && t.DataPath != "" && taskDataOK(t, t.DataPath) {
+			m.removeDownloadedFile(t)
 		}
 	} else if t.InTemp() && ownTemp(t.WorkDir) {
 		removeTempDir(t.WorkDir)
 	} else {
 		if deleteData {
-			if t.DataPath != "" {
-				paths = append(paths, t.DataPath)
-			} else if t.Name != "" {
-				p := filepath.Join(t.SaveDir(), t.Name)
-				paths = append(paths, p, p+".aria2")
-			}
+			m.removeTorrentData(t)
 		}
 		// Kept data or not, the part file only served the torrent
 		m.removePartFiles(hash, t.SaveDir())
-	}
-	for _, p := range paths {
-		if taskDataOK(t, p) {
-			os.RemoveAll(p)
-		}
 	}
 	if !finished || deleteData {
 		os.Remove(m.torrentPath(hash))
@@ -191,52 +189,121 @@ func safeToDelete(p string) bool {
 	return err == nil
 }
 
-// realPath resolves the symlinks of p's parent folders (the last element
-// is kept: RemoveAll never follows a final symlink).
-func realPath(p string) (string, bool) {
-	p = filepath.Clean(p)
-	dir, err := filepath.EvalSymlinks(filepath.Dir(p))
-	if err != nil {
-		return "", false
-	}
-	return filepath.Join(dir, filepath.Base(p)), true
-}
-
 // taskDataOK reports whether p may be deleted as data of t: strictly inside
-// the task's temporary, destination or work folder, and never a share root,
-// a home folder or a user's Download folder.
+// the task's temporary, destination or work folder as the task recorded
+// them, and never a share root, a home folder or a user's Download folder.
+// Paths are compared as they are, links not resolved: the deletion opens
+// them one component at a time without following links, so a path that
+// leads through a link deletes nothing.
 func taskDataOK(t *Task, p string) bool {
 	if !safeToDelete(p) {
 		return false
 	}
-	real, ok := realPath(p)
-	if !ok {
-		return false
-	}
+	p = filepath.Clean(p)
 	for _, sh := range qts.Shares() {
-		if real == sh.Path {
+		if p == sh.Path {
 			return false
 		}
 	}
-	if hr := qts.HomesRoot(); hr != "" {
-		rel := strings.TrimPrefix(real, hr+"/")
-		if real == hr || (rel != real && (!strings.Contains(rel, "/") || rel == path.Join(path.Dir(rel), "Download") && !strings.Contains(path.Dir(rel), "/"))) {
+	if hr := homesRoot(); hr != "" {
+		rel := strings.TrimPrefix(p, hr+"/")
+		if p == hr || (rel != p && (!strings.Contains(rel, "/") || rel == path.Join(path.Dir(rel), "Download") && !strings.Contains(path.Dir(rel), "/"))) {
 			return false
 		}
 	}
 	for _, root := range []string{t.TempDir, t.MoveDir, t.WorkDir} {
-		if root == "" {
-			continue
-		}
-		r, err := filepath.EvalSymlinks(root)
-		if err != nil {
-			continue
-		}
-		if real != r && strings.HasPrefix(real, r+"/") {
+		if root != "" && p != filepath.Clean(root) && inside(p, root) {
 			return true
 		}
 	}
 	return false
+}
+
+// removeDownloadedFile deletes the file a finished URL download left at
+// its destination. Only a regular file is deleted: anything else under that
+// name now (a folder someone put in its place) is someone else's, and
+// stays.
+func (m *Manager) removeDownloadedFile(t *Task) {
+	d, name, err := safefs.OpenParent(t.DataPath)
+	if err != nil {
+		return
+	}
+	defer d.Close()
+	st, err := d.Lstat(name)
+	if err != nil {
+		return
+	}
+	if st.Mode&syscall.S_IFMT != syscall.S_IFREG {
+		m.Log(t.Hash, "The downloaded file was not deleted: something else has its name now")
+		return
+	}
+	d.Remove(name)
+}
+
+// removeTorrentData deletes a torrent's own files, those in its file list,
+// and then the folders that this left empty. Anything else in its folder
+// stays, and nothing is followed if it is a link.
+func (m *Manager) removeTorrentData(t *Task) {
+	base := t.SaveDir()
+	top := ""
+	if t.DataPath != "" {
+		// The data may carry another name at its destination ("Name (1)")
+		top = filepath.Base(t.DataPath)
+	}
+	dirs := map[string]bool{}
+	for _, f := range m.Files(t.Hash) {
+		rel := filepath.Clean(f.Path)
+		if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, "../") {
+			continue
+		}
+		if top != "" {
+			if _, rest, ok := strings.Cut(rel, "/"); ok {
+				rel = top + "/" + rest
+			} else {
+				rel = top
+			}
+		}
+		p := filepath.Join(base, rel)
+		if !taskDataOK(t, p) {
+			continue
+		}
+		if d, name, err := safefs.OpenParent(p); err == nil {
+			if st, err := d.Lstat(name); err == nil && st.Mode&syscall.S_IFMT != syscall.S_IFDIR {
+				d.Remove(name)
+			}
+			d.Close()
+		}
+		for dir := filepath.Dir(rel); dir != "." && dir != "/"; dir = filepath.Dir(dir) {
+			dirs[dir] = true
+		}
+	}
+	if t.DataPath == "" && t.Name != "" {
+		// What aria2 kept beside the data of a 0.9.0 torrent
+		if p := filepath.Join(base, t.Name+".aria2"); taskDataOK(t, p) {
+			if d, name, err := safefs.OpenParent(p); err == nil {
+				if st, err := d.Lstat(name); err == nil && st.Mode&syscall.S_IFMT == syscall.S_IFREG {
+					d.Remove(name)
+				}
+				d.Close()
+			}
+		}
+	}
+	list := make([]string, 0, len(dirs))
+	for d := range dirs {
+		list = append(list, d)
+	}
+	// Deepest first, so a parent is only tried once its children are gone
+	sort.Slice(list, func(i, j int) bool { return strings.Count(list[i], "/") > strings.Count(list[j], "/") })
+	for _, rel := range list {
+		p := filepath.Join(base, rel)
+		if !taskDataOK(t, p) {
+			continue
+		}
+		if d, name, err := safefs.OpenParent(p); err == nil {
+			d.RemoveEmpty(name)
+			d.Close()
+		}
+	}
 }
 
 // Undo restores a task removed without data deletion (UI undo).

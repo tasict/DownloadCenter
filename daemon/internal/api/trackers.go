@@ -90,7 +90,8 @@ func (s *Server) addTrackers(w http.ResponseWriter, r *http.Request, p *auth.Pri
 		Error(w, 400, "bad_request", "Up to 200 trackers at a time")
 		return
 	}
-	list, bad, err := trackers.Check(b.Trackers, p.Admin)
+	// Trackers on the NAS itself only from an administrator's own session
+	list, bad, err := trackers.Check(b.Trackers, p.Admin && p.Interactive())
 	if err != nil {
 		trackerError(w, bad, err)
 		return

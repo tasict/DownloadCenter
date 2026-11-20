@@ -6,7 +6,7 @@ over a unix stream socket with one JSON object per line (UTF-8, `\n`
 terminated).
 
 ```
-dc-bt --socket <data>/run/dc-bt.sock --state <data>/bt --torrents <data>/torrents --settings <data>/dc-bt.json
+dc-bt --socket <data>/run/dc-bt.sock --state <data>/bt --torrents <data>/torrents --settings <data>/dc-bt.json --ca-file <root>/certs/cacert.pem
 ```
 
 | Option | Meaning |
@@ -15,14 +15,22 @@ dc-bt --socket <data>/run/dc-bt.sock --state <data>/bt --torrents <data>/torrent
 | `--state` | Resume data (`<infohash>.resume`), per-torrent options (`<infohash>.json`) and the session state (`session.state`: DHT nodes) |
 | `--torrents` | Where the `.torrent` of a magnet is written once its metadata arrives (`<infohash>.torrent`), so dcd can re-add the task later |
 | `--settings` | Initial settings (same object as `apply_settings`), read before the session starts so it never listens on a default port |
+| `--ca-file` | Certificate authorities (PEM) trusted for HTTPS trackers and web seeds besides the system's, never instead of them: the system's default file (`SSL_CERT_FILE`, else OpenSSL's built-in `/etc/ssl/cert.pem`) and this one are written together into `<state>/ca.pem` (mode 0600), which becomes the default file; libtorrent also loads `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt` and the hashed folder (`SSL_CERT_DIR`, else `/etc/ssl/certs`). Unreadable: the system's alone (logged). Since 1.6 |
 | `--check-resume <file.fastresume> <file.torrent>` | Diagnostic: parse an official libtorrent 1.2 resume file against its torrent and print whether it is usable, then exit |
 
 Only one client is served at a time; a new connection replaces the old one.
-On start every torrent found in `--state` is restored. `SIGTERM` (or the
-`shutdown` command) saves resume data for all torrents and exits.
+dc-bt never waits for the client: what it has not read yet is kept, and a
+client that leaves 256 MiB unread is disconnected. On start every torrent
+found in `--state` is restored, except one whose options file cannot be read
+or does not say whether its destination is to be treated as hostile (saved
+before 1.5), and an `untrusted_dir` torrent whose save path is not a private
+folder (see
+Regular users' torrents): those wait until dcd adds them again. `SIGTERM` (or
+the `shutdown` command) saves resume data for all torrents and exits.
 
 `<infohash>` is always the v1 info hash in lower-case hex, or the first 40 hex
-digits of the v2 hash for v2-only torrents (the same id dcd uses).
+digits of the v2 hash for v2-only torrents (the same id dcd uses). A command
+whose `infohash` is anything else answers `torrent not found`.
 
 ## Tuning
 
@@ -68,11 +76,11 @@ Lines without `id`, sent as they happen:
 
 | cmd | Arguments | Result |
 |---|---|---|
-| `version` | — | `{"dcbt": "1.4", "libtorrent": "2.0.15", "hardware": {"cores": 4, "ram_mb": 31891, "disk_io": "mmap", "hashing_threads": 2, "max_queued_disk_bytes": 16777216, "checking_mem_usage": 2048}}` (`move` and `root` need 1.1; `hardware` since 1.2, see Tuning; `refresh_peers`, `set_trackers`, `set_guard`, `sources`, `guard`, the peer counts and the source fields since 1.4) |
+| `version` | — | `{"dcbt": "1.7", "libtorrent": "2.0.15", "hardware": {"cores": 4, "ram_mb": 31891, "disk_io": "mmap", "hashing_threads": 2, "max_queued_disk_bytes": 16777216, "checking_mem_usage": 2048}}` (`move` and `root` need 1.1; `hardware` since 1.2, see Tuning; `refresh_peers`, `set_trackers`, `set_guard`, `sources`, `guard`, the peer counts and the source fields since 1.4; `untrusted_dir` since 1.5; `--ca-file` and the tracker messages of Sources as described since 1.6; `adopt_from` since 1.7 (1.6 took files over on weaker checks: dcd offers data to 1.7 and newer only)) |
 | `apply_settings` | settings object (below) | `{}` |
-| `add` | `torrent_b64` or `magnet`, `save_path`, `select` ([file index], omitted = all), `priorities` ({"index": 0..7}), `trackers` ([url]), `paused`, `seed_ratio` (float, 0 = none), `seed_time` (minutes; -1 = do not seed, 0 = no time limit), `sequential`, `check` (force a recheck), `max_down`, `max_up` (bytes/s), `max_peers`, `fastresume` (path of an official libtorrent 1.2 `.fastresume` to try first), `metadata_only` (fetch the metadata, write `<save_path>/<infohash>.torrent`, then drop the torrent), `root` (the data's top folder, or its single file, is called this instead of the torrent's name), `guard` (a regular user's torrent: see Address guard; kept with the torrent, a `metadata_only` add never changes it on a torrent that is already there) | `{"infohash": "…", "existed": false, "resumed": true}` |
-| `pause` / `resume` / `remove` / `force_recheck` | `infohash` | `{}` (`remove` keeps the data and is idempotent) |
-| `move` | `infohash`, `save_path`, `root` (optional, renames the top folder or single file on the way) | `{}` at once; the torrent keeps running, status shows `moving` until libtorrent is done, then the new `save_path` (resume data saved right away), or `move_error`. Nothing at the destination is replaced: if a file exists there the move fails and the data stays |
+| `add` | `torrent_b64` or `magnet`, `save_path`, `select` ([file index], omitted = all), `priorities` ({"index": 0..7}), `trackers` ([url]), `paused`, `seed_ratio` (float, 0 = none), `seed_time` (minutes; -1 = do not seed, 0 = no time limit), `sequential`, `check` (force a recheck), `max_down`, `max_up` (bytes/s), `max_peers`, `fastresume` (path of an official libtorrent 1.2 `.fastresume` to try first), `metadata_only` (fetch the metadata, write `<save_path>/<infohash>.torrent`, then drop the torrent), `root` (the data's top folder, or its single file, is called this instead of the torrent's name), `guard` (a regular user's torrent: see Address guard; kept with the torrent, a `metadata_only` add never changes it on a torrent that is already there), `untrusted_dir` (the destination folder is treated as one other accounts can change; dcd sends it for every torrent: see Regular users' torrents; omitted = false), `owner_uid` and `owner_gid` (with `untrusted_dir`: the account the handed-over files belong to; omitted = the owner of the folder they are handed to), `adopt_from`, `adopt_root` and `adopt_required` (with `untrusted_dir`: the torrent's data may already sit in `adopt_from`/`adopt_root`, see Data already in the destination) | `{"infohash": "…", "existed": false, "resumed": true, "adopted": n}` (`adopted`: files taken over, see below); for `untrusted_dir` also `{"infohash": "…", "seed_done": true, "total_wanted": n}`: not started (see Regular users' torrents) |
+| `pause` / `resume` / `remove` / `force_recheck` | `infohash` | `{}` (`remove` keeps the data, except the private folder an `untrusted_dir` torrent seeded from after its hand-over or take-over, and is idempotent) |
+| `move` | `infohash`, `save_path`, `root` (optional, renames the top folder or single file on the way) | `{}` at once; the torrent keeps running, status shows `moving` until libtorrent is done, then the new `save_path` (resume data saved right away), or `move_error`. Nothing at the destination is replaced: if a file exists there the move fails and the data stays. An `untrusted_dir` torrent is handed over instead (see Regular users' torrents) |
 | `set_file_priorities` | `infohash`, `select`, `priorities` | `{}` |
 | `set_limits` | `infohash`, `down`, `up` (bytes/s, 0 = none) | `{}` |
 | `set_sequential` | `infohash`, `on` | `{}` |
@@ -145,7 +153,12 @@ an entry per info hash (v1, v2), which dc-bt sums up: `contacted` is true
 once an announce was answered or failed; `fails` is the fewest failures in a
 row among the entries tried (0 means it answered the last time); `message` is
 the tracker's failure reason when it fails (for example `unregistered
-torrent`; the error otherwise) or its warning when it works; `seeds` and
+torrent`, or `certificate verify failed` for an HTTPS tracker whose
+certificate the trusted authorities do not vouch for; the error otherwise) or
+its warning when it works. Entries of listen sockets that cannot reach the
+tracker's address at all (loopback, a bridge without a route) skip the
+announce (`skipping tracker announce (unreachable)`): they count only when
+every entry did, else the other entries' failures and message are reported; `seeds` and
 `leechers` are the largest counts any entry reported (from announces, which
 carry them; -1 unknown; the NAS itself is among the leechers once it
 announced, maybe more than once with several addresses); `updating` means an announce is under way.
@@ -165,7 +178,12 @@ announced, maybe more than once with several addresses); `updating` means an ann
 
 With `proxy.force`, dc-bt never connects directly: incoming connections,
 UPnP/NAT-PMP, LSD and uTP are turned off, and DHT is turned off as well
-(UDP may not be relayed by the proxy).
+(UDP may not be relayed by the proxy). Trackers and web seeds go through the
+proxy whatever `trackers` and `peers` say; peers go through it when it can
+carry them (`socks5` with `peers`), and otherwise (an `http` proxy, or
+`peers` false) dc-bt connects to no peer at all. With `force` but no `host`
+(or an unknown `type`) every connection goes to a closed port on the NAS
+itself, so nothing goes out.
 
 `dht_bootstrap_nodes` is for tests; dcd does not send it and the built-in list
 of public routers applies. dc-bt announces to every tracker of a torrent and
@@ -214,3 +232,112 @@ there: dcd sends it when its owner becomes or stops being an administrator,
 or when it gets the public tracker list. The guard is saved with the torrent.
 A torrent saved before 1.4 has no guard in its options: it is restored paused
 and runs once dcd has added it again and said whose it is.
+
+Web seeds of a guarded torrent given by name are looked up when they are
+added (away from the loop); one whose name leads to the NAS's addresses, or
+to those of the tracker proxy the filter lets through, is removed. Peers at
+the tracker proxy's addresses are still let through the filter, at any port.
+
+## Regular users' torrents
+
+dc-bt runs as root, and a regular user can put links (symbolic or hard) into
+their own folders at any time. A torrent added with `untrusted_dir` (dcd
+sends it for every torrent, administrators' too) is therefore only ever read
+and written in folders only root can change:
+
+- Its `save_path` must be a private folder: a real folder (reached without a
+  link other than root's own links in root's folders), owned by root and not
+  writable by group or others, in a folder of the same kind. dcd makes it.
+  Otherwise the add fails with `not a private folder: …`, unless the torrent's
+  saved resume data has every wanted piece (a torrent of an earlier version
+  that seeds from the user's folder, or one dcd believes is in the user's
+  folder): then it is not started and the answer says `seed_done` and
+  `total_wanted`; dcd counts its seeding as finished. Nothing is read there.
+- `move` hands the data over: every complete, wanted file appears in
+  `save_path` (the user's folder, which must be on the same volume) as a hard
+  link of the file in the private folder, the top folder (or single file)
+  named `root`. `save_path` is opened from `/` one folder at a time without
+  following a link (except root's own links in root's folders, such as
+  `/share/homes`), and everything below it is made with `mkdirat`/`linkat`
+  from those folders: nothing that exists is replaced or followed. The folders
+  made belong to root (0700) until they are complete, then to `owner_uid`
+  (or the owner of `save_path`), 0775, and so do the linked files. A name that is taken fails
+  the move (`File exists: …`). Then the torrent moves (inside root's folders)
+  to `<private folder>.seed` beside the private folder, made 0700, and seeds
+  from there: dcd may delete the private folder once the move is reported
+  done. Status then reports the user's folder as `save_path` and the file
+  paths with `root`.
+- Files chosen later download into the seed folder and are handed over, in
+  the same way, when the torrent finishes again; a name the user has taken
+  meanwhile is left as it is (logged).
+- `remove` deletes the seed folder; the user's hard links keep the data.
+- The hand-over fails (`the destination changed while the files were handed
+  over: …`) when, at its end, the top folder (or single file) it made in
+  `save_path` is no longer there under its name (renamed meanwhile, with
+  something else put in its place).
+- An already running torrent that dcd adds again with `untrusted_dir` keeps
+  running when it runs from a private folder (and moves to another private
+  `save_path` dcd gives, checking the data there); one that runs from
+  anywhere else stops and is treated as added anew.
+
+### Data already in the destination
+
+With `adopt_from` (a folder, opened like a hand-over destination) and
+`adopt_root` (the name of the top folder or single file there; omitted = the
+torrent's name), an `add` that starts the torrent anew in its private
+`save_path` first takes over what of the torrent's data is already there:
+
+- Each wanted file of the torrent found there is opened without following a
+  link and must be a regular file with a single name (nlink 1, or 2 when the
+  other name is the private copy itself, from an earlier take-over or
+  hand-over) that belongs to `owner_uid` (without `owner_uid`: the owner of
+  `adopt_from`, or root) and is no larger than the torrent's file.
+- Its data must be the torrent's, checked against the piece hashes (SHA-1)
+  before anything is linked: every piece the file holds whole matches,
+  and at least one of them is not a run of a single byte value. A piece
+  counts when all its data is there (judged from the file sizes before
+  anything is read): one that reaches past the end of a file, or into a
+  file that is not there, counts neither way (libtorrent writes it later,
+  also the part in the user's file). Pieces are read in order, each at most
+  once, and what one shows counts for every file it covers; files not
+  wanted are read, never taken over, to complete the pieces they share with
+  wanted ones, and count like them. So a file that only shares a name or a
+  block (zeros, say) with the torrent's is never written to, and neither is
+  a copy the user changed since.
+- All or nothing: if a file of the torrent is there but does not qualify,
+  holds a piece that does not match, or changes while it is checked,
+  nothing is taken over. A wanted file without a piece that tells it by its
+  data (no piece held whole, or only runs of one byte value) is left out
+  (downloaded privately; the user's file is left alone). A check gives up
+  (nothing is taken over) after reading 2 TiB, opening 2 million files or
+  six hours.
+- Each file is found as it was checked by its device and inode number, link
+  count, size, modification and change times and, where the file system
+  has one, the inode's generation (`FS_IOC_GETVERSION`): a file deleted and
+  made anew under the same name, which may get the same inode number,
+  differs in its generation and change time; one that changed in any other
+  way differs in its times or links. Every time the check opens a file
+  again, and when it is linked, it is opened without following a link and
+  compared; it is then hard-linked into the private folder from that
+  descriptor (`linkat` with `AT_EMPTY_PATH`, or `/proc/self/fd`), never by
+  name. If one no longer is what was checked, nothing is taken over.
+- The torrent is then checked again by libtorrent: only pieces that verify
+  count (and are ever sent), missing pieces are downloaded into the private
+  copy, which for a file taken over is the user's file (a hard link the
+  user makes to it later only gives them torrent data). Files that were not
+  there are downloaded privately and handed over when the torrent finishes,
+  beside the others.
+- The torrent then counts as handed over to `adopt_from`/`adopt_root` and
+  seeds from `save_path` (which `remove` deletes). Torrents without SHA-1
+  piece hashes (v2 only) and magnets without a file list take nothing over.
+- The checks read and hash data, so they run in the background, in threads
+  named `dc-bt adopt`: at most two at a time, at most one per `owner_uid`
+  (one for all torrents without it). Until they are done, `add` answers
+  `{"infohash": "…", "adopting": true}` without adding anything, and dcd
+  adds again later; the add that finds them done links what qualified and
+  adds the torrent. `remove`, or an `add` that names another
+  `adopt_from`/`adopt_root`, stops a running check; its thread keeps its
+  slot until it has stopped. A file the private folder already holds under
+  another inode is left alone (the private copy is used).
+- With `adopt_required` the add fails (`cannot take over the data: …`) when
+  nothing is taken over; without it the torrent downloads as new.

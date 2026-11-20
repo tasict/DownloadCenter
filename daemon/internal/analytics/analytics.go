@@ -84,10 +84,18 @@ var uiKeys = set(
 	"token_agent", "agent_copy_claude", "agent_copy_other", "skill_download",
 	"mcp_on", "mcp_overview", "mcp_list", "mcp_get", "mcp_add", "mcp_control", "mcp_files", "mcp_remove", "mcp_show", "mcp_switch_off",
 	"mcp_trackers", "trk_dialog", "trk_add", "trk_public", "trk_bulk", "trk_find", "src_tracker",
+	"search_open", "search_run", "search_add", "search_filter", "search_sort", "set_search",
+	"search_src_add", "search_src_torznab", "search_src_file", "search_src_code", "search_src_test",
 )
 
+// SearchCounts reports how many search sources are enabled, how many are
+// custom plugins, how many are Torznab servers and how many are plugins
+// from another NAS (programs). Set by the program that wires the packages;
+// nil leaves the four settings out of the report.
+var SearchCounts func() (enabled, custom, torznab, code int)
+
 // UI languages (lang_<code>)
-var uiLangs = set("TCH", "SCH", "ENG", "JPN", "KOR", "GER", "FRE", "SPA", "ITA", "POR", "RUS", "DUT", "THA")
+var uiLangs = set("TCH", "SCH", "ENG", "JPN", "KOR", "GER", "FRE", "SPA", "ITA", "POR", "RUS", "DUT", "THA", "HUN")
 
 var schemes = set("http", "https", "ftp", "ftps", "sftp", "scp")
 
@@ -298,6 +306,8 @@ func via(caller string) string {
 		return "chat"
 	case caller == "Deskpane":
 		return "widget"
+	case caller == "AI agent":
+		return "webmcp"
 	}
 	return "v4"
 }
@@ -544,6 +554,11 @@ func (s *Service) snapshot() map[string]int64 {
 		out["st_auto_remove"] = 0
 	}
 	out["st_proxies"] = int64(len(st.Proxy.Profiles))
+	if SearchCounts != nil {
+		en, cu, tz, co := SearchCounts()
+		out["st_search_sources"], out["st_search_custom"], out["st_search_torznab"] = int64(en), int64(cu), int64(tz)
+		out["st_search_code"] = int64(co)
+	}
 	b("st_proxy_bt", st.Proxy.BT != "")
 	b("st_proxy_users", st.Proxy.RequireForUsers)
 	b("st_v4_takeover", st.V4Takeover)

@@ -26,6 +26,7 @@ type Caps struct {
 	SCP                  bool `json:"scp"`
 	Socks5URLs           bool `json:"socks5_urls"`  // URL downloads through a SOCKS5 proxy
 	PeerRefresh          bool `json:"peer_refresh"` // torrents: PeerFinder (look for peers again, replace trackers)
+	AdoptData            bool `json:"adopt_data"`   // torrents: AddRequest.AdoptFrom (take over data already in the destination)
 }
 
 // AddRequest describes a new engine task.
@@ -53,8 +54,31 @@ type AddRequest struct {
 	Sequential   bool
 	Proxy        string // per-task proxy URL ("" = direct)
 	MetadataOnly bool   // magnet: fetch the metadata (.torrent) only
-	Guard        bool   // refuse loopback and the NAS's own addresses (a regular user's task)
+	Guard        bool   // refuse loopback and the NAS's own addresses (a regular user's task, one added through a token, a torrent with the public tracker list)
 	NoPages      bool   // URLs: a web page (text/html) in place of the file is an error
+	// UntrustedDir: the torrent's destination is treated as a folder other
+	// accounts can change (the core sends it for every torrent). The engine
+	// then downloads and seeds only in Dir, which must be a folder only root
+	// can enter, and hands the data over to the destination (MoveStorage)
+	// without following links there.
+	UntrustedDir bool
+	// UntrustedDir: the account the handed-over files belong to (0: the
+	// owner of the folder they are handed to).
+	OwnerUID, OwnerGID int
+	// UntrustedDir: the torrent's data may already sit in AdoptFrom, its top
+	// folder (or single file) called AdoptRoot. What of it holds the
+	// torrent's data, as a plain file of the owner, is taken over (Adopter)
+	// and the torrent counts as handed over to AdoptFrom. With AdoptRequired
+	// the add fails (ErrFolderNotPrivate) when nothing can be taken over.
+	AdoptFrom     string
+	AdoptRoot     string
+	AdoptRequired bool
+}
+
+// Adopter is an engine that reports whether the last Add of a torrent took
+// over the data in AddRequest.AdoptFrom.
+type Adopter interface {
+	Adopted(ref string) bool
 }
 
 // State is the engine-level state of a task.
@@ -243,6 +267,20 @@ const (
 
 var ErrNotFound = errors.New("engine: task not found")
 var ErrUnsupported = errors.New("engine: not supported")
+
+// ErrPending: the engine is still checking the data in AddRequest.AdoptFrom;
+// the task is added again later (nothing failed).
+var ErrPending = errors.New("engine: still checking the data in the destination folder")
+
+// Errors of torrents added with UntrustedDir.
+var (
+	// The torrent engine is older than the one that keeps torrents away from
+	// folders other accounts can change.
+	ErrEngineTooOld = errors.New("The torrent engine is too old to download this torrent safely; update Download Center")
+	// Dir is not a folder only root can change, and the torrent has no
+	// finished data the engine could count as seeded.
+	ErrFolderNotPrivate = errors.New("The torrent engine does not use folders that users can change; this torrent cannot continue from where its data is")
+)
 
 // PeerFinder is a torrent engine that can make a torrent look for peers
 // again (Caps.PeerRefresh): RefreshPeers forgets the peers of a torrent with

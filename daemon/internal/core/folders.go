@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"downloadcenter/internal/qts"
+	"downloadcenter/internal/safefs"
 )
 
 // Folder is one entry of the folder pickers (the web UI's and V4 clients').
@@ -44,7 +45,7 @@ func usable(dir string) error {
 	if !Writable(dir) {
 		return ErrReadOnly
 	}
-	if hr := qts.HomesRoot(); hr != "" && filepath.Clean(dir) == hr {
+	if hr := homesRoot(); hr != "" && filepath.Clean(dir) == hr {
 		return ErrFolder
 	}
 	return nil
@@ -143,15 +144,28 @@ func (m *Manager) MakeFolder(viewer, parent, name string) (string, error) {
 	if err := usable(real); err != nil {
 		return "", err
 	}
-	p := filepath.Join(real, name)
-	if err := os.Mkdir(p, 0777); err != nil {
-		if os.IsExist(err) {
+	// Made and handed over through descriptors: a link put in its place
+	// meanwhile changes nothing outside
+	pd, err := safefs.OpenDir(real)
+	if err != nil {
+		return "", ErrNoFolder
+	}
+	defer pd.Close()
+	sub, created, err := pd.Mkdir(name, 0777)
+	if err != nil {
+		if errors.Is(err, safefs.ErrLink) {
 			return "", ErrExists
 		}
 		return "", err
 	}
-	if u := homeOwner(p); u != "" {
-		chownPath(p, u, false)
+	defer sub.Close()
+	if !created {
+		return "", ErrExists
+	}
+	if u := homeOwner(filepath.Join(real, name)); u != "" {
+		if uid, gid, ok := lookupUser(u); ok {
+			sub.Chown(uid, gid)
+		}
 	}
 	return parent + "/" + name, nil
 }
@@ -170,7 +184,7 @@ func SameDir(a, b string) bool {
 
 // homeOwner is the account whose home folder holds p ("" outside the homes).
 func homeOwner(p string) string {
-	hr := qts.HomesRoot()
+	hr := homesRoot()
 	if hr == "" || !inside(p, hr) {
 		return ""
 	}
@@ -178,7 +192,7 @@ func homeOwner(p string) string {
 	if user == "" {
 		return ""
 	}
-	if _, _, ok := qts.Lookup(user); !ok {
+	if _, _, ok := lookupUser(user); !ok {
 		return ""
 	}
 	return user

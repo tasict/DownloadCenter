@@ -5,9 +5,9 @@
 (function(){
 	'use strict';
 	var DC = window.DC = window.DC || {};
-	var SUPPORTED = {TCH:1, SCH:1, ENG:1, JPN:1, KOR:1, GER:1, FRE:1, SPA:1, ITA:1, POR:1, RUS:1, DUT:1, THA:1};
+	var SUPPORTED = {TCH:1, SCH:1, ENG:1, JPN:1, KOR:1, GER:1, FRE:1, SPA:1, ITA:1, POR:1, RUS:1, DUT:1, THA:1, HUN:1};
 	var ALIAS = {ESM:'SPA'};
-	var LOCALE = {TCH:'zh-Hant-TW', SCH:'zh-Hans-CN', ENG:'en', JPN:'ja', KOR:'ko', GER:'de', FRE:'fr', SPA:'es', ITA:'it', POR:'pt', RUS:'ru', DUT:'nl', THA:'th'};
+	var LOCALE = {TCH:'zh-Hant-TW', SCH:'zh-Hans-CN', ENG:'en', JPN:'ja', KOR:'ko', GER:'de', FRE:'fr', SPA:'es', ITA:'it', POR:'pt', RUS:'ru', DUT:'nl', THA:'th', HUN:'hu'};
 	function cookie(k){
 		var parts = document.cookie.split(/;\s*/), i, kv;
 		for(i = 0; i < parts.length; i++){ kv = parts[i].split('='); if(kv[0] === k) return decodeURIComponent(kv.slice(1).join('=')); }

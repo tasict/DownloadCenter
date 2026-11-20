@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"downloadcenter/internal/engine"
-	"downloadcenter/internal/qts"
 )
 
 // ErrNeedsRestart is returned by ApplyGlobal when options only take effect
@@ -121,19 +120,36 @@ func (m *Manager) restartEngine(e engine.Engine, g engine.Global) {
 	m.Kick()
 }
 
-// tempRoots lists the @DownloadCenterTemp folders that may exist.
+// tempRoots lists the @DownloadCenterTemp folders that may exist: the
+// private ones at the root of each volume, those at the root of each shared
+// folder, and those that versions up to 1.3 made in the homes' Download.
 func (m *Manager) tempRoots() []string {
 	var out []string
-	for _, sh := range qts.Shares() {
-		out = append(out, filepath.Join(sh.Path, TempDirName))
+	seen := map[string]bool{}
+	add := func(p string) {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
 	}
-	if hr := qts.HomesRoot(); hr != "" {
+	var anchors []string
+	for _, sh := range shareList() {
+		add(filepath.Join(sh.Path, TempDirName))
+		anchors = append(anchors, sh.Path)
+	}
+	if hr := homesRoot(); hr != "" {
+		anchors = append(anchors, hr)
 		if ents, err := os.ReadDir(hr); err == nil {
 			for _, e := range ents {
 				if e.IsDir() {
-					out = append(out, filepath.Join(hr, e.Name(), "Download", TempDirName))
+					add(filepath.Join(hr, e.Name(), "Download", TempDirName))
 				}
 			}
+		}
+	}
+	for _, a := range anchors {
+		if base, err := stagingBase(a); err == nil {
+			add(filepath.Join(base, TempDirName))
 		}
 	}
 	return out

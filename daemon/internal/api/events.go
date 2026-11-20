@@ -53,6 +53,9 @@ func (s *Server) eventRoutes() {
 	s.Route("GET /events/stream", "", Public, s.stream)
 }
 
+// streamRecheck is how often an open event stream checks its caller again.
+var streamRecheck = 2 * time.Minute
+
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
 	var p *auth.Principal
 	if tk := r.URL.Query().Get("ticket"); tk != "" {
@@ -109,8 +112,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, _ *auth.Principa
 	fl.Flush()
 	hb := time.NewTicker(25 * time.Second)
 	defer hb.Stop()
-	// Sessions are re-checked periodically: logging out of QTS ends the stream
-	recheck := time.NewTicker(2 * time.Minute)
+	// The caller is checked again periodically: logging out of QTS ends the stream
+	recheck := time.NewTicker(streamRecheck)
 	defer recheck.Stop()
 	for {
 		select {
@@ -126,13 +129,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, _ *auth.Principa
 			fmt.Fprintf(w, ": ping %d\n\n", time.Now().Unix())
 			fl.Flush()
 		case <-recheck.C:
-			if p.Via == "token" && p.Token != nil && !s.Auth.TokenExists(p.Token.ID) {
+			// Rights are looked at again: a stream ends when its session or
+			// token is gone, or what it may see has changed (a role taken
+			// away, a scope or the use of Download Center withdrawn)
+			np, err := s.Auth.Refresh(p, ClientIP(r), r.UserAgent())
+			if err != nil || np.User != p.User || np.Admin != p.Admin || np.SeesAll() != p.SeesAll() || !np.Can("events:read") {
 				return
-			}
-			if p.Via == "session" {
-				if _, err := s.Auth.FromSID(p.SID, ClientIP(r), r.UserAgent()); err != nil {
-					return
-				}
 			}
 		}
 	}

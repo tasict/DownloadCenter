@@ -62,7 +62,8 @@ func TestParseRequest(t *testing.T) {
 	body := "hash=a&hash%5B%5D=b&priority=1&priority=&priority=0&sid=x"
 	r := httptest.NewRequest("POST", "/downloadstation/V4/Task/SetFile?from=0", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	p, _, err := parseRequest(r)
+	b, complete, err := readBody(r, nil, maxBody)
+	p, _ := parseRequest(r, b, complete)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,8 @@ func TestParseRequest(t *testing.T) {
 		"--XyZ\r\nContent-Disposition: form-data; name=\"file[]\"; filename=\"t.torrent\"\r\nContent-Type: application/x-bittorrent\r\n\r\nDATA\r\n--XyZ--\r\n"
 	r = httptest.NewRequest("POST", "/downloadstation/V4/Task/AddTorrent", strings.NewReader(mp))
 	r.Header.Set("Content-Type", "multipart/form-data")
-	p, files, err := parseRequest(r)
+	b, complete, err = readBody(r, nil, maxBody)
+	p, files := parseRequest(r, b, complete)
 	if err != nil {
 		t.Fatal(err)
 	}

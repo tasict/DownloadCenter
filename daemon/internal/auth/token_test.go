@@ -40,3 +40,28 @@ func TestUpdateToken(t *testing.T) {
 		t.Fatalf("editing another user's token: %v", err)
 	}
 }
+
+// search:use is a scope of its own: regular users may have it, nothing
+// else implies it, and a session can search.
+func TestSearchScope(t *testing.T) {
+	s, _ := newTestService(t, &fakeQTS{registered: map[string]bool{"DownloadCenter": true}, allow: map[string]bool{"joe": true}})
+	full := &Token{Owner: "joe", Name: "full", Scopes: []string{"tasks:read", "tasks:add", "tasks:control", "tasks:remove", "files:delete", "stats:read", "events:read", "notify:manage"}}
+	value, err := s.CreateToken(full, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := s.FromToken(value, "192.0.2.1"); err != nil || p.Can("search:use") {
+		t.Fatalf("other scopes imply search:use: %v", err)
+	}
+	search := &Token{Owner: "joe", Name: "search", Scopes: []string{"search:use"}}
+	value, err = s.CreateToken(search, false)
+	if err != nil {
+		t.Fatalf("regular user's search token: %v", err)
+	}
+	if p, err := s.FromToken(value, "192.0.2.1"); err != nil || !p.Can("search:use") || p.Can("tasks:add") {
+		t.Fatalf("search token: %v", err)
+	}
+	if p := (&Principal{User: "joe"}); !p.Can("search:use") {
+		t.Fatal("a session cannot search")
+	}
+}

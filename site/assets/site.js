@@ -98,7 +98,11 @@
     try { return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric' }); }
     catch (e) { return d; }
   }
-  function safeUrl(u) { return /^https:\/\/github\.com\//.test(u || '') ? u : null; }
+  // Only this project's own release files and pages are linked, whatever the feed says
+  var REL = 'https://github.com/tasict/DownloadCenter/releases/';
+  function under(u, prefix) { return typeof u === 'string' && u.indexOf(prefix) === 0 && !/[\\\s]|\/\.\.?(\/|$)|%2e/i.test(u.slice(prefix.length)) ? u : null; }
+  function assetUrl(u) { return under(u, REL + 'download/'); }
+  function pageUrl(u) { return under(u, REL); }
   function svg() {
     var ns = 'http://www.w3.org/2000/svg', s = document.createElementNS(ns, 'svg'), p = document.createElementNS(ns, 'path');
     s.setAttribute('viewBox', '0 0 20 20'); s.setAttribute('width', '18'); s.setAttribute('height', '18'); s.setAttribute('aria-hidden', 'true');
@@ -121,7 +125,7 @@
     if (!rel || !rel.assets) return;
     var ul = el('ul', { 'class': 'arches' }), any = false;
     ARCH.forEach(function (a) {
-      var as = rel.assets[a[0]], url = as && safeUrl(as.url);
+      var as = rel.assets[a[0]], url = as && assetUrl(as.url);
       if (!url) return;
       any = true;
       ul.appendChild(el('li', null, [el('a', { 'class': 'arch', href: url, download: '' }, [
@@ -135,7 +139,7 @@
       el('p', { 'class': 'rel-meta num', text: fill(T.released || 'Released {date}', { date: date(rel.date) }) }),
       ul
     ];
-    var sums = safeUrl(rel.sums_url), relUrl = safeUrl(rel.url);
+    var sums = assetUrl(rel.sums_url), relUrl = pageUrl(rel.url);
     if (sums || relUrl) {
       var p = el('p', { 'class': 'sums' });
       if (sums) p.appendChild(el('a', { href: sums, text: T.sums || 'SHA-256 checksums' }));
@@ -147,8 +151,8 @@
       // Release notes are Markdown from the changelog; shown as plain text, never as HTML.
       body.push(el('details', null, [el('summary', { text: T.notes || 'What’s new' }), el('div', { 'class': 'notes', text: rel.notes })]));
     }
-    if (pre && pre.version !== rel.version && safeUrl(pre.url)) {
-      body.push(el('p', { 'class': 'sums' }, [el('a', { href: safeUrl(pre.url), text: fill(T.pre || 'Try the pre-release {v}', { v: pre.version }) })]));
+    if (pre && pre.version !== rel.version && pageUrl(pre.url)) {
+      body.push(el('p', { 'class': 'sums' }, [el('a', { href: pageUrl(pre.url), text: fill(T.pre || 'Try the pre-release {v}', { v: pre.version }) })]));
     }
     while (box.firstChild) box.removeChild(box.firstChild);
     body.forEach(function (b) { box.appendChild(b); });

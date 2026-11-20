@@ -11,7 +11,12 @@ T="$1"
 VER_LT=2.0.15
 VER_BOOST=1_88_0
 VER_SSL=3.5.9
-B=/work/build/$T
+# Version of the compiler flags below. Raising it builds every library again
+# into a new tree; the trees of earlier flags are left as they are. Each
+# library also leaves a stamp with its version in the prefix, so a version
+# change rebuilds it instead of reusing the old archive.
+FLAGS_V=2
+B=/work/build/f$FLAGS_V/$T
 P=$B/prefix
 mkdir -p "$B" "$P"
 JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
@@ -40,26 +45,42 @@ CC=${CROSS}gcc
 CXX=${CROSS}g++
 AR=${CROSS}ar
 RANLIB=${CROSS}ranlib
+STRIP=${CROSS}strip
 ARCHFLAGS=""
 [ "$T" = arm-x41 ] && ARCHFLAGS="-march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard"
+# Hardening for every object: position independent (the executable is a
+# static PIE), stack protector, fortified libc calls. musl has no fortify
+# of its own: Alpine's fortify-headers provide it (the native compiler adds
+# them by itself, the cross compilers get them here).
+HARDEN="-fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2"
+[ -n "$CROSS" ] && HARDEN="$HARDEN -isystem /usr/include/fortify"
+# The 32-bit ARM cross compiler (gcc 11) takes -static-pie but links a
+# dynamic executable: there the static PIE is spelled out (musl's
+# self-relocating start file, no dynamic linker, no text relocations)
+LINKRULE=""
+if [ "$T" = arm-x41 ]; then
+	L=$(dirname "$($CXX -print-file-name=rcrt1.o)")
+	LINKRULE="<CMAKE_CXX_COMPILER> <FLAGS> <CMAKE_CXX_LINK_FLAGS> -nostartfiles $L/rcrt1.o $L/crti.o $($CXX -print-file-name=crtbeginS.o) <OBJECTS> -o <TARGET> <LINK_LIBRARIES> -static -pie -Wl,--no-dynamic-linker -Wl,-z,text -Wl,-z,relro,-z,now $($CXX -print-file-name=crtendS.o) $L/crtn.o"
+fi
 
 # Boost: headers only (libtorrent 2.0 needs no compiled Boost library)
 [ -d /work/build/boost_$VER_BOOST ] || tar -xzf /work/src/boost_$VER_BOOST.tar.gz -C /work/build boost_$VER_BOOST/boost
 mkdir -p /work/build/boost_$VER_BOOST/stage
 
 # OpenSSL (libcrypto + libssl, static)
-if [ ! -f "$P/lib/libssl.a" ]; then
+if [ ! -f "$P/.built-openssl-$VER_SSL" ]; then
 	rm -rf "$B/openssl-$VER_SSL"
 	tar -xzf /work/src/openssl-$VER_SSL.tar.gz -C "$B"
 	cd "$B/openssl-$VER_SSL"
-	CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-O2 $ARCHFLAGS" ./Configure "$SSL_TARGET" no-shared no-tests no-docs no-apps no-module no-dso no-engine no-legacy \
+	CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-O2 $ARCHFLAGS $HARDEN" ./Configure "$SSL_TARGET" no-shared no-tests no-docs no-apps no-module no-dso no-engine no-legacy \
 		--prefix="$P" --libdir=lib --openssldir=/etc/ssl
 	make -j"$JOBS" build_libs >/dev/null
 	make install_dev >/dev/null
+	touch "$P/.built-openssl-$VER_SSL"
 fi
 
 # libtorrent (static)
-if [ ! -f "$P/lib/libtorrent-rasterbar.a" ]; then
+if [ ! -f "$P/.built-libtorrent-$VER_LT" ]; then
 	rm -rf "$B/lt" "$B/libtorrent-rasterbar-$VER_LT"
 	tar -xzf /work/src/libtorrent-rasterbar-$VER_LT.tar.gz -C "$B"
 	mkdir -p "$B/lt"
@@ -68,27 +89,30 @@ if [ ! -f "$P/lib/libtorrent-rasterbar.a" ]; then
 		-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$P" \
 		-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=$CPU \
 		-DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
-		-DCMAKE_C_FLAGS="$ARCHFLAGS" -DCMAKE_CXX_FLAGS="$ARCHFLAGS" \
+		-DCMAKE_C_FLAGS="$ARCHFLAGS $HARDEN" -DCMAKE_CXX_FLAGS="$ARCHFLAGS $HARDEN" \
+		-DCMAKE_POSITION_INDEPENDENT_CODE=ON \
 		-DCMAKE_FIND_ROOT_PATH="$P" -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
 		-DBUILD_SHARED_LIBS=OFF -Dstatic_runtime=ON -Ddeprecated-functions=OFF -Dencryption=ON -Di2p=OFF \
 		-DBOOST_ROOT=/work/build/boost_$VER_BOOST -DBoost_NO_SYSTEM_PATHS=ON -DBoost_NO_BOOST_CMAKE=ON \
 		-DOPENSSL_ROOT_DIR="$P" -DOPENSSL_USE_STATIC_LIBS=TRUE >/dev/null
 	ninja -j"$JOBS"
 	ninja install >/dev/null
+	touch "$P/.built-libtorrent-$VER_LT"
 fi
 
-# dc-bt
+# dc-bt (its CMakeLists links a static PIE with full RELRO); the stripped
+# copy is the result, the unstripped one stays in the build tree
 rm -rf "$B/dcbt"
 mkdir -p "$B/dcbt"
 cd "$B/dcbt"
 cmake -G Ninja /work/dcbt \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=$CPU \
-	-DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_CXX_FLAGS="$ARCHFLAGS" \
+	-DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_CXX_FLAGS="$ARCHFLAGS $HARDEN" \
 	-DCMAKE_PREFIX_PATH="$P" -DCMAKE_FIND_ROOT_PATH="$P" -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
 	-DBOOST_ROOT=/work/build/boost_$VER_BOOST -DBoost_NO_SYSTEM_PATHS=ON -DBoost_NO_BOOST_CMAKE=ON \
 	-DOPENSSL_ROOT_DIR="$P" -DOPENSSL_USE_STATIC_LIBS=TRUE \
-	-DJSON_INCLUDE_DIR=/work/src >/dev/null
+	-DJSON_INCLUDE_DIR=/work/src ${LINKRULE:+"-DCMAKE_CXX_LINK_EXECUTABLE=$LINKRULE"} >/dev/null
 ninja
-cp -f dc-bt /work/out/dc-bt-$T
-echo "built /work/out/dc-bt-$T"
+$STRIP -o /work/out/dc-bt-$T dc-bt
+echo "built /work/out/dc-bt-$T (unstripped: $B/dcbt/dc-bt)"

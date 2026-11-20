@@ -31,8 +31,12 @@ func tgCall(cl *http.Client, token, method string, body any, out any) error {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := cl.Do(req)
 	if err != nil {
-		// Never leak the bot token through URL errors
-		return errors.New(strings.ReplaceAll(err.Error(), token, "***"))
+		// The address holds the bot token: only its host is said
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			return fmt.Errorf("%s %s: %v", ue.Op, req.URL.Host, ue.Err)
+		}
+		return errors.New(scrubURLs(strings.ReplaceAll(err.Error(), token, "***")))
 	}
 	defer resp.Body.Close()
 	var r struct {
@@ -297,7 +301,7 @@ func (s *Service) telegramTorrent(ch *Channel, cl *http.Client, token, user, fil
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	res, err := s.m.AddTorrent(data, core.AddOptions{Owner: p.User, Admin: p.Admin, AutoRemove: "default", Caller: "Chat"})
+	res, err := s.m.AddTorrent(data, core.AddOptions{Owner: p.User, Admin: p.Admin, AllTasks: p.SeesAll(), Guard: !p.Interactive(), AutoRemove: "default", Caller: "Chat"})
 	if err != nil {
 		return "無法加入：" + addError(err)
 	}

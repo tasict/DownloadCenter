@@ -162,6 +162,7 @@ func (s *Server) previewRoutes() {
 		if t == nil {
 			return
 		}
+		s.M.RefreshFiles(t.Hash)
 		files := s.previewFiles(t)
 		if files == nil {
 			files = []previewFile{}
@@ -176,10 +177,13 @@ func (s *Server) previewRoutes() {
 	s.Route("GET /tasks/{id}/archive", "tasks:read", 0, s.archiveList)
 }
 
-func (s *Server) previewTarget(w http.ResponseWriter, r *http.Request, p *auth.Principal) (*core.Task, *previewFile) {
+// previewTarget finds the file a preview asks for and opens it: only a file
+// of the task's own folders, reached without a link (core.OpenTaskFile).
+// The caller closes the file.
+func (s *Server) previewTarget(w http.ResponseWriter, r *http.Request, p *auth.Principal) (*core.Task, *previewFile, *os.File) {
 	t := s.visibleTask(w, p, r.PathValue("id"))
 	if t == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	idx, err := strconv.Atoi(r.URL.Query().Get("file"))
 	if err != nil {
@@ -189,59 +193,31 @@ func (s *Server) previewTarget(w http.ResponseWriter, r *http.Request, p *auth.P
 		if f.Index != idx {
 			continue
 		}
-		// Only files inside the task's own folder
-		real, err := filepath.EvalSymlinks(f.real)
-		if err != nil {
+		fp, err := s.M.OpenTaskFile(t, f.real)
+		switch {
+		case err == nil:
+			return t, &f, fp
+		case os.IsNotExist(err):
 			Error(w, 404, "not_found", "The file does not exist yet")
-			return nil, nil
-		}
-		allowed := []string{t.TempDir, t.WorkDir, t.DataPath}
-		if t.DataPath != "" {
-			allowed = append(allowed, filepath.Dir(t.DataPath))
-		}
-		okInside := false
-		for _, a := range allowed {
-			if a == "" {
-				continue
-			}
-			ar, err := filepath.EvalSymlinks(a)
-			if err != nil {
-				continue
-			}
-			if real == ar || strings.HasPrefix(real, ar+"/") {
-				okInside = true
-			}
-		}
-		if t.Kind == core.KindBT && t.State == core.StDone && t.DataPath != "" {
-			dr, _ := filepath.EvalSymlinks(t.DataPath)
-			okInside = real == dr || strings.HasPrefix(real, dr+"/")
-		}
-		if !okInside {
+		default:
 			Error(w, 403, "forbidden", "Only files in this task's folder can be previewed")
-			return nil, nil
 		}
-		f.real = real
-		return t, &f
+		return nil, nil, nil
 	}
 	Error(w, 404, "not_found", "File not found")
-	return nil, nil
+	return nil, nil, nil
 }
 
 func (s *Server) preview(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-	_, f := s.previewTarget(w, r, p)
+	_, f, fp := s.previewTarget(w, r, p)
 	if f == nil {
 		return
 	}
+	defer fp.Close()
 	if f.Contiguous <= 0 {
 		Error(w, 409, "not_ready", "The beginning of this file has not been downloaded yet")
 		return
 	}
-	fp, err := os.Open(f.real)
-	if err != nil {
-		Error(w, 404, "not_found", "The file does not exist yet")
-		return
-	}
-	defer fp.Close()
 	st, _ := fp.Stat()
 	n := f.Contiguous
 	if st != nil && st.Size() < n {
@@ -279,13 +255,8 @@ func contentDisposition(kind, name string) string {
 // the downloaded prefix (local headers are sequential, so a partial archive
 // can still be listed up to the first missing piece).
 func (s *Server) archiveList(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
-	_, f := s.previewTarget(w, r, p)
+	_, f, fp := s.previewTarget(w, r, p)
 	if f == nil {
-		return
-	}
-	fp, err := os.Open(f.real)
-	if err != nil {
-		Error(w, 404, "not_found", "The file does not exist yet")
 		return
 	}
 	defer fp.Close()

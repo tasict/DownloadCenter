@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "id": "archlinux",
+  "name": "Arch Linux",
+  "version": "1.0",
+  "description": "Official Arch Linux installation images that are still offered.",
+  "homepage": "https://archlinux.org/download/",
+  "type": "json",
+  "match": "local",
+  "request": {
+    "url": "https://archlinux.org/releng/releases/json/"
+  },
+  "categories": {"software": ""},
+  "test_query": "arch linux",
+  "response": {
+    "items": "releases",
+    "require": ["available"],
+    "fields": {
+      "title": "Arch Linux {version}",
+      "size": "torrent.file_length",
+      "infohash": "torrent.info_hash",
+      "magnet": "magnet_uri",
+      "page": "https://archlinux.org/releng/releases/{version}/",
+      "date": "release_date"
+    }
+  }
+}

@@ -123,6 +123,12 @@ func public(raw string) bool {
 	return true
 }
 
+// Public reports a tracker address that may be handed on to anyone: fit
+// for a public list (no literal loopback, link-local, private,
+// unspecified or multicast address, no localhost) and not a literal
+// address of the NAS itself.
+func Public(raw string) bool { return public(raw) && Allowed(raw) == nil }
+
 // Clean keeps the addresses fit for a public list, without duplicates, at
 // most MaxTrackers of them.
 func Clean(list []string) []string {

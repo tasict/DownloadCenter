@@ -729,3 +729,24 @@ func TestLikelyDeadNotification(t *testing.T) {
 		t.Error("task.likely_dead is not an event type")
 	}
 }
+
+// An add through a token with a folder list follows the REST API's rule:
+// the default destination must be on the list too.
+func TestCommandAddFolderList(t *testing.T) {
+	e := newEnv(t)
+	p, err := e.au.FromQTS("boss", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Via, p.Folders = "token", []string{"Download"}
+	p.Token = &auth.Token{Name: "t"}
+	asked := 0
+	e.s.folders = func(*auth.Principal, *core.AddOptions) bool { asked++; return false }
+	if r := e.s.Run(p, "c", "/add https://example.com/files/b.iso"); r.OK || asked != 1 || e.m.Live(core.URLHash("https://example.com/files/b.iso")) != nil {
+		t.Errorf("folder outside the list: %+v (asked %d)", r, asked)
+	}
+	e.s.folders = func(*auth.Principal, *core.AddOptions) bool { return true }
+	if r := e.s.Run(p, "c", "/add https://example.com/files/b.iso"); !r.OK {
+		t.Errorf("folder on the list: %+v", r)
+	}
+}

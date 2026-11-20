@@ -54,6 +54,8 @@
 		waves:'<circle class="dot" cx="12" cy="12" r="1.6"/><path class="a-w1" d="M8.6 15.4a4.8 4.8 0 0 1 0-6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8"/><path class="a-w2" d="M5.8 18.2a8.8 8.8 0 0 1 0-12.4M18.2 5.8a8.8 8.8 0 0 1 0 12.4"/>',
 		'waves-off':'<g class="a-shake"><circle class="dot" cx="12" cy="12" r="1.6"/><path d="M8.6 15.4a4.8 4.8 0 0 1 0-6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8M5.8 18.2a8.8 8.8 0 0 1 0-12.4M18.2 5.8a8.8 8.8 0 0 1 0 12.4"/><path d="M4.5 4.5l15 15"/></g>',
 		search:'<circle cx="11" cy="11" r="6"/><path d="M19.5 19.5l-4.3-4.3"/>',
+		/* A search result whose torrent downloads from the site itself (web seed): a cloud handing the file down */
+		webseed:'<path d="M7.5 18H7a4.5 4.5 0 0 1-.4-8.98A6 6 0 0 1 18.2 9.5 4.25 4.25 0 0 1 17 18h-.5"/><g class="a-dn"><path d="M12 11v9.5"/><path d="M9 17.5l3 3 3-3"/></g>',
 		back:'<path d="M15 5L8 12l7 7"/>',
 		eye:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
 		eyeoff:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/>',
@@ -207,7 +209,8 @@
 	/* ---------- dialogs ---------- */
 	DC.R = {};
 	/* opts: wide, nofocus, onclose, guard() (true while the dialog holds input that a stray click or Escape must not throw
-	   away: it then only nudges, and Cancel still closes), persist (closes only through its own buttons), anchor (an element: on wide screens the dialog opens as a popover
+	   away: it then only nudges, and Cancel still closes), persist (closes only through its own buttons; a function makes that
+	   depend on what the dialog shows now), anchor (an element: on wide screens the dialog opens as a popover
 	   under it, without dimming). A dialog whose main button is destructive starts with Cancel focused, so Enter cannot delete. */
 	DC.modal = function(title, iconName, kids, acts, opts){
 		opts = opts || {};
@@ -218,11 +221,12 @@
 			if(DC.R.closeModal === close){ DC.R.closeModal = null; DC.R.dismissModal = null; }
 			if(onclose){ var f = onclose; onclose = null; f(); }
 		}
+		function persist(){ return typeof opts.persist === 'function' ? !!opts.persist() : !!opts.persist; }
 		function dismiss(){
-			if(opts.persist || (opts.guard && opts.guard())){
+			if(persist() || (opts.guard && opts.guard())){
 				box.classList.remove('nudge'); void box.offsetWidth; box.classList.add('nudge');
 				clearTimeout(nudgeT); nudgeT = setTimeout(function(){ box.classList.remove('nudge'); }, 500);
-				if(!opts.persist) DC.toast(DC.t('What you entered has not been added yet. To discard it, click “Cancel”.'));
+				if(!persist()) DC.toast(DC.t('What you entered has not been added yet. To discard it, click “Cancel”.'));
 				return false;
 			}
 			close();
@@ -341,18 +345,23 @@
 	document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'hidden') DC.trackFlush(); });
 
 	/* ---------- usage notice: shown once per account on first use (pref "notice"), readable again from the settings footer ---------- */
-	var NOTICE_VERSION = 2;
+	/* 3: search (third-party sites, administrators' sources); everyone sees it once more */
+	var NOTICE_VERSION = 3;
 	DC.noticeDue = function(){ var me = DC.S && DC.S.me; return !!(me && me.via !== 'token' && !(me.prefs && me.prefs.notice >= NOTICE_VERSION)); };
 	/* One page, two parts: what the user is responsible for when downloading, and what the anonymous statistics carry.
 	   Administrators decide about the statistics right here, with the switch at the very end of the page (it starts on, so
 	   agreeing is all it takes); regular users see the same facts and who decides. then runs once the notice is agreed to. */
 	DC.showNotice = function(first, then){
 		var items = [
-			DC.t('Download Center only downloads the links, torrent files and magnet links you give it. It does not provide, search for or recommend any content.'),
-			DC.t('Only download content you have the right to obtain. Downloading or sharing copyrighted software, video, music or other works without permission may break the law where you live.'),
+			DC.sentences(DC.t('Download Center downloads only the links, torrent files and magnet links you give it.'), DC.t('It does not provide or recommend any content.')),
+			DC.sentences(DC.t('Search asks third-party sites that Download Center does not run, and shows what they list.'), DC.t('The built-in search sources are limited to sites whose content may be freely distributed.'),
+				DC.t('The license shown for an Internet Archive item is its uploader\'s statement, which Download Center does not check.')),
+			DC.sentences(DC.t('Search sources that an administrator adds are that administrator\'s responsibility.'), DC.t('This includes search plugins from another NAS, which are programs written by third parties.')),
+			DC.sentences(DC.t('Download only what you have the right to download.'), DC.t('Downloading or sharing copyrighted software, video, music or other works without permission may break the law where you live.')),
 			DC.t('With BitTorrent, you share the file with other people while you download it, and they can see your IP address.'),
-			DC.t('You are responsible for what you download and how you use this software. To the extent permitted by law, the developer is not liable for any damage or legal consequence arising from its use.'),
-			DC.t('Download Center is independent software. It is not affiliated with or endorsed by QNAP.')
+			DC.sentences(DC.t('You are responsible for what you download and how you use this software.'), DC.t('Download Center is provided as is, without any warranty.'),
+				DC.t('To the extent permitted by law, the developer is not liable for any damage or legal consequence arising from its use.')),
+			DC.t('Download Center is independent software and is not affiliated with or endorsed by QNAP or Synology.')
 		], list = h('ul', {'class':'notice'}), i, me = DC.S && DC.S.me, stats = me && me.admin && me.analytics, sw = null;
 		for(i = 0; i < items.length; i++) list.appendChild(h('li', {text:items[i]}));
 		function column(cls, iconName, title, lines){
@@ -368,7 +377,7 @@
 		}
 		return DC.modal(DC.t('Terms of use'), 'files', [
 			h('p', {'class':'lead', text:DC.t('Before using Download Center, please read these two things.')}),
-			h('h3', {'class':'nthead', text:DC.t('What you download')}), list,
+			h('h3', {'class':'nthead', text:DC.t('What you search for and download')}), list,
 			h('h3', {'class':'nthead', text:DC.t('Usage statistics')}),
 			h('div', {'class':sw ? 'ntstats ntlast' : 'ntstats'}, [
 				sw ? null : h('p', {'class':'ntwho', text:DC.t('Download Center can send anonymous usage statistics to Google Analytics once a day. Your administrator decides whether it does.')}),
@@ -381,7 +390,9 @@
 		], function(close){
 			return first ? [btn(null, DC.t('I understand and agree'), function(){
 				DC.savePref('notice', NOTICE_VERSION);
-				if(sw) DC.api.put('analytics', {enabled:DC.chk('ntStats')}).then(function(r){ if(DC.S.me) DC.S.me.analytics = r; }, function(){});
+				/* the choice is saved when it was never made or was changed here: an administrator who chose before and leaves the
+				   switch as it was (it shows the current setting) changes nothing */
+				if(sw && (!stats.asked || DC.chk('ntStats') !== !!stats.enabled)) DC.api.put('analytics', {enabled:DC.chk('ntStats')}).then(function(r){ if(DC.S.me) DC.S.me.analytics = r; }, function(){});
 				close();
 				if(then) then();
 			}, 'pri')] : [btn(null, DC.t('Close'), close, 'pri')];

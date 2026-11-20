@@ -213,9 +213,9 @@
 	}
 
 	/* The page as a phone should open it: no query (the QTS desktop adds its window id there), and of the fragment only the
-	   app's own view (#tasks/down, #settings/notify), so nothing else that happens to be in the address goes along */
+	   app's own view (#tasks/down, #settings/notify, #search), so nothing else that happens to be in the address goes along */
 	function pageAddress(){
-		var view = /^#(tasks|settings)(\/[a-z]+)?$/.test(location.hash) ? location.hash : '';
+		var view = /^#(tasks|settings|search)(\/[a-z]+)?$/.test(location.hash) ? location.hash : '';
 		return location.protocol + '//' + location.host + location.pathname + view;
 	}
 	function localOnly(host){

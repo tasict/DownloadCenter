@@ -114,6 +114,7 @@
 		DC.login.stopKeepAlive();
 		DC.login.stopInput();
 		DC.webmcp.stop();
+		DC.search.stop();
 	}
 	DC.onSignedOut = function(){
 		if(!S.live && S.me) return;
@@ -124,8 +125,10 @@
 	DC.onNotOnList = function(e){ stopLive(); S.me = null; DC.login.show(e.message); };
 	DC.boot = function(){
 		stopLive();
+		clearTimeout(S.bootTimer);
 		DC.api.get('me', null, {quiet:true}).then(function(me){
-			S.me = me;
+			S.me = me; S.bootFail = 0;
+			DC.search.begin(me.user);
 			var p = me.prefs || {}, sv;
 			if(p.theme && p.theme !== S.theme) applyTheme(p.theme, false);
 			if(DC.embedded && p.glass !== undefined && +p.glass !== S.glass) applyGlass(+p.glass, false);
@@ -148,27 +151,68 @@
 		}, function(e){
 			if(e.code === 'not_on_list') DC.login.show(e.message);
 			else if(e.code === 'not_signed_in') DC.login.show();
+			else if(e.code === 'unavailable' && Date.now() - (S.bootFail = S.bootFail || Date.now()) < 5 * 60 * 1000) starting();
 			else{
+				S.bootFail = 0;
 				clear(app);
-				app.appendChild(h('div', {'class':'login'}, h('div', {'class':'lbox'}, [
-					h('div', {'class':'brand'}, [h('img', {'class':'mark', src:'img/logo.png', alt:''}), 'Download Center']),
-					h('h1', {text:DC.errText(e)}), btn('retry', DC.t('Retry'), DC.boot, 'pri')])));
+				app.appendChild(h('div', {'class':'login'}, h('div', {'class':'lbox'}, [brand(), h('h1', {text:DC.errText(e)}), btn('retry', DC.t('Retry'), DC.boot, 'pri')])));
 			}
 		});
 	};
+	function brand(){ return h('div', {'class':'brand'}, [h('img', {'class':'mark', src:'img/logo.png', alt:''}), 'Download Center']); }
+	/* The package does not answer yet (it is starting, or restarting after an update): wait for it and go on by itself,
+	   every 3 seconds, for up to 5 minutes */
+	function starting(){
+		if(!app.querySelector('.login.starting')){
+			clear(app);
+			app.appendChild(h('div', {'class':'login starting'}, h('div', {'class':'lbox', role:'status'}, [brand(), h('span', {'class':'spinner', 'aria-hidden':'true'}),
+				h('h1', {text:DC.t('Download Center is starting…')}), h('p', {'class':'note', text:DC.t('This page continues by itself when it is ready.')}),
+				btn('retry', DC.t('Retry'), DC.boot)])));
+		}
+		S.bootTimer = setTimeout(DC.boot, 3000);
+	}
 
 	/* ---------- polling and the event stream ---------- */
+	/* The package restarting (App Center, an update started in another browser) or the NAS out of reach: after two failed
+	   list reads in a row the page says it is reconnecting; once the list answers again it says so, or reloads when the
+	   package came back as another version. The update window explains a restart itself. */
+	var RC = {fails:0, el:null, kind:''};
+	function reconnecting(e){
+		var kind = e && e.code === 'unavailable' ? 'restart' : e && (e.code === 'network' || e.code === 'timeout') ? 'net' : '';
+		if(!kind){ RC.fails = 0; return; }
+		if(++RC.fails < 2 || DC.update.busy() || (RC.el && RC.kind === kind)) return;
+		RC.kind = kind;
+		if(!RC.el){ RC.el = h('div', {'class':'reconn', role:'status'}); DC.layer().appendChild(RC.el); }
+		add(clear(RC.el), [h('span', {'class':'spinner', 'aria-hidden':'true'}),
+			h('span', {text:kind === 'restart' ? DC.t('Download Center is restarting. Reconnecting…') : DC.t('Cannot reach the NAS. Reconnecting…')})]);
+	}
+	function reconnected(){
+		var el = RC.el, was = S.me && S.me.nas && S.me.nas.version;
+		RC.fails = 0;
+		if(!el) return;
+		RC.el = null;
+		DC.update.health(function(ver){
+			if(ver && was && ver !== was){
+				add(clear(el), [h('span', {'class':'spinner', 'aria-hidden':'true'}), h('span', {text:DC.t('Updated to {version}; reloading the page…', {version:ver})})]);
+				setTimeout(function(){ location.reload(); }, 1500);
+				return;
+			}
+			add(clear(el), [icon('done'), h('span', {text:DC.t('Reconnected')})]);
+			setTimeout(function(){ DC.remove(el); }, 2000);
+		});
+	}
 	function poll(){
 		clearTimeout(S.polling);
 		if(!S.live) return;
 		var gen = DC.reorder.gen();
 		DC.api.get('tasks').then(function(r){
+			reconnected();
 			/* Asked for before a move was answered: the order in it is the old one */
 			if(gen !== DC.reorder.gen() || DC.reorder.pending()) return;
 			setTasks(r.tasks || []);
 			S.rates = {down:r.down_rate || 0, up:r.up_rate || 0};
 			refresh();
-		}, function(){}).then(function(){
+		}, reconnecting).then(function(){
 			if(S.live) S.polling = setTimeout(poll, document.hidden ? 10000 : 2000);
 		});
 	}
@@ -277,9 +321,15 @@
 			DC.leave(function(){ resetSel(); go('tasks'); });
 		}}, [icon('down', 'still'), h('span', {text:DC.t('Tasks')})]);
 		R.tabSet = h('button', {'class':'ib tb', type:'button', onclick:function(){ DC.leave(function(){ S.setOpen = false; go('settings'); }); }}, [icon('gear'), h('span', {text:DC.t('Settings')})]);
+		R.tabSearch = h('button', {'class':'ib tb', type:'button', onclick:openSearch}, [icon('search'), h('span', {text:DC.t('Search')})]);
+		/* On the search page the tabs fold into one round button back to where the user came from; the search field takes the
+		   rest of the bar, above the keyboard */
+		R.tabBack = h('button', {'class':'ib tb-back', type:'button', onclick:function(){ DC.leave(function(){ go(S.backTo || 'tasks'); }); }});
+		R.tabSlot = h('div', {'class':'tb-slot'});
 		app.appendChild(h('nav', {'class':'tabbar', 'aria-label':DC.t('Main')}, [
-			h('div', {'class':'tabcap'}, [R.tabTasks, R.tabSet]),
-			DC.can('tasks:add') ? h('button', {'class':'ib fab', type:'button', 'aria-label':DC.t('Add download'), title:DC.t('Add download'), onclick:function(){ DC.addFlow.openPaste(); }}, icon('plus')) : null
+			h('div', {'class':'tabcap'}, [R.tabTasks, R.tabSearch, R.tabSet]),
+			DC.can('tasks:add') ? h('button', {'class':'ib fab', type:'button', 'aria-label':DC.t('Add download'), title:DC.t('Add download'), onclick:function(){ DC.addFlow.openPaste(); }}, icon('plus')) : null,
+			R.tabBack, R.tabSlot
 		]));
 		setTopHeight();
 		S.wasPhone = DC.phone();
@@ -331,7 +381,7 @@
 				h('span', {'class':'note', text:DC.t('Inside the QTS desktop, the QTS sign-in is used. To sign out, sign out of QTS.')})])
 			: h('div', {'class':'me-out'}, [phone, h('button', {'class':'ib linkish out', type:'button', onclick:function(){
 					closeFn();
-					DC.confirm(DC.t('Sign out of Download Center?'), 'lock', DC.t('The sign-in is shared with QTS; QTS in this browser will be signed out too.'), DC.t('Sign out'), function(){ stopLive(); DC.login.logout(); }, true);
+					DC.confirm(DC.t('Sign out of Download Center?'), 'lock', DC.sentences(DC.t('The sign-in is shared with QTS; QTS in this browser will be signed out too.'), DC.t('If this browser was set to skip 2-step verification, it will ask for it again.')), DC.t('Sign out'), function(){ stopLive(); DC.login.logout(); }, true);
 				}}, [icon('lock'), DC.t('Sign out')]),
 				h('span', {'class':'note', text:DC.t('This also signs you out of QTS in this browser.')})]);
 		closeFn = DC.modal(DC.t('Personal settings'), 'user', [
@@ -358,11 +408,17 @@
 	function renderNav(){
 		clear(R.nav); R.counts = {}; R.navBtn = {};
 		var i, f, c;
+		var srch = DC.search.entry(), back = S.backTo === 'settings' ? ['gear', DC.t('Back to Settings')] : ['down', DC.t('Back to Tasks')];
 		app.className = 'app v-' + S.view;
 		R.tabTasks.classList.toggle('on', S.view === 'tasks');
 		R.tabSet.classList.toggle('on', S.view === 'settings');
+		R.tabSearch.classList.toggle('on', S.view === 'search');
 		R.tabTasks.setAttribute('aria-current', S.view === 'tasks' ? 'page' : 'false');
 		R.tabSet.setAttribute('aria-current', S.view === 'settings' ? 'page' : 'false');
+		R.tabSearch.setAttribute('aria-current', S.view === 'search' ? 'page' : 'false');
+		R.tabSearch.hidden = !srch;
+		clear(R.tabBack).appendChild(icon(back[0], 'still'));
+		R.tabBack.setAttribute('aria-label', back[1]); R.tabBack.title = back[1];
 		for(i = 0; i < FILTERS.length; i++){
 			f = FILTERS[i];
 			c = h('span', {'class':'cnt num'});
@@ -372,9 +428,18 @@
 			R.nav.appendChild(R.navBtn[f.id]);
 		}
 		R.nav.appendChild(h('div', {'class':'gap'}));
+		if(srch) R.nav.appendChild(h('button', {'class':'ib nv nv-srch' + (S.view === 'search' ? ' on' : ''), type:'button', 'aria-current':S.view === 'search' ? 'page' : null,
+			title:DC.t('Search ({key})', {key:/Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘K' : 'Ctrl+K'}), onclick:openSearch}, [icon('search'), h('span', {text:DC.t('Search')})]));
 		R.nav.appendChild(h('button', {'class':'ib nv nv-set' + (S.view === 'settings' ? ' on' : ''), type:'button', onclick:function(){ DC.leave(function(){ go('settings'); }); }}, [icon('gear'), h('span', {text:DC.t('Settings')})]));
 		renderCounts();
 	}
+	DC.renderNav = function(){ if(R.nav) renderNav(); };
+	/* The search page: from the sidebar, the phone's tab, Ctrl/⌘+K and the add window (DC.search.open) */
+	function openSearch(){
+		if(S.view === 'search'){ DC.search.focus(); return; }
+		DC.leave(function(){ go('search'); DC.search.focus(); });
+	}
+	DC.openSearch = openSearch;
 	/* Empty filters are hidden from the phone's filter strip so the useful ones fit without scrolling. */
 	function renderCounts(){
 		var i, j, n;
@@ -386,7 +451,12 @@
 			R.navBtn[FILTERS[i].id].classList.toggle('zero', !n && FILTERS[i].id !== 'all');
 		}
 	}
-	function go(view){ S.dirty = null; S.view = view; DC.detail.close(); renderNav(); renderView(); window.scrollTo(0, 0); }
+	function go(view){
+		/* The phone's search page goes back to the tab it was opened from */
+		if(view === 'search' && S.view !== 'search') S.backTo = S.view;
+		if(view === 'search' && S.view !== 'search') DC.track('search_open');
+		S.dirty = null; S.view = view; DC.detail.close(); renderNav(); renderView(); window.scrollTo(0, 0);
+	}
 	DC.go = go;
 	/* A settings page with unsaved changes sets S.dirty; moving away from it asks first. */
 	DC.leave = function(fn){
@@ -395,8 +465,9 @@
 	};
 	window.addEventListener('beforeunload', function(e){ if(S.dirty && S.dirty()){ e.preventDefault(); e.returnValue = ''; } });
 	function renderView(){
-		clear(R.main); R.rows = {}; R.list = null; R.paintEnd = null;
+		clear(R.main); clear(R.tabSlot); R.rows = {}; R.list = null; R.paintEnd = null;
 		if(S.view === 'tasks') viewTasks();
+		else if(S.view === 'search') DC.search.view(R.main, R.tabSlot);
 		else DC.settings.view(R.main);
 		saveRoute();
 	}
@@ -425,15 +496,17 @@
 	   replaced, never pushed: Back inside the QTS desktop must not walk through the app's pages. Written after the view has
 	   rendered, because settings fall back to Downloads when the tab is not available to this account. */
 	function readRoute(){
-		var link = /^#task\/([0-9a-f]{40,64})$/.exec(location.hash), m = /^#(tasks|settings)(?:\/([a-z]+))?$/.exec(location.hash) || [];
+		var link = /^#task\/([0-9a-f]{40,64})$/.exec(location.hash), m = /^#(tasks|settings|search)(?:\/([a-z]+))?$/.exec(location.hash) || [];
 		/* #task/<id> (a link from a Deskpane widget): the task list, then that task's details once the list has arrived */
 		if(link){ S.view = 'tasks'; S.filter = 'all'; S.openTask = link[1]; return; }
 		S.view = m[1] || 'tasks'; S.filter = 'all';
+		/* #search keeps no keyword; an account without the search page lands on the task list */
+		if(S.view === 'search' && !DC.search.entry()) S.view = 'tasks';
 		if(m[1] === 'tasks' && m[2]) S.filter = filterById(m[2]).id;
 		if(m[1] === 'settings'){ S.setOpen = !!m[2]; if(m[2]) S.setTab = m[2]; }
 	}
 	function saveRoute(){
-		var r = S.view === 'settings' ? '#settings' + (S.setOpen || !DC.phone() ? '/' + S.setTab : '') : S.filter !== 'all' ? '#tasks/' + S.filter : '';
+		var r = S.view === 'settings' ? '#settings' + (S.setOpen || !DC.phone() ? '/' + S.setTab : '') : S.view === 'search' ? '#search' : S.filter !== 'all' ? '#tasks/' + S.filter : '';
 		if(S.view === 'tasks' && S.linkTask && DC.detail.current() === S.linkTask) r = '#task/' + S.linkTask;
 		if(location.hash === r) return;
 		try{ history.replaceState(history.state, '', location.pathname + location.search + r); }catch(e){}
@@ -764,6 +837,8 @@
 			else for(i = 0; i < v.length; i++) updateRow(v[i]);
 		}
 		if(DC.detail.current()) DC.detail.live();
+		/* Results that are in the list now say so */
+		if(S.view === 'search') DC.search.tasksChanged();
 	}
 	DC.refresh = refresh;
 
@@ -863,6 +938,12 @@
 			e.preventDefault();
 			if(S.view !== 'tasks') go('tasks');
 			DC.addFlow.compose();
+		}
+		/* Ctrl+K (⌘K on a Mac) opens the search page, outside input fields and dialogs */
+		if(S.me && S.live && (e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && tag !== 'input' && tag !== 'textarea' && tag !== 'select'
+			&& !e.target.isContentEditable && !R.closeModal && DC.search.entry()){
+			e.preventDefault();
+			openSearch();
 		}
 	});
 

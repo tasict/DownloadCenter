@@ -57,6 +57,28 @@ func (r *Release) Asset(name string) *Asset {
 	return nil
 }
 
+// Manifest names every asset a release of version carries: the package of
+// each architecture, SHA256SUMS, its signature and release.json.
+func Manifest(version string) map[string]bool {
+	m := map[string]bool{SumsName: true, SigName: true, InfoName: true}
+	for _, a := range Arches {
+		m[AssetName(version, a)] = true
+	}
+	return m
+}
+
+// Unexpected lists the assets of r that are not in the manifest of version.
+func (r *Release) Unexpected(version string) []string {
+	m := Manifest(version)
+	var out []string
+	for _, a := range r.Assets {
+		if !m[a.Name] {
+			out = append(out, a.Name)
+		}
+	}
+	return out
+}
+
 // TokenFrom reads a token file (surrounding white space dropped).
 func TokenFrom(path string) (string, error) {
 	b, err := os.ReadFile(path)
@@ -235,9 +257,16 @@ func (g *GitHub) Publish(r *Release, notes string, pre bool) error {
 // CheckRelease downloads the SHA256SUMS, its signature and every package of
 // a release and verifies them with CheckSet. It returns the parsed list.
 func (g *GitHub) CheckRelease(r *Release, version string, pub ed25519.PublicKey) (map[string]string, error) {
+	// Exactly the manifest: nothing else may be offered beside it
+	if extra := r.Unexpected(version); len(extra) > 0 {
+		return nil, fmt.Errorf("release %s has assets that are not part of it: %s", r.TagName, strings.Join(extra, ", "))
+	}
 	sa, ga := r.Asset(SumsName), r.Asset(SigName)
 	if sa == nil || ga == nil {
 		return nil, fmt.Errorf("release %s has no %s or %s", r.TagName, SumsName, SigName)
+	}
+	if r.Asset(InfoName) == nil {
+		return nil, fmt.Errorf("release %s has no %s", r.TagName, InfoName)
 	}
 	sums, err := g.Read(sa)
 	if err != nil {
@@ -328,6 +357,10 @@ func (g *GitHub) BuildFeed(pub ed25519.PublicKey) (*Feed, []string, error) {
 		if r.Draft || !strings.HasPrefix(r.TagName, "v") || !ValidVersion(v) {
 			continue
 		}
+		if extra := r.Unexpected(v); len(extra) > 0 {
+			skipped = append(skipped, r.TagName+": assets that are not part of it: "+strings.Join(extra, ", "))
+			continue
+		}
 		sa, ga := r.Asset(SumsName), r.Asset(SigName)
 		if sa == nil || ga == nil {
 			skipped = append(skipped, r.TagName+": no signed "+SumsName)
@@ -367,13 +400,21 @@ func (g *GitHub) BuildFeed(pub ed25519.PublicKey) (*Feed, []string, error) {
 				schema = info.Schema
 			}
 		}
-		fr := FeedRelease{Version: v, Tag: r.TagName, Date: day(r.PublishedAt), Prerelease: r.Prerelease, Schema: schema, URL: r.HTMLURL, Notes: r.Body,
+		// Pre-release or not follows from the version the signature covers
+		fr := FeedRelease{Version: v, Tag: r.TagName, Date: day(r.PublishedAt), Prerelease: Prerelease(v), Schema: schema, URL: r.HTMLURL, Notes: r.Body,
 			SumsURL: sa.BrowserDownloadURL, SigURL: ga.BrowserDownloadURL, Assets: map[string]FeedAsset{}}
+		missing := ""
 		for _, arch := range Arches {
 			n := AssetName(v, arch)
 			if a := r.Asset(n); a != nil && list[n] != "" {
 				fr.Assets[arch] = FeedAsset{Name: n, URL: a.BrowserDownloadURL, Size: a.Size, SHA256: list[n]}
+			} else {
+				missing = n
 			}
+		}
+		if missing != "" {
+			skipped = append(skipped, r.TagName+": no "+missing)
+			continue
 		}
 		f.Releases = append(f.Releases, fr)
 	}

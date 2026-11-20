@@ -20,6 +20,7 @@ import (
 	"downloadcenter/internal/hosters"
 	"downloadcenter/internal/importer"
 	"downloadcenter/internal/notify"
+	"downloadcenter/internal/search"
 	"downloadcenter/internal/update"
 	"downloadcenter/internal/v4"
 )
@@ -55,6 +56,8 @@ func registerExtensions(srv *api.Server, m *core.Manager, au *auth.Service, root
 	importer.Register(srv, m, au)
 	stoppers = append(stoppers, notify.Register(srv, m, au, data))
 	stoppers = append(stoppers, update.Register(srv, m, root, data))
+	stoppers = append(stoppers, search.Register(srv, m, root, data))
+	analytics.SearchCounts = search.Counts
 	stoppers = append(stoppers, analytics.Register(srv, m, root, data))
 }
 
@@ -111,6 +114,13 @@ func runCGI() int {
 	}
 	if ct := os.Getenv("CONTENT_TYPE"); ct != "" {
 		req.Header.Set("Content-Type", ct)
+	}
+	// What the client sent under these names is replaced, never passed on
+	for _, h := range []string{"X-DC-Auth", "X-DC-Remote", "X-DC-Scheme", "X-Forwarded-For", "X-Forwarded-Proto"} {
+		req.Header.Del(h)
+	}
+	if key := api.ReadProxyAuth(filepath.Join(root, "data")); key != "" {
+		req.Header.Set("X-DC-Auth", key)
 	}
 	req.Header.Set("X-DC-Remote", os.Getenv("REMOTE_ADDR"))
 	req.Header.Set("X-DC-Scheme", os.Getenv("REQUEST_SCHEME"))

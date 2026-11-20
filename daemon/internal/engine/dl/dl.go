@@ -6,6 +6,7 @@ package dl
 
 import (
 	"errors"
+	"path/filepath"
 	"sync"
 
 	"downloadcenter/internal/engine"
@@ -25,9 +26,11 @@ type Engine struct {
 }
 
 // New returns the engine; bin is the dc-dl executable, dataDir the data/
-// directory of the package.
+// directory of the package. The package's list of certificate authorities
+// (certs/cacert.pem beside the bin folder) is trusted besides the system's.
 func New(bin, dataDir string) *Engine {
-	return &Engine{MaxConns: 4, tasks: map[string]*task{}, sc: &sidecar{bin: bin, dataDir: dataDir}}
+	ca := filepath.Join(filepath.Dir(filepath.Dir(bin)), "certs", "cacert.pem")
+	return &Engine{MaxConns: 4, tasks: map[string]*task{}, sc: &sidecar{bin: bin, dataDir: dataDir, caFile: ca}}
 }
 
 func (e *Engine) Name() string { return "builtin" }
@@ -135,7 +138,9 @@ func (e *Engine) Add(hash string, r engine.AddRequest) (string, error) {
 	t := newTask(e, hash, r)
 	e.tasks[hash] = t
 	e.mu.Unlock()
-	t.load()
+	// Saved progress is the folder's: whatever it holds, a bad record is
+	// only not taken over
+	t.safely(func() error { t.load(); return nil })
 	if !r.Paused {
 		t.resume()
 	}

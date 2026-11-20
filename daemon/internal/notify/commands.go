@@ -257,12 +257,16 @@ func (s *Service) cmdAdd(p *auth.Principal, text string) Reply {
 	if len(links) == 0 {
 		return Reply{Reply: "沒有找到網址或磁力連結。用法：/add <網址>"}
 	}
-	o := core.AddOptions{Owner: p.User, Admin: p.Admin, AutoRemove: "default", Caller: "Chat"}
+	o := core.AddOptions{Owner: p.User, Admin: p.Admin, AllTasks: p.SeesAll(), Guard: !p.Interactive(), AutoRemove: "default", Caller: "Chat"}
 	if p.Via == "token" && p.Token != nil {
 		o.Caller = "API: " + p.Token.Name
 	}
 	if len(p.Folders) > 0 {
 		o.TempDir = p.Folders[0]
+		// The default destination must be on the list too
+		if s.folders == nil || !s.folders(p, &o) {
+			return Reply{Reply: "這個權杖不允許下載到預設資料夾"}
+		}
 	}
 	var lines []string
 	var last *core.AddResult
@@ -282,7 +286,11 @@ func (s *Service) cmdAdd(p *auth.Principal, text string) Reply {
 				lines = append(lines, "不允許加入網址")
 				continue
 			}
-			if b := s.m.FetchTorrentLink(l, o.Proxy, p.Admin); b != nil {
+			if b := s.m.FetchTorrentLink(l, o.Proxy, p.Admin && !o.Guard); b != nil {
+				if !p.SourceAllowed("torrent") {
+					lines = append(lines, "不允許加入 .torrent 檔")
+					continue
+				}
 				res, err = s.m.AddTorrent(b, o)
 			} else {
 				res, err = s.m.AddURL(l, o)

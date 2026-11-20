@@ -65,6 +65,9 @@ type TaskOptions struct {
 	ResumeFile     string         `json:"resume_file,omitempty"` // official .fastresume to try (libtorrent)
 	LastActive     int64          `json:"last_active,omitempty"` // last time data moved (stall detection)
 	Proxy          string         `json:"proxy,omitempty"`       // URL tasks: "" automatic, "none" or a proxy profile id
+	Guarded        bool           `json:"guarded,omitempty"`     // connections guarded whoever the owner is (added through a token or a chat)
+	AdoptFrom      string         `json:"adopt_from,omitempty"`  // torrents: data of the same name was in this destination folder when added
+	Adopted        bool           `json:"adopted,omitempty"`     // torrents: the engine took over the data at DataPath (it stays there)
 }
 
 // Task is a row of the tasks table plus live engine figures.
@@ -123,6 +126,7 @@ type Task struct {
 	NumPieces    int    `json:"-"`
 	ProxyUsed    string `json:"-"` // URL tasks: proxy URL the engine task was added with
 	PieceLen     int64  `json:"-"`
+	filesAt      int64  // when the file list was last stored
 }
 
 const taskCols = `hash, owner, kind, source, name, engine, engine_ref, state, user_paused, wake_time, position,

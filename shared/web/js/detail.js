@@ -792,10 +792,14 @@
 				plot(r.s, r.list, W, 24, 1, sd, su, now);
 			}
 		}
+		/* A tracker's message is the tracker's own text, except the one the torrent engine gives a certificate it cannot verify
+		   (TrackerCertificate in daemon/internal/engine/lt), which is shown in the page's language */
+		var TRK_CERT = 'its certificate cannot be verified; the list of trusted certificate authorities on the NAS may be out of date';
+		function trkMsg(m){ return m === TRK_CERT ? DC.t('its certificate cannot be verified; the list of trusted certificate authorities on the NAS may be out of date') : m; }
 		/* What each tracker reports, from the source status (read again every 30 seconds); the public list folds into one row */
 		function trkRow(tr){
 			var st = {working:['ok', DC.t('Working'), ''], unregistered:['bad', DC.t('Reports that this torrent does not exist'), 'bad'], not_contacted:['', DC.t('Not contacted yet'), '']}[tr.state];
-			if(!st) st = ['warn', tr.message ? DC.t('Cannot be reached: {error} (failed {n} times)', {error:tr.message, n:tr.fails}) : DC.t('Cannot be reached (failed {n} times)', {n:tr.fails}), 'warn'];
+			if(!st) st = ['warn', tr.message ? DC.t('Cannot be reached: {error} (failed {n} times)', {error:trkMsg(tr.message), n:tr.fails}) : DC.t('Cannot be reached (failed {n} times)', {n:tr.fails}), 'warn'];
 			function count(n){ return n >= 0 ? h('em', {role:'cell', text:String(n)}) : h('em', {'class':'none', role:'cell', text:'—'}); }
 			return h('div', {'class':'trk-row', role:'row'}, [h('span', {'class':'trk-dot ' + st[0], role:'cell'}),
 				h('span', {role:'cell'}, [h('b', {text:tr.host || tr.url, title:tr.url}), h('small', {'class':st[2], text:st[1]})]), count(tr.seeds), count(tr.leechers)]);

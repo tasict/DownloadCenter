@@ -104,7 +104,7 @@ func TestF(t *testing.T) {
 
 func TestFromTag(t *testing.T) {
 	for tag, want := range map[string]string{"zh-TW": "TCH", "zh-Hant-HK": "TCH", "zh-CN": "SCH", "zh": "SCH", "de-DE": "GER", "es-MX": "ESM", "es": "SPA",
-		"en-US": "", "ja": "JPN", "pt-BR": "POR", "nb-NO": "NOR", "": "", "dee": ""} {
+		"en-US": "", "ja": "JPN", "pt-BR": "POR", "hu-HU": "HUN", "nb-NO": "NOR", "": "", "dee": ""} {
 		if got := FromTag(tag); got != want {
 			t.Errorf("FromTag(%q) = %q, want %q", tag, got, want)
 		}

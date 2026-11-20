@@ -41,6 +41,8 @@
 		}
 		return out;
 	}
+	/* The sign-in cookies are QTS's own and are set like QTS sets them, without Secure, so that QTS over plain http in
+	   the same browser can still replace them; Download Center has no cookies of its own */
 	function setCookie(k, v){ document.cookie = k + '=' + encodeURIComponent(v) + '; path=/; SameSite=Lax'; }
 	function delCookie(k){ document.cookie = k + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'; }
 	function getCookie(k){
@@ -260,15 +262,21 @@
 		step1(msg);
 	}
 
+	/* The https address of this page on the port QTS publishes. The answer comes over plain http, so anything but a port
+	   number (which could carry a user@host) falls back to 443. */
+	function httpsAddress(port){
+		port = String(port || '');
+		if(!/^[0-9]{1,5}$/.test(port) || +port < 1 || +port > 65535) port = '443';
+		return 'https://' + location.hostname + (port === '443' ? '' : ':' + port) + location.pathname;
+	}
 	/* Plain http (not localhost): warn and offer the https address QTS publishes. */
 	function httpWarning(el){
 		if(location.protocol !== 'http:' || /^(localhost|127\.|\[::1\])/.test(location.hostname)) return;
 		cgi({}, 'GET').then(function(a){
-			var port = a.stunnelPort || '443';
 			if(a.stunnelEnabled === '0') return;
 			clear(el).hidden = false;
 			add(el, [h('span', {text:DC.t('This connection is not encrypted. Your password will be sent in plain text.')}),
-				h('button', {'class':'ib linkish', type:'button', onclick:function(){ location.href = 'https://' + location.hostname + (port === '443' ? '' : ':' + port) + location.pathname; }}, DC.t('Use encrypted connection'))]);
+				h('button', {'class':'ib linkish', type:'button', onclick:function(){ location.href = httpsAddress(a.stunnelPort); }}, DC.t('Use encrypted connection'))]);
 		}, function(){
 			clear(el).hidden = false;
 			el.appendChild(h('span', {text:DC.t('This connection is not encrypted. Your password will be sent in plain text.')}));
@@ -276,8 +284,17 @@
 	}
 
 	/* Logout is QTS logout too: the session is shared with QTS in this browser. */
+	/* Signing out also ends this browser's 2-step skip (QTS forgets the client id's device token; the page forgets both)
+	   and the recent searches kept here */
+	function logoutParams(sid, user, cid){
+		var p = {logout:'1', sid:sid};
+		if(user){ p.del_client = '1'; p.user = user; }
+		if(cid) p.client_id = cid;
+		return p;
+	}
 	function logout(){
-		var sid = getCookie('NAS_SID');
+		var sid = getCookie('NAS_SID'), user = (DC.me && DC.me()) || getCookie('NAS_USER'), cid = user ? DC.ls(cidKey(user)) : '';
+		if(user){ DC.ls(cidKey(user), null); DC.ls(vtKey(user), null); DC.ls('dc-search-recent:' + user, null); }
 		function done(){
 			delCookie('NAS_SID'); delCookie('NAS_USER'); delCookie('NAS_PW_STATUS'); delCookie('home'); delCookie('QDS_SID');
 			/* The next account signing in here starts on the task list, not on the page this one left open */
@@ -286,7 +303,7 @@
 		}
 		DC.api.post('logout', {}, {quiet:true}).then(null, function(){}).then(function(){
 			if(!sid){ done(); return; }
-			cgi({logout:'1', sid:sid}, 'GET', '/cgi-bin/authLogout.cgi').then(done, done);
+			cgi(logoutParams(sid, user, cid), 'GET', '/cgi-bin/authLogout.cgi').then(done, done);
 		});
 	}
 
@@ -344,5 +361,5 @@
 		document.removeEventListener('timeupdate', onPlaying, true);
 	}
 
-	DC.login = {show:show, logout:logout, parse:parse, keepAlive:startKeepAlive, stopKeepAlive:stopKeepAlive, trackInput:trackInput, stopInput:stopInput};
+	DC.login = {show:show, logout:logout, parse:parse, httpsAddress:httpsAddress, logoutParams:logoutParams, keepAlive:startKeepAlive, stopKeepAlive:stopKeepAlive, trackInput:trackInput, stopInput:stopInput};
 })();

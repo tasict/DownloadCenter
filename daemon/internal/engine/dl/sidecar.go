@@ -18,13 +18,23 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"downloadcenter/internal/engine"
 )
+
+// headerTimeout: how long a transfer may go without its first frame (dc-dl
+// sends it with the first data, or at the end). A server that takes the
+// connection and then says nothing would otherwise hold the task forever.
+var headerTimeout = 60 * time.Second
+
+var errFrameTooLarge = errors.New("frame too large")
 
 // sidecar runs dc-dl, the libcurl transfer engine (see dcdl/PROTOCOL.md):
 // one unix socket connection per transfer.
 type sidecar struct {
 	bin     string
 	dataDir string
+	caFile  string // certificate authorities trusted besides the system's ("" or missing: none)
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -64,6 +74,24 @@ func isClosed(ch chan struct{}) bool {
 	}
 }
 
+// followsItself: dc-dl 1.2 and newer leave redirects to dcd when asked.
+func (s *sidecar) followsItself() bool {
+	v := s.versions()
+	return v != nil && atLeast(v.DCDL, 1, 2)
+}
+
+// atLeast compares a "major.minor" version (a patch level does not count).
+func atLeast(v string, major, minor int) bool {
+	a, b, _ := strings.Cut(v, ".")
+	b, _, _ = strings.Cut(b, ".")
+	ma, err := strconv.Atoi(a)
+	if err != nil {
+		return false
+	}
+	mi, _ := strconv.Atoi(b)
+	return ma > major || ma == major && mi >= minor
+}
+
 // versions returns what dc-dl reported at start (nil when not running).
 func (s *sidecar) versions() *versionInfo {
 	s.mu.Lock()
@@ -97,7 +125,16 @@ func (s *sidecar) spawn() error {
 	os.MkdirAll(filepath.Join(s.dataDir, "logs"), 0700)
 	s.killStale()
 	os.Remove(s.sockPath())
-	cmd := exec.Command(s.bin, "--socket", s.sockPath(), "--known-hosts", filepath.Join(s.dataDir, "ssh_known_hosts"))
+	args := []string{"--socket", s.sockPath(), "--known-hosts", filepath.Join(s.dataDir, "ssh_known_hosts")}
+	if s.caFile != "" {
+		if f, err := os.Open(s.caFile); err == nil {
+			f.Close()
+			args = append(args, "--ca-file", s.caFile)
+		} else {
+			log.Printf("url engine: no certificate list at %s: the system's certificate authorities only", s.caFile)
+		}
+	}
+	cmd := exec.Command(s.bin, args...)
 	cmd.Dir = s.dataDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	lf, _ := os.OpenFile(filepath.Join(s.dataDir, "logs", "dc-dl.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
@@ -206,6 +243,7 @@ type xreq struct {
 	Pass    string   `json:"pass,omitempty"`
 	Proxy   string   `json:"proxy,omitempty"`
 	Guard   bool     `json:"guard,omitempty"`
+	Follow  *bool    `json:"follow,omitempty"` // false: redirects come back to dcd (dc-dl 1.2)
 }
 
 // hframe is what dc-dl knows about the response before the data.
@@ -268,6 +306,7 @@ func (s *sidecar) transfer(ctx context.Context, r xreq) (*xfer, context.CancelFu
 		return nil, nil, &dlError{code: engineDownCode, msg: "dc-dl: " + err.Error(), transient: true}
 	}
 	x := &xfer{conn: c, r: bufio.NewReaderSize(c, 128<<10)}
+	c.SetReadDeadline(time.Now().Add(headerTimeout))
 	typ, n, err := x.frame()
 	if err == nil && typ != 'H' {
 		err = errors.New("unexpected frame")
@@ -286,11 +325,18 @@ func (s *sidecar) transfer(ctx context.Context, r xreq) (*xfer, context.CancelFu
 	}
 	if err != nil {
 		cancel()
-		if ctx.Err() != nil {
+		var ne net.Error
+		switch {
+		case ctx.Err() != nil:
 			return nil, nil, ctx.Err()
+		case errors.As(err, &ne) && ne.Timeout():
+			return nil, nil, &dlError{code: engine.ErrTimeout, msg: "no answer from the server", transient: true}
+		case errors.Is(err, errFrameTooLarge):
+			return nil, nil, &dlError{code: engine.ErrBadResponse, msg: "the server's answer is too large"}
 		}
 		return nil, nil, &dlError{code: engineDownCode, msg: "dc-dl: " + err.Error(), transient: true}
 	}
+	c.SetReadDeadline(time.Time{})
 	if x.end != nil && x.end.Code != 0 {
 		cancel()
 		return nil, nil, x.end.err()
@@ -308,7 +354,7 @@ func (x *xfer) frame() (byte, int, error) {
 
 func (x *xfer) readJSON(n int, v any) error {
 	if n > 1<<20 {
-		return errors.New("frame too large")
+		return errFrameTooLarge
 	}
 	b := make([]byte, n)
 	if _, err := io.ReadFull(x.r, b); err != nil {

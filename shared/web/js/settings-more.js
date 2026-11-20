@@ -122,10 +122,394 @@
 			hosts.length ? DC.addRow(DC.t('Add file-hosting account'), function(){ hostForm(null); }) : null]));
 	}
 
+	/* ---------- Search sources (administrators, web UI only) ---------- */
+	var SRC_KIND = {builtin:DC.t('Built in'), custom:DC.t('Custom'), torznab:'Torznab', dlm:'Synology .dlm', 'qnap-addon':'QNAP .addon'};
+	var CODE_FORMAT = {dlm:DC.t('Synology search module (.dlm)'), 'qnap-addon':DC.t('QNAP Download Station add-on (.addon)')};
+	function search(body){
+		DC.loadingInto(body);
+		DC.api.get('search/plugins').then(function(r){ clear(body); searchForm(body, r); }, function(e){ DC.errorInto(body, e); });
+	}
+	function searchForm(body, r){
+		var srcs = r.sources || [], list = h('div'), i;
+		function reload(){ search(clear(body)); }
+		/* What the search page offers follows the list: some source on and set up */
+		function sync(){ var on = false, k; for(k = 0; k < srcs.length; k++) if(srcs[k].enabled && !srcs[k].needs_setup && !(srcs[k].runtime && srcs[k].runtime.ok === false)) on = true; DC.search.setAvailable(on); }
+		/* Who may search a source: saved at once. A source with a key or an account asks first before everyone gets it. */
+		function audience(s, idx){
+			var sel = h('select', {'class':'srcaud', id:'srcAud' + idx, 'aria-label':DC.t('Who can use “{name}”', {name:s.name}), title:DC.t('Who can use it')},
+				[h('option', {value:'all', text:DC.t('Everyone')}), h('option', {value:'admins', text:DC.t('Administrators only')})]);
+			sel.value = s.audience === 'all' ? 'all' : 'admins';
+			sel.onchange = function(){
+				var v = sel.value, was = v === 'all' ? 'admins' : 'all';
+				function save(){
+					sel.disabled = true;
+					DC.api.put('search/plugins/' + encodeURIComponent(s.id), {audience:v}).then(function(x){
+						sel.disabled = false;
+						if(x && x.id) srcs[idx] = x;
+						DC.toast(v === 'all' ? DC.t('Everyone can use “{name}” now', {name:s.name}) : DC.t('Only administrators can use “{name}” now', {name:s.name}));
+					}, function(e){ sel.disabled = false; sel.value = was; DC.toast(DC.errText(e)); });
+				}
+				if(v === 'all' && s.secret_bearing) openToAll(s, save, function(){ sel.value = was; });
+				else save();
+			};
+			return h('span', {'class':'srcaudw'}, [icon('user'), sel]);
+		}
+		function openToAll(s, ok, cancel){
+			var done = false;
+			DC.modal(DC.t('Let everyone use “{name}”?', {name:s.name}), 'user', [
+				h('p', {'class':'lead', text:DC.t('Other users will get links from this source. Those links can contain data that identifies your account on the site, such as a private tracker’s passkey.')})
+			], function(close){
+				return [btn(null, DC.t('Cancel'), close), btn(null, DC.t('Let everyone use it'), function(){ done = true; close(); ok(); }, 'dan pri')];
+			}, {onclose:function(){ if(!done) cancel(); }});
+		}
+		function row(s, idx){
+			var res = h('span', {'class':'srcres', role:'status'}), testB, el, code = !!s.runs_code, bad = !!(s.runtime && s.runtime.ok === false);
+			var en = h('input', {type:'checkbox', id:'srcEn' + idx, checked:s.enabled, disabled:bad && !s.enabled, onchange:function(){
+				var on = this.checked, box = this;
+				DC.api.put('search/plugins/' + encodeURIComponent(s.id), {enabled:on}).then(function(x){
+					srcs[idx] = x; sync();
+					el.classList.toggle('off', !on);
+					DC.toast(on ? DC.t('Enabled') : DC.t('Disabled'));
+				}, function(e){ box.checked = !on; DC.toast(DC.errText(e)); });
+			}});
+			testB = h('button', {'class':'ib linkish', type:'button', onclick:function(){
+				DC.track('search_src_test');
+				testB.disabled = true;
+				res.className = 'srcres'; res.textContent = DC.t('Testing…');
+				DC.api.post('search/plugins/' + encodeURIComponent(s.id) + '/test', {}).then(function(x){
+					testB.disabled = false;
+					testResult(res, x);
+				}, function(e){ testB.disabled = false; res.className = 'srcres bad'; res.textContent = DC.errText(e); });
+			}}, DC.t('Test'));
+			en.setAttribute('aria-label', DC.t('Use “{name}” for searches', {name:s.name}));
+			/* Plugins from another NAS are programs: they say so first, and who agreed to run them */
+			el = h('div', {'class':'lrow srcrow k-' + s.kind + (s.enabled ? '' : ' off')}, [icon(s.kind === 'builtin' ? 'search' : code ? 'gear' : 'plug'), h('div', null, [
+				h('div', {'class':'srchead pills'}, [h('b', {text:s.name}), code ? h('span', {'class':'warn', text:DC.t('Runs code')}) : null, h('span', {text:SRC_KIND[s.kind] || s.kind}),
+					s.version && (s.kind === 'custom' || code) ? h('span', {'class':'num', text:'v' + s.version}) : null,
+					s.needs_setup && !bad ? h('span', {'class':'hold', text:DC.t('Needs setup')}) : null]),
+				s.description ? h('small', {text:s.description}) : null,
+				bad ? h('small', {'class':'srcbad', text:DC.t('Not compatible with this NAS: {reason}', {reason:s.runtime.reason || ''})}) : null,
+				s.consent ? h('small', {text:DC.t('Installed by {user} on {date}, who accepted the terms', {user:s.consent.user || '', date:DC.fdate(s.consent.time)})}) : null,
+				h('div', {'class':'srcline'}, [s.host ? h('small', {text:DC.t('Connects to {host}', {host:s.host})}) : null, bad ? null : testB, res, s.audience ? audience(s, idx) : null])]),
+				h('div', {'class':'acts2'}, [
+					(s.settings || []).length || s.kind === 'torznab' ? ibtn('edit', DC.t('Edit'), function(){ editSource(s); }) : null,
+					s.kind === 'custom' ? h('a', {'class':'ib sq', href:DC.api.url('search/plugins/' + encodeURIComponent(s.id)), download:s.id + '.json', 'aria-label':DC.t('Export'), title:DC.t('Export')}, icon('down')) : null,
+					s.builtin ? null : ibtn('trash', DC.t('Delete'), function(){
+						DC.confirm(DC.t('Delete “{name}”', {name:s.name}), 'search', DC.t('Searches will no longer ask this source, and its settings are deleted.'), DC.t('Delete'), function(){
+							DC.api.del('search/plugins/' + encodeURIComponent(s.id)).then(function(){ DC.toast(DC.t('“{name}” deleted', {name:s.name})); reload(); }, function(e){ DC.toast(DC.errText(e)); });
+						}, true);
+					}),
+					/* The switch saves at once, like the other on/off choices of a list */
+					h('label', {'class':'toggle srcsw', 'for':'srcEn' + idx, title:DC.t('Enable')}, en)])]);
+			return el;
+		}
+		/* A source's settings: secrets are never shown, left empty they stay as saved; a Torznab source can be renamed */
+		function editSource(s){
+			var inputs = {}, fields = [], k, st, name = null;
+			if(s.kind === 'torznab'){ name = h('input', {type:'text', id:'srcName', value:s.name, autocomplete:'off'}); fields.push(field(DC.t('Name'), null, name, 'srcName')); }
+			for(k = 0; k < (s.settings || []).length; k++){
+				st = s.settings[k];
+				inputs[st.id] = h('input', {type:st.secret ? 'password' : 'text', id:'srcSet' + k, value:st.secret ? '' : st.value || '', autocomplete:st.secret ? 'new-password' : 'off', autocapitalize:'off', spellcheck:'false'});
+				fields.push(field(st.label || st.id, st.secret && st.set ? DC.t('Saved; leave empty to keep it') : st.required ? null : DC.t('Optional'), inputs[st.id], 'srcSet' + k));
+			}
+			var err = h('p', {'class':'note srcerr', role:'alert', hidden:true}), saved = false, verifyB = null, vres = null;
+			function collect(){
+				var o = {settings:{}}, key;
+				for(key in inputs) if(inputs.hasOwnProperty(key)) o.settings[key] = inputs[key].value.replace(/^\s+|\s+$/g, '');
+				if(name) o.name = name.value;
+				return o;
+			}
+			/* A plugin with an account: the account is saved, then the plugin asks the site whether it takes it */
+			if(s.runs_code && inputs.username){
+				vres = h('span', {'class':'srcres', role:'status'});
+				verifyB = btn(null, DC.t('Save and verify account'), function(){
+					err.hidden = true; vres.className = 'srcres'; vres.textContent = '';
+					DC.busy(verifyB, true, DC.t('Verifying…'));
+					DC.api.put('search/plugins/' + encodeURIComponent(s.id), collect()).then(function(){
+						saved = true;
+						return DC.api.post('search/plugins/' + encodeURIComponent(s.id) + '/verify', {});
+					}).then(function(x){
+						DC.busy(verifyB, false);
+						vres.className = 'srcres ' + (x.ok ? 'ok' : 'bad');
+						vres.textContent = x.ok ? DC.t('The site accepted the account.') : (x.error || DC.t('The site did not accept the account.'));
+					}, function(e){ DC.busy(verifyB, false); err.textContent = DC.errText(e); err.hidden = false; });
+				});
+			}
+			DC.modal(DC.t('Edit “{name}”', {name:s.name}), 'search', [
+				s.host ? h('p', {'class':'lead', text:DC.t('Connects to {host}', {host:s.host})}) : null,
+				DC.mform(fields), verifyB ? h('div', {'class':'srcverify'}, [verifyB, vres]) : null, err
+			], function(close){
+				var ok = btn(null, DC.t('Save'), function(){
+					var o = collect();
+					DC.busy(ok, true);
+					DC.api.put('search/plugins/' + encodeURIComponent(s.id), o).then(function(){ close(); DC.toast(DC.t('Settings saved')); reload(); },
+						function(e){ DC.busy(ok, false); err.textContent = DC.errText(e); err.hidden = false; });
+				}, 'pri');
+				return [btn(null, DC.t('Cancel'), close), ok];
+			}, {nofocus:true, onclose:function(){ if(saved) reload(); }});
+			if(fields.length) fields[0].querySelector('input').focus();
+		}
+		sync();
+		for(i = 0; i < srcs.length; i++) list.appendChild(row(srcs[i], i));
+		if(!srcs.length) list.appendChild(DC.emptyAdd('search', DC.t('No search sources yet.'), DC.t('Add source'), function(){ addSource(reload, r.runtime); }));
+		body.appendChild(sec('search', DC.t('Search sources'), DC.t('Search sources are third-party sites. Built-in sources, Torznab servers and plugin files only describe how to ask a site and cannot run code. Plugins from another NAS are programs: they run in a restricted environment, and only after an administrator agrees to the terms. Searches go out from this NAS and never to the NAS itself or its local addresses.'), [
+			list, srcs.length ? DC.addRow(DC.t('Add source'), function(){ addSource(reload, r.runtime); }) : null]));
+		body.appendChild(h('p', {'class':'srcdev'}, [DC.t('For developers:') + ' ', h('a', {'class':'linkish', href:'docs/search-plugins.txt', target:'_blank', rel:'noopener'}, [icon('popout'), DC.t('Search plugin format (SEARCH-PLUGINS.md)')])]));
+	}
+	function testResult(el, x, base){
+		base = base || 'srcres';
+		if(x.ok){ el.className = base + ' ok'; el.textContent = x.count ? DC.t('Found {n} results in {s} s.', {n:x.count, s:((x.ms || 0) / 1000).toFixed(1)}) : DC.t('Answered, but found nothing for the test search.'); }
+		else{ el.className = base + ' bad'; el.textContent = x.error || DC.t('Failed'); }
+	}
+	/* Adding a source, in one window: the kind, its fields, and for a plugin file the review card before anything is installed.
+	   Errors stay in the window, next to what caused them. A plugin from another NAS is a program: its terms can only be left
+	   with Cancel or Install (strict: clicking outside, Escape and pulling the sheet down do not close the window). */
+	function addSource(reload, runtime){
+		var step = h('div'), err = h('p', {'class':'note srcerr', role:'alert', hidden:true}), close = null, back, test, main, cancelB, act = null, testFn = null, strict = false;
+		DC.track('search_src_add');
+		function setErr(t){ err.textContent = t || ''; err.hidden = !t; }
+		function buttons(onMain, label, onBack, onTest){
+			act = onMain; testFn = onTest || null; strict = false;
+			main.lastChild.textContent = label || ''; main.hidden = !onMain; main.disabled = false; main.classList.add('pri');
+			back.hidden = !onBack; back.onclick = onBack || null;
+			test.hidden = !onTest;
+			cancelB.lastChild.textContent = DC.t('Cancel');
+		}
+		function pick(){
+			setErr('');
+			clear(step);
+			add(step, [h('p', {'class':'lead', text:DC.t('What do you want to add?')}), h('div', {'class':'svcs srckind'}, [
+				h('button', {'class':'ib svc', type:'button', onclick:torznab}, [icon('plug'), h('span', null, [h('b', {text:DC.t('Torznab server')}), h('small', {text:DC.t('Jackett, Prowlarr or another Torznab server on your network')})])]),
+				h('button', {'class':'ib svc', type:'button', onclick:plugin}, [icon('files'), h('span', null, [h('b', {text:DC.t('Plugin file')}), h('small', {text:DC.t('A .json file that describes how to search a site')})])]),
+				h('button', {'class':'ib svc srccode', type:'button', onclick:function(){ codeFile(true); }}, [icon('gear'), h('span', null, [h('b', {text:DC.t('Search plugin from another NAS')}),
+					h('small', {text:DC.t('A Synology .dlm or QNAP .addon file: a program that runs on this NAS')}),
+					runtime && runtime.ok === false ? h('small', {'class':'srcbad', text:DC.t('This NAS cannot run these plugins: {reason}', {reason:runtime.reason || ''})}) : null])])])]);
+			buttons(null);
+		}
+		/* A plugin from another NAS: only a chosen file (no accept filter, which iOS greys out; the extension is checked after
+		   choosing), sent as Base64 to be checked. Nothing in it runs before the terms are agreed to. */
+		function codeFile(open){
+			var fname = h('span', {'class':'mono'}), status = h('p', {'class':'note', role:'status', hidden:true}), chooseB;
+			var fileIn = h('input', {type:'file', hidden:true, onchange:function(){
+				var f = this.files && this.files[0], rd;
+				this.value = '';
+				if(!f) return;
+				if(!/\.(dlm|addon)$/i.test(f.name)){ setErr(DC.t('{file} is not a .dlm or .addon file', {file:f.name})); return; }
+				setErr(''); fname.textContent = f.name;
+				status.hidden = false; status.textContent = DC.t('Checking…');
+				chooseB.disabled = true;
+				rd = new FileReader();
+				rd.onload = function(){
+					var u = String(rd.result || ''), b = {file:u.slice(u.indexOf(',') + 1), filename:f.name};
+					DC.api.post('search/plugins/inspect', b).then(function(x){
+						if(x.runtime && x.runtime.ok === false) incompatible(x.runtime);
+						else codeReview(x, b);
+					}, function(e){ chooseB.disabled = false; status.hidden = true; setErr(DC.errText(e)); });
+				};
+				rd.onerror = function(){ chooseB.disabled = false; status.hidden = true; setErr(DC.t('This file cannot be read.')); };
+				rd.readAsDataURL(f);
+			}});
+			chooseB = btn('files', DC.t('Choose file…'), function(){ fileIn.click(); });
+			setErr('');
+			clear(step);
+			add(step, [h('p', {'class':'lead', text:DC.t('Choose a Synology search module (.dlm) or a QNAP Download Station add-on (.addon). Download Center checks the file first; nothing in it runs before you agree to the terms.')}),
+				h('div', {'class':'srcfile'}, [chooseB, fname, fileIn]), status]);
+			buttons(null, '', pick);
+			/* Straight to the file picker when a click brought us here */
+			if(open) fileIn.click();
+		}
+		/* This NAS cannot run such plugins: why, and nothing to install */
+		function incompatible(rt){
+			setErr('');
+			clear(step);
+			add(step, [h('div', {'class':'srcnocompat', role:'alert'}, [icon('error'), h('div', null, [
+				h('h3', {text:DC.t('This NAS is not compatible with this plugin')}),
+				h('p', {text:rt.reason || ''}),
+				rt.code === 'php_missing' ? h('p', {'class':'note', text:DC.t('The built-in PHP comes with the QTS web server: turn on Web Server in QTS Control Panel › Applications, then try again.')}) : null])])]);
+			buttons(function(){ codeFile(true); }, DC.t('Choose another file'));
+			main.classList.remove('pri');
+			cancelB.lastChild.textContent = DC.t('Close');
+		}
+		/* What the plugin says about itself, the terms, and Install only once they are agreed to */
+		function codeReview(x, b){
+			var cb = h('input', {type:'checkbox', id:'plAgree', onchange:function(){ main.disabled = !cb.checked; }}), rows = [];
+			function kv(label, dd){ rows.push(h('dt', {text:label}), dd); }
+			kv(DC.t('Format'), h('dd', {text:CODE_FORMAT[x.kind] || x.kind || ''}));
+			if((x.site || []).length) kv(DC.t('Sites'), h('dd', {'class':'mono srcsites'}, x.site.map(function(u){ return h('span', {text:u}); })));
+			kv(DC.t('Account'), h('dd', {text:x.account ? DC.t('Can sign in to the site with an account you give it') : DC.t('Needs no account')}));
+			if(x.key_fingerprint) kv(DC.t('Signing key'), h('dd', {'class':'mono', text:x.key_fingerprint}));
+			setErr('');
+			clear(step);
+			add(step, [
+				h('div', {'class':'srcreview'}, [h('h3', {text:x.name + (x.version ? ' ' + x.version : '')}),
+					x.description ? h('p', {'class':'note', text:x.description}) : null, h('dl', {'class':'kv'}, rows),
+					x.key_fingerprint ? h('p', {'class':'note srckey', text:DC.t('The signature only shows that the file is intact and which key signed it. It does not tell who wrote the add-on or what it does.')}) : null]),
+				x.key_changed ? h('p', {'class':'note warn', text:DC.t('The installed add-on with this name was signed with a different key. This file may come from someone else.')}) : null,
+				x.exists ? h('p', {'class':'note warn', text:x.account ? DC.t('This replaces the installed plugin with the same id. It starts switched off and for administrators only, and its account has to be entered again.') : DC.t('This replaces the installed plugin with the same id. It starts switched off and for administrators only.')}) : null,
+				h('div', {'class':'srcrisk'}, [h('h4', null, [icon('error'), h('span', {text:DC.t('This plugin runs as a program on this NAS')})]), h('ul', null, [
+					h('li', {text:DC.t('It is a program written by a third party, and it will run on this NAS.')}),
+					h('li', {text:DC.t('Download Center has not reviewed it and is not responsible for what it does, the sites it contacts or what it finds.')}),
+					h('li', {text:DC.t('It runs in a restricted environment that keeps it away from your files and your local network, but no restriction is a guarantee.')}),
+					h('li', {text:DC.t('It can send your search words, and any account you give it, to any site on the internet.')}),
+					h('li', {text:DC.t('Install only plugins from a source you trust.')})])]),
+				h('label', {'class':'srcagree', 'for':'plAgree'}, [cb, h('span', {text:DC.t('I understand and agree; I am responsible for installing it')})])]);
+			buttons(function(){
+				if(!cb.checked) return;
+				setErr('');
+				DC.busy(main, true, DC.t('Installing…'));
+				DC.api.post('search/plugins', {file:b.file, filename:b.filename, accept_risk:true, sha256:x.sha256, replace:!!x.exists}).then(function(s){
+					DC.track('search_src_code');
+					strict = false;
+					close(); DC.toast(DC.t('“{name}” is installed. It stays off until you switch it on.', {name:(s && s.name) || x.name})); reload();
+				}, function(e){
+					DC.busy(main, false); main.disabled = !cb.checked;
+					/* The refusal carries the reason only; the list's state says which kind it is (for the hint) */
+					if(e.code === 'search_runtime_unavailable'){
+						DC.api.get('search/plugins', null, {quiet:true}).then(function(r){ incompatible(r.runtime && r.runtime.ok === false ? r.runtime : {ok:false, reason:e.message}); }, function(){ incompatible({ok:false, reason:e.message}); });
+						return;
+					}
+					setErr(DC.errText(e));
+				});
+			}, DC.t('Install'));
+			main.disabled = true;
+			strict = true;
+			/* Install is the dangerous choice: the focus starts on Cancel */
+			cancelB.focus();
+		}
+		function torznab(){
+			var nm = h('input', {type:'text', id:'tzName', placeholder:DC.t('e.g. My Prowlarr'), autocomplete:'off'});
+			var url = h('input', {type:'text', inputmode:'url', 'class':'srcwide', id:'tzUrl', placeholder:'http://192.168.1.20:9117/api/v2.0/indexers/all/results/torznab', autocomplete:'off', autocapitalize:'off', spellcheck:'false'});
+			var key = h('input', {type:'password', id:'tzKey', autocomplete:'new-password'});
+			var res = h('p', {'class':'note srctest', role:'status', hidden:true});
+			function body2(){ return {torznab:{name:nm.value.replace(/^\s+|\s+$/g, ''), url:url.value.replace(/^\s+|\s+$/g, ''), apikey:key.value.replace(/^\s+|\s+$/g, '')}}; }
+			setErr('');
+			clear(step);
+			add(step, [
+				h('p', {'class':'lead', text:DC.t('Searches go to your Torznab server, which asks the sites you set up in it.')}),
+				DC.mform([field(DC.t('Name'), null, nm, 'tzName'), field(DC.t('Server address'), DC.t('The Torznab address without the API key'), url, 'tzUrl'), field(DC.t('API key'), null, key, 'tzKey')]),
+				h('p', {'class':'note', text:DC.t('The server cannot run on this NAS itself or on a loopback address: run it on another computer, or give its container an address of its own on your network.')}),
+				res]);
+			buttons(function(){
+				setErr(''); res.hidden = true;
+				DC.busy(main, true);
+				DC.api.post('search/plugins', body2()).then(function(){
+					DC.track('search_src_torznab');
+					close(); DC.toast(DC.t('“{name}” added', {name:body2().torznab.name})); reload();
+				}, function(e){ DC.busy(main, false); setErr(DC.errText(e)); });
+			}, DC.t('Add'), pick, function(){
+				DC.track('search_src_test');
+				setErr(''); res.hidden = false; res.className = 'note srctest'; res.textContent = DC.t('Testing…');
+				DC.busy(test, true);
+				DC.api.post('search/plugins/test', body2()).then(function(x){ DC.busy(test, false); testResult(res, x, 'note srctest srcres'); }, function(e){ DC.busy(test, false); res.hidden = true; setErr(DC.errText(e)); });
+			});
+			nm.focus();
+		}
+		/* A plugin file: chosen, pasted or fetched from an https address, then checked by the NAS and reviewed */
+		function plugin(){
+			var how = 'file', text = '', fname = h('span', {'class':'mono', text:''}), pane = h('div');
+			var fileIn = h('input', {type:'file', accept:'.json,application/json', hidden:true, onchange:function(){
+				var f = this.files && this.files[0], rd;
+				if(!f) return;
+				if(f.size > 65536){ setErr(DC.t('The plugin is larger than 64 KiB')); return; }
+				rd = new FileReader();
+				rd.onload = function(){ text = String(rd.result || ''); fname.textContent = f.name; setErr(''); };
+				rd.readAsText(f);
+				this.value = '';
+			}});
+			var ta = h('textarea', {id:'plJson', rows:'9', 'class':'secretarea srcjson', 'aria-label':DC.t('Plugin JSON'), placeholder:'{"schema": 1, "id": "example", "name": "Example", "type": "json", …}', spellcheck:'false', autocapitalize:'off'});
+			var url = h('input', {type:'text', inputmode:'url', 'class':'srcwide', id:'plUrl', placeholder:'https://example.org/plugin.json', autocomplete:'off', autocapitalize:'off', spellcheck:'false'});
+			var ways = [['file', DC.t('File')], ['paste', DC.t('Paste JSON')], ['url', DC.t('From an address')]];
+			var seg = h('div', {'class':'seg srcpick', role:'group', 'aria-label':DC.t('How to add the plugin')});
+			function show(w){
+				how = w;
+				[].forEach.call(seg.children, function(b, i){ b.setAttribute('aria-pressed', ways[i][0] === w ? 'true' : 'false'); });
+				clear(pane);
+				if(w === 'file'){ pane.appendChild(h('div', {'class':'srcfile'}, [btn('files', DC.t('Choose file…'), function(){ fileIn.click(); }), fname, fileIn])); }
+				else if(w === 'paste'){ pane.appendChild(ta); ta.focus(); }
+				else{ pane.appendChild(DC.mform([field(DC.t('Address'), DC.t('An https address of the plugin file'), url, 'plUrl')])); url.focus(); }
+				setErr('');
+			}
+			ways.forEach(function(w){ seg.appendChild(h('button', {type:'button', onclick:function(){ show(w[0]); }}, w[1])); });
+			setErr('');
+			clear(step);
+			add(step, [h('p', {'class':'lead', text:DC.t('Download Center checks the plugin and shows what it does before anything is added.')}), seg, pane]);
+			show('file');
+			buttons(function(){
+				var b = how === 'url' ? {url:url.value.replace(/^\s+|\s+$/g, '')} : {json:how === 'paste' ? ta.value : text};
+				if(!(b.url || b.json)){ setErr(how === 'file' ? DC.t('Choose a plugin file first.') : how === 'paste' ? DC.t('Paste the plugin JSON first.') : DC.t('Enter the address of the plugin file.')); return; }
+				setErr('');
+				DC.busy(main, true, DC.t('Checking…'));
+				DC.api.post('search/plugins/inspect', b).then(function(x){ DC.busy(main, false); review(x, b); }, function(e){ DC.busy(main, false); setErr(inspectErr(e)); });
+			}, DC.t('Continue'), pick);
+		}
+		/* A plugin file cannot take the id of a plugin from another NAS (or the other way round) */
+		function inspectErr(e){ return e.code === 'search_plugin_exists' ? DC.t('A search plugin from another NAS uses this id. A plugin file cannot replace it: remove that plugin first, or use a plugin file with another id.') : DC.errText(e); }
+		function review(x, b){
+			var inputs = {}, fields = [], k, st, on, rows, keeps = !!(x.exists && x.keeps_settings);
+			for(k = 0; k < (x.settings || []).length; k++){
+				st = x.settings[k];
+				inputs[st.id] = h('input', {type:st.secret ? 'password' : 'text', id:'plSet' + k, autocomplete:st.secret ? 'new-password' : 'off', autocapitalize:'off', spellcheck:'false'});
+				fields.push(field(st.label || st.id, st.required ? null : DC.t('Optional'), inputs[st.id], 'plSet' + k));
+			}
+			rows = [h('dt', {text:DC.t('Connects to')}), h('dd', {'class':'mono', text:(x.hosts || []).join(DC.t(', '))}),
+				h('dt', {text:DC.t('Sends')}), h('dd', {text:fields.length ? DC.t('Your search words and the settings below. Nothing about your account or this NAS.') : DC.t('Your search words. Nothing about your account or this NAS.')})];
+			if((x.headers || []).length) rows.push(h('dt', {text:DC.t('Headers')}), h('dd', {'class':'mono', text:x.headers.join(DC.t(', '))}));
+			if(x.homepage) rows.push(h('dt', {text:DC.t('Website')}), h('dd', {'class':'mono', text:x.homepage}));
+			/* a replacement that starts afresh stays off unless switched on here */
+			on = DC.toggle('plOn', DC.t('Use it for searches right away'), null, !x.exists);
+			setErr('');
+			clear(step);
+			add(step, [
+				h('div', {'class':'srcreview'}, [h('h3', {text:x.name + (x.version ? ' ' + x.version : '')}),
+					x.description ? h('p', {'class':'note', text:x.description}) : null, h('dl', {'class':'kv'}, rows)]),
+				h('p', {'class':'srcsafe'}, [icon('lock'), h('span', {text:DC.t('This plugin is a description, not a program. It cannot run code or reach this NAS.')})]),
+				/* The installed plugin's state, audience and saved values carry over only to the same kind of plugin for the same
+				   address with the same settings; otherwise the new one starts afresh */
+				!x.exists ? null : keeps ? h('p', {'class':'note warn', text:DC.t('A plugin with this id is already installed. Adding this one replaces it and keeps its settings.')})
+					: h('p', {'class':'note warn', text:DC.t('A plugin with this id is already installed. This one connects elsewhere or has other settings, so it replaces the installed one without its saved values: it starts switched off, and its settings have to be entered again.')}),
+				fields.length ? DC.mform(fields) : null,
+				keeps ? null : DC.mform([on])]);
+			buttons(function(){
+				var o = {replace:!!x.exists, settings:{}}, key;
+				/* From an address: the file installed must be the one reviewed here */
+				if(b.url){ o.url = b.url; if(x.sha256) o.sha256 = x.sha256; } else o.json = b.json;
+				for(key in inputs) if(inputs.hasOwnProperty(key) && inputs[key].value) o.settings[key] = inputs[key].value.replace(/^\s+|\s+$/g, '');
+				setErr('');
+				DC.busy(main, true);
+				DC.api.post('search/plugins', o).then(function(s){
+					DC.track('search_src_file');
+					var turnOn = !keeps && DC.chk('plOn');
+					(turnOn ? DC.api.put('search/plugins/' + encodeURIComponent(s.id), {enabled:true}) : Promise.resolve(s)).then(function(){
+						close(); DC.toast(DC.t('“{name}” added', {name:s.name})); reload();
+					}, function(e){ close(); DC.toast(DC.errText(e)); reload(); });
+				}, function(e){
+					DC.busy(main, false);
+					if(e.code !== 'search_plugin_changed'){ setErr(DC.errText(e)); return; }
+					/* The address now serves another file: review that one before anything is added */
+					buttons(function(){
+						DC.busy(main, true, DC.t('Checking…'));
+						DC.api.post('search/plugins/inspect', b).then(function(y){ DC.busy(main, false); review(y, b); }, function(e2){ DC.busy(main, false); setErr(inspectErr(e2)); });
+					}, DC.t('Check again'), plugin);
+					setErr(DC.t('The file at this address changed after it was checked. Check it again before adding it.'));
+				});
+			}, x.exists ? DC.t('Replace') : DC.t('Add'), plugin);
+		}
+		DC.modal(DC.t('Add search source'), 'search', [step, err], function(cl){
+			close = cl;
+			back = btn(null, DC.t('Back'), null);
+			test = btn(null, DC.t('Test'), function(){ if(testFn) testFn(); });
+			main = btn(null, '', function(){ if(act) act(); }, 'pri');
+			cancelB = btn(null, DC.t('Cancel'), cl);
+			back.classList.add('srcback');
+			return [back, cancelB, test, main];
+		}, {nofocus:true, wide:true, persist:function(){ return strict; }});
+		pick();
+	}
+
 	/* ---------- Access tokens ---------- */
 	var SCOPES = [
 		['tasks:read', DC.t('View tasks')], ['tasks:add', DC.t('Add download')], ['tasks:control', DC.t('Start, pause, sort, select files')], ['tasks:remove', DC.t('Remove tasks (keep files)')],
-		['files:delete', DC.t('Remove tasks and delete files')], ['stats:read', DC.t('View speed and space')], ['events:read', DC.t('Receive events')], ['notify:manage', DC.t('Manage my notifications')],
+		['files:delete', DC.t('Remove tasks and delete files')], ['stats:read', DC.t('View speed and space')], ['events:read', DC.t('Receive events')], ['search:use', DC.t('Search for torrents')], ['notify:manage', DC.t('Manage my notifications')],
 		['settings:read', DC.t('Read settings')], ['settings:write', DC.t('Edit settings and schedule')]
 	];
 	/* The usage statistics name a new token after these (tokenPresets in daemon/internal/api/stats.go; a test keeps them equal) */
@@ -144,16 +528,29 @@
 	/* AI agents: the skill file ships under docs/skill/; one shell line installs it for the chosen agent and, with a
 	   token, writes ~/.config/download-center/config (address and token) for it. */
 	var agentKind = 'claude';
-	function agentBase(){ return location.protocol + '//' + location.host + location.pathname.replace(/[^\/]*$/, '').replace(/\/+$/, ''); }
+	/* The page's own address, only when it is a plain host[:port] and path: it ends up in a shell command and in a file the
+	   agent loads, so anything else (a name with shell characters, say) gives no command at all */
+	function agentBase(){
+		var host = String(location.host || ''), path = String(location.pathname || '').replace(/[^\/]*$/, '').replace(/\/+$/, '');
+		if(!/^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*)(:[0-9]{1,5})?$/.test(host)) return '';
+		if(!/^(\/[A-Za-z0-9._~-]+)*$/.test(path) || (location.protocol !== 'https:' && location.protocol !== 'http:')) return '';
+		return location.protocol + '//' + host + path;
+	}
 	function shq(s){ return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
-	function agentCmd(token){
-		var dir = (agentKind === 'agents' ? '~/.agents/skills' : '~/.claude/skills') + '/download-center', base = agentBase();
-		var cmd = 'mkdir -p ' + dir + (token ? ' ~/.config/download-center' : '') + ' && curl -fsSL ' + shq(base + '/docs/skill/SKILL.md') + ' -o ' + dir + '/SKILL.md';
-		if(token) cmd += " && (umask 077; printf 'DC_URL=%s\\nDC_TOKEN=%s\\n' " + shq(base) + ' ' + shq(token) + ' > ~/.config/download-center/config)';
+	/* The config is loaded with the shell's ".", so each value is written single-quoted: nothing in it runs */
+	function agentCmd(token, kind){
+		var dir = ((kind || agentKind) === 'agents' ? '~/.agents/skills' : '~/.claude/skills') + '/download-center', base = agentBase(), cmd;
+		if(!base) return '';
+		cmd = 'mkdir -p ' + dir + (token ? ' ~/.config/download-center' : '') + ' && curl -fsSL ' + shq(base + '/docs/skill/SKILL.md') + ' -o ' + dir + '/SKILL.md';
+		if(token) cmd += " && (umask 077; printf 'DC_URL=%s\\nDC_TOKEN=%s\\n' " + shq(shq(base)) + ' ' + shq(shq(token)) + ' > ~/.config/download-center/config)';
 		return cmd;
 	}
+	DC.agentCommand = function(kind, token){ return agentCmd(token, kind); };
+	/* Over plain HTTP the token and the skill file cross the network unencrypted */
+	function agentWarn(){ return location.protocol === 'https:' ? null : h('p', {'class':'note warn', text:DC.t('This page is not using HTTPS, so the setup command fetches the skill file and you copy the token without encryption. Open Download Center at its https:// address to set up an AI agent.')}); }
 	/* The agent picker and the command to copy ({field, cmd}); token = null installs or updates the skill alone. */
 	function agentInstall(id, token){
+		if(!agentBase()) return {field:null, cmd:h('p', {'class':'note warn', text:DC.t('This page\'s address cannot be used in a setup command. Open Download Center at the NAS\'s usual address.')})};
 		var code = h('code', {text:agentCmd(token)});
 		var sel = DC.select(id, [['claude', 'Claude Code'], ['agents', DC.t('Codex, Gemini CLI and others')]], agentKind, function(){ agentKind = this.value; code.textContent = agentCmd(token); });
 		return {field:field(DC.t('AI Agent'), null, sel, id), cmd:h('div', {'class':'secret cmd'}, [code, btn('copy', DC.t('Copy'), function(){ DC.copyText(code.textContent, code); DC.track(agentKind === 'agents' ? 'agent_copy_other' : 'agent_copy_claude'); })])};
@@ -164,7 +561,7 @@
 			h('p', {'class':'lead', text:regen ? DC.t('Copy it now. The full token cannot be shown again after this window closes. The old token no longer works.') : DC.t('Copy it now. The full token cannot be shown again after this window closes.')}),
 			h('div', {'class':'secret'}, [code, btn('copy', DC.t('Copy'), function(){ DC.copyText(value, code); })]),
 			h('p', {'class':'note', text:DC.t('Usage: add Authorization: Bearer <token> to the request.')}),
-			h('details', {'class':'agentuse', open:!!agent}, [h('summary', {text:DC.t('For AI agents')}),
+			h('details', {'class':'agentuse', open:!!agent}, [h('summary', {text:DC.t('For AI agents')}), agentWarn(),
 				h('p', {'class':'note', text:DC.t('Run this command in a terminal on the computer where the AI agent runs. It installs the skill file and saves this NAS’s address and the token. On Windows, use Git Bash or WSL.')}),
 				DC.mform([inst.field]), inst.cmd])
 		], function(close){ return [btn(null, DC.t('I\'ve copied it'), close, 'pri')]; });
@@ -300,7 +697,7 @@
 			step(3, DC.t('Start using it'), DC.t('Start a new conversation and just say “download this link to the NAS”, “how far along are my downloads?” or “pause all downloads”.')),
 			mcpRow(),
 			h('details', {'class':'agentuse'}, [h('summary', {text:DC.t('Install or update the skill by hand')}),
-				h('p', {'class':'note', text:DC.t('After updating Download Center, run this command to update the skill file. The token settings stay as they are.')}),
+				h('p', {'class':'note', text:DC.t('After updating Download Center, run this command to update the skill file. The token settings stay as they are.')}), agentWarn(),
 				inst.field, inst.cmd,
 				h('p', {'class':'inline agentlinks'}, [h('a', {'class':'linkish', href:'docs/skill/SKILL.md', download:'SKILL.md', onclick:function(){ DC.track('skill_download'); }}, [icon('down'), DC.t('Download the skill file (SKILL.md)')]),
 					h('a', {'class':'linkish', href:'docs/ai-agent.txt', target:'_blank', rel:'noopener'}, [icon('popout'), DC.t('AI agent guide (AI-AGENT.md)')])])])
@@ -372,6 +769,8 @@
 			else DC.errorInto(body, e);
 		});
 	}
+	/* Accounts that are not administrators have at most this many channels (maxUserChannels in daemon/internal/notify) */
+	var MAX_CHANNELS = 10;
 	function notifyForm(body, r){
 		var admin = DC.isAdmin(), list = h('div'), chans = r.channels || [], svcs = r.services || [], evs = r.events || [], adapters = r.adapters || [];
 		function reload(){ notify(clear(body)); }
@@ -586,7 +985,8 @@
 		}
 		render();
 		add(body, [
-			sec('bell', DC.t('Notifications and chat bots'), DC.t('Each channel notifies you when the events you choose happen. Supported services (Telegram, and LINE when reachable from outside over HTTPS) can also turn on “Control downloads in the channel” to check, add and pause downloads with commands.'), [list, svcs.length && chans.length ? DC.addRow(DC.t('Add channel'), function(){ channelForm(null); }) : null]),
+			sec('bell', DC.t('Notifications and chat bots'), DC.t('Each channel notifies you when the events you choose happen. Supported services (Telegram, and LINE when reachable from outside over HTTPS) can also turn on “Control downloads in the channel” to check, add and pause downloads with commands.'), [list, svcs.length && chans.length ? (!admin && chans.length >= MAX_CHANNELS ? h('p', {'class':'note', text:DC.t('An account can have up to {n} notification channels. Remove one to add another.', {n:MAX_CHANNELS})})
+				: DC.addRow(DC.t('Add channel'), function(){ channelForm(null); })) : null]),
 			admin ? publicSec() : null,
 			adapterSec(),
 			h('p', {'class':'note'}, [DC.t('The API, event stream and webhook signatures are described under “Access tokens”.') + ' ', h('button', {'class':'ib linkish', type:'button', onclick:function(){ DC.S.setTab = 'token'; DC.S.setOpen = true; DC.renderView(); window.scrollTo(0, 0); }}, DC.t('Go there'))])
@@ -745,5 +1145,5 @@
 	}
 	DC.offerImport = offerImport;
 
-	DC.setMore = {accounts:accounts, tokens:tokens, notify:notify, importer:importer};
+	DC.setMore = {accounts:accounts, tokens:tokens, notify:notify, importer:importer, search:search};
 })();

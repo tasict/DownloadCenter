@@ -36,7 +36,7 @@ var (
 
 // Scopes of personal access tokens.
 var AllScopes = []string{"tasks:read", "tasks:add", "tasks:control", "tasks:remove", "files:delete",
-	"events:read", "notify:manage", "stats:read", "settings:read", "settings:write"}
+	"events:read", "notify:manage", "stats:read", "search:use", "settings:read", "settings:write"}
 
 // AdminScopes need an administrator owner.
 var AdminScopes = map[string]bool{"settings:read": true, "settings:write": true}
@@ -54,6 +54,9 @@ type Principal struct {
 	AllTasks bool
 	Folders  []string
 	Sources  []string
+	// Agent: a session request sent by the page's tools for an AI agent in
+	// the browser (X-DC-Via: webmcp). It acts like a program, not a person.
+	Agent bool
 }
 
 // Can reports whether the caller has a scope (sessions have every scope).
@@ -86,6 +89,14 @@ func (p *Principal) SeesOwner(owner string) bool {
 	return (p.Admin && p.AllTasks) || owner == p.User
 }
 
+// SeesAll reports a caller that acts on every owner's tasks.
+func (p *Principal) SeesAll() bool { return p.Admin && p.AllTasks }
+
+// Interactive reports a person signed in with a QTS session (the web UI, a
+// V4 client), as opposed to a program holding a token or a chat link: only
+// an administrator's session adds downloads that may reach the NAS itself.
+func (p *Principal) Interactive() bool { return (p.Via == "session" || p.Via == "v4") && !p.Agent }
+
 // SourceAllowed applies the token's source restriction.
 func (p *Principal) SourceAllowed(kind string) bool {
 	if len(p.Sources) == 0 {
@@ -117,6 +128,7 @@ type Service struct {
 	cache   map[string]sidEntry
 	rate    map[string]*bucket
 	fails   map[string]*bucket
+	bad     map[string]time.Time // sids QTS refused, until
 	allowed map[string]checked
 	reg     checked
 }
@@ -139,24 +151,58 @@ type bucket struct {
 }
 
 func New(db *store.DB) *Service {
-	return &Service{db: db, cache: map[string]sidEntry{}, rate: map[string]*bucket{}, fails: map[string]*bucket{}, allowed: map[string]checked{}}
+	return &Service{db: db, cache: map[string]sidEntry{}, rate: map[string]*bucket{}, fails: map[string]*bucket{},
+		bad: map[string]time.Time{}, allowed: map[string]checked{}}
 }
+
+// Asking QTS about session ids. A sid QTS refused is not asked about again
+// for a minute; one client address gets at most sidMissesPerMinute answers
+// that were not cached, and only so many questions run at once, so that
+// made-up sids cannot keep authLogin.cgi busy.
+var validateSID = qts.ValidateSID
+
+const (
+	sidNegative        = time.Minute
+	sidMissesPerMinute = 30
+)
+
+var sidChecks = make(chan struct{}, 8)
 
 // FromSID authenticates a QTS session id. The answer is cached for 30 s.
 func (s *Service) FromSID(sid, ip, agent string) (*Principal, error) {
-	if sid == "" {
+	if !qts.PlausibleSID(sid) {
 		return nil, ErrNotSignedIn
 	}
 	key := sha(sid)
 	s.mu.Lock()
 	e, ok := s.cache[key]
+	refused := s.bad[key].After(time.Now())
 	s.mu.Unlock()
 	if !ok || time.Now().After(e.expires) {
-		a, err := qts.ValidateSID(sid, ip, agent)
+		if refused {
+			return nil, ErrNotSignedIn
+		}
+		// Too many refused sids from this client: QTS is not asked (not a
+		// sign-out either: the UI keeps its session when QTS cannot answer)
+		if countable(ip) && s.rateOver("sid:"+ip, sidMissesPerMinute) {
+			return nil, ErrAuthBackend
+		}
+		sidChecks <- struct{}{}
+		a, err := validateSID(sid, ip, agent)
+		<-sidChecks
 		if err != nil {
 			return nil, ErrAuthBackend
 		}
 		if !a.Passed() || a.User() == "" {
+			s.mu.Lock()
+			if len(s.bad) > 5000 {
+				s.bad = map[string]time.Time{}
+			}
+			s.bad[key] = time.Now().Add(sidNegative)
+			s.mu.Unlock()
+			if countable(ip) {
+				s.allow("sid:"+ip, sidMissesPerMinute)
+			}
 			return nil, ErrNotSignedIn
 		}
 		e = sidEntry{user: a.User(), admin: a.IsAdmin(), expires: time.Now().Add(30 * time.Second)}
@@ -721,6 +767,17 @@ func (s *Service) FromToken(raw, ip string) (*Principal, error) {
 	if !s.allow("tok:"+t.ID, t.RateLimit) {
 		return nil, ErrRateLimited
 	}
+	p, err := s.tokenPrincipal(t)
+	if err != nil {
+		return nil, err
+	}
+	s.db.X(`UPDATE tokens SET last_used_at = ?, last_used_ip = ?, use_count = use_count + 1 WHERE id = ?`, time.Now().Unix(), ip, t.ID)
+	return p, nil
+}
+
+// tokenPrincipal is what a token may do now: its scopes and limits within
+// its owner's current rights.
+func (s *Service) tokenPrincipal(t *Token) (*Principal, error) {
 	// The owner's current rights: on the list, QTS admin flag from the
 	// account database (no session to ask authLogin.cgi with)
 	p, err := s.principal(t.Owner, qts.IsQTSAdmin(t.Owner), false)
@@ -737,7 +794,35 @@ func (s *Service) FromToken(raw, ip string) (*Principal, error) {
 		p.Folders = t.Folders
 	}
 	p.Sources = t.Sources
-	s.db.X(`UPDATE tokens SET last_used_at = ?, last_used_ip = ?, use_count = use_count + 1 WHERE id = ?`, time.Now().Unix(), ip, t.ID)
+	return p, nil
+}
+
+// Refresh derives a principal again from what QTS and the token table say
+// now (the owner's role and access, the token's scopes and lifetime), for a
+// connection that outlives one request; an error once it is no longer
+// valid at all.
+func (s *Service) Refresh(p *Principal, ip, agent string) (*Principal, error) {
+	switch p.Via {
+	case "token":
+		if p.Token == nil {
+			return nil, ErrTokenInvalid
+		}
+		t, err := scanToken(s.db.QueryRow(`SELECT `+tokCols+` FROM tokens WHERE id = ?`, p.Token.ID))
+		if err != nil {
+			return nil, ErrTokenInvalid
+		}
+		if t.ExpiresAt > 0 && time.Now().Unix() > t.ExpiresAt {
+			return nil, ErrTokenExpired
+		}
+		return s.tokenPrincipal(t)
+	case "session", "v4":
+		np, err := s.FromSID(p.SID, ip, agent)
+		if err != nil {
+			return nil, err
+		}
+		np.Via = p.Via
+		return np, nil
+	}
 	return p, nil
 }
 
@@ -777,6 +862,7 @@ func (s *Service) allow(key string, perMinute int) bool {
 	defer s.mu.Unlock()
 	b := s.rate[key]
 	if b == nil || time.Since(b.start) > time.Minute {
+		prune(s.rate, time.Minute)
 		b = &bucket{start: time.Now()}
 		s.rate[key] = b
 	}
@@ -784,23 +870,78 @@ func (s *Service) allow(key string, perMinute int) bool {
 	return b.n <= perMinute
 }
 
-func (s *Service) fail(ip string) {
+// rateOver reports a counter of allow that reached n within its minute.
+func (s *Service) rateOver(key string, n int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	b := s.fails[ip]
-	if b == nil || time.Since(b.start) > 10*time.Minute {
+	b := s.rate[key]
+	return b != nil && time.Since(b.start) <= time.Minute && b.n >= n
+}
+
+// maxBuckets bounds the counters kept per address or token.
+const maxBuckets = 10000
+
+// prune drops the counters older than window once there are too many, and
+// all of them when that is not enough.
+func prune(m map[string]*bucket, window time.Duration) {
+	if len(m) < maxBuckets {
+		return
+	}
+	for k, b := range m {
+		if time.Since(b.start) > window {
+			delete(m, k)
+		}
+	}
+	if len(m) >= maxBuckets {
+		clear(m)
+	}
+}
+
+// countable reports an address failures are counted against. Loopback is
+// not: when the proxy's client address cannot be believed every request
+// looks like loopback, and one client must not lock everyone out.
+func countable(ip string) bool {
+	p := net.ParseIP(ip)
+	return p != nil && !p.IsLoopback()
+}
+
+const failWindow = 10 * time.Minute
+
+func (s *Service) fail(ip string) { s.failKey(ip, ip) }
+
+func (s *Service) failKey(key, ip string) {
+	if !countable(ip) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b := s.fails[key]
+	if b == nil || time.Since(b.start) > failWindow {
+		prune(s.fails, failWindow)
 		b = &bucket{start: time.Now()}
-		s.fails[ip] = b
+		s.fails[key] = b
 	}
 	b.n++
 }
 
-func (s *Service) failed(ip string) bool {
+func (s *Service) failed(ip string) bool { return s.overLimit(ip, ip, 20) }
+
+func (s *Service) overLimit(key, ip string, n int) bool {
+	if !countable(ip) {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	b := s.fails[ip]
-	return b != nil && time.Since(b.start) < 10*time.Minute && b.n >= 20
+	b := s.fails[key]
+	return b != nil && time.Since(b.start) < failWindow && b.n >= n
 }
+
+// LoginAllowed reports whether a client may try a password sign-in (V4
+// Misc/Login): ten failures within ten minutes stop it for the rest of them.
+func (s *Service) LoginAllowed(ip string) bool { return !s.overLimit("login:"+ip, ip, 10) }
+
+// LoginFailed counts a failed password sign-in of a client.
+func (s *Service) LoginFailed(ip string) { s.failKey("login:"+ip, ip) }
 
 func sha(s string) string {
 	h := sha256.Sum256([]byte(s))

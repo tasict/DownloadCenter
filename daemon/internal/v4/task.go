@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
@@ -115,6 +116,7 @@ func (c *call) record(t *core.Task) map[string]any {
 	if t.Options.Hoster != "" && t.Options.OrigURL != "" {
 		source = t.Options.OrigURL
 	}
+	source = core.SourceForDisplay(source)
 	category := 0
 	if t.Kind == core.KindBT {
 		category = 1
@@ -335,17 +337,37 @@ func (s *service) detail(c *call) result {
 	return result{"total": len(data), "data": data}
 }
 
+// cleanCaller is the program name a V4 client gives for the task details
+// ("caller"): at most 32 printable characters, and never one of the names
+// Download Center gives its own callers (the web UI, a token, a chat, a
+// widget, the page's AI agent tools), which the client could otherwise pass
+// itself off as.
+func cleanCaller(s string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range strings.TrimSpace(s) {
+		if n == 32 {
+			break
+		}
+		if unicode.IsPrint(r) {
+			b.WriteRune(r)
+			n++
+		}
+	}
+	c := strings.TrimSpace(b.String())
+	low := strings.ToLower(c)
+	if c == "" || low == "download center" || low == "chat" || low == "deskpane" || low == "ai agent" || strings.HasPrefix(low, "api:") {
+		return "Download Station"
+	}
+	return c
+}
+
 // addOptions builds core options from temp/move; regular users get their
 // home Download folder whatever they send (the folder rule is enforced by
 // the manager).
 func (c *call) addOptions() (core.AddOptions, int) {
-	o := core.AddOptions{Owner: c.who.User, Admin: c.who.Admin, AutoRemove: "default", Caller: c.p.get("caller")}
-	if o.Caller == "" {
-		o.Caller = "Download Station"
-	}
-	if len(o.Caller) > 32 {
-		o.Caller = o.Caller[:32]
-	}
+	o := core.AddOptions{Owner: c.who.User, Admin: c.who.Admin, AllTasks: c.who.SeesAll(), Guard: !c.who.Interactive(),
+		AutoRemove: "default", Caller: cleanCaller(c.p.get("caller"))}
 	if !c.who.Admin {
 		return o, errOK
 	}

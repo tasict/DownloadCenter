@@ -10,11 +10,13 @@ import (
 	"syscall"
 
 	"downloadcenter/internal/qts"
+	"downloadcenter/internal/safefs"
 	"downloadcenter/internal/torrent"
 )
 
-// TempDirName is the folder at the root of a share where downloads stay
-// until they are complete.
+// TempDirName is the folder where downloads stay until they are complete:
+// at the root of a volume (see workDirFor). Versions up to 1.3 also made it
+// at the root of shared folders and in home Download folders.
 const TempDirName = "@DownloadCenterTemp"
 
 // OfficialTempName is the official package's temporary folder.
@@ -36,7 +38,7 @@ func (m *Manager) DisplayPath(viewer, p string) string {
 		return ""
 	}
 	p = filepath.Clean(p)
-	if hr := qts.HomesRoot(); hr != "" && (p == hr || strings.HasPrefix(p, hr+"/")) {
+	if hr := homesRoot(); hr != "" && (p == hr || strings.HasPrefix(p, hr+"/")) {
 		rest := strings.TrimPrefix(strings.TrimPrefix(p, hr), "/")
 		user, sub, _ := strings.Cut(rest, "/")
 		if user == viewer {
@@ -53,6 +55,10 @@ func (m *Manager) DisplayPath(viewer, p string) string {
 			return sh.Name
 		}
 		return sh.Name + "/" + rest
+	}
+	// A private staging folder is shown without the volume it is on
+	if inStaging(p) {
+		return p[strings.Index(p, "/"+TempDirName+"/")+1:]
 	}
 	return p
 }
@@ -77,13 +83,13 @@ func (m *Manager) ResolvePath(viewer, d string) (string, error) {
 		first, rest, _ := strings.Cut(d, "/")
 		switch {
 		case first == "home":
-			h := qts.HomeDir(viewer)
+			h := homeDir(viewer)
 			if h == "" {
 				return "", ErrFolder
 			}
 			real = filepath.Join(h, rest)
 		case first == "homes":
-			hr := qts.HomesRoot()
+			hr := homesRoot()
 			if hr == "" {
 				return "", ErrFolder
 			}
@@ -118,60 +124,59 @@ func (m *Manager) ResolvePath(viewer, d string) (string, error) {
 
 // UserDownloadDir is where a regular user's tasks go: the home Download
 // folder, or Public when the account has no home folder. It is created and
-// handed to the user when missing.
+// handed to the user when missing. A Download that is a link within the
+// home gives the real folder it leads to, which is what tasks record: the
+// engines and the moves never follow a link the user controls.
 func (m *Manager) UserDownloadDir(user string) string {
-	if h := qts.HomeDir(user); h != "" {
-		d := filepath.Join(h, "Download")
-		if st, err := os.Lstat(d); err != nil {
-			os.Mkdir(d, 0755)
-			chownPath(d, user, false)
-		} else if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
-			// The engines write as admin: never follow a link the user
-			// controls out of the home folder
-			if real, err := filepath.EvalSymlinks(d); err != nil || !inside(real, h) || real == h {
-				return h
+	h := homeDir(user)
+	if h == "" {
+		return publicDir()
+	}
+	d := filepath.Join(h, "Download")
+	hd, err := safefs.OpenDir(h)
+	if err != nil {
+		return h
+	}
+	defer hd.Close()
+	st, err := hd.Lstat("Download")
+	switch {
+	case err != nil && os.IsNotExist(err):
+		sub, created, err := hd.Mkdir("Download", 0755)
+		if err != nil {
+			return h
+		}
+		if created {
+			if uid, gid, ok := lookupUser(user); ok {
+				sub.Chown(uid, gid)
 			}
-			return d
 		}
+		sub.Close()
 		return d
-	}
-	return qts.PublicDir()
-}
-
-// workDirFor returns where a task downloads: @DownloadCenterTemp/<hash> at
-// the root of the temporary location's share (inside home/Download for home
-// folders).
-func (m *Manager) workDirFor(tempDir, hash string) string {
-	root := tempDir
-	if hr := qts.HomesRoot(); hr != "" && strings.HasPrefix(tempDir, hr+"/") {
-		rest := strings.TrimPrefix(tempDir, hr+"/")
-		user, sub, _ := strings.Cut(rest, "/")
-		root = filepath.Join(hr, user)
-		if strings.HasPrefix(sub, "Download") {
-			root = filepath.Join(hr, user, "Download")
+	case err != nil:
+		return h
+	case st.Mode&syscall.S_IFMT == syscall.S_IFDIR:
+		return d
+	case st.Mode&syscall.S_IFMT == syscall.S_IFLNK:
+		real, err := filepath.EvalSymlinks(d)
+		if err != nil || !inside(real, h) || real == h {
+			return h
 		}
-	} else if sh, ok := qts.ShareOf(tempDir); ok {
-		root = sh.Path
+		if fi, err := os.Stat(real); err != nil || !fi.IsDir() {
+			return h
+		}
+		return real
 	}
-	return filepath.Join(root, TempDirName, hash)
+	return h
 }
 
-// chownPath gives a path (recursively) to a QTS account.
+// chownPath gives a path (recursively) to a QTS account, without following
+// links (safefs.ChownPath).
 func chownPath(p, user string, recursive bool) error {
-	uid, gid, ok := qts.Lookup(user)
+	uid, gid, ok := lookupUser(user)
 	if !ok {
 		return fmt.Errorf("unknown user %s", user)
 	}
-	if !recursive {
-		return os.Lchown(p, uid, gid)
-	}
-	return filepath.Walk(p, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		os.Lchown(path, uid, gid)
-		return nil
-	})
+	return safefs.ChownPath(p, uid, gid, recursive)
 }
 
 // uniqueDir returns dst, or "dst (n)" when it exists. Unlike uniquePath it
@@ -238,70 +243,133 @@ func uniquePath(dst string) string {
 
 // moveInto moves src (file or folder) into dir, renaming on conflicts.
 // Same volume: rename; otherwise copy then remove. Returns the new path.
+// Nothing on the way is followed if it is a link: both folders are opened
+// one component at a time and the move is made between the open folders.
 func moveInto(src, dir string) (string, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	sd, name, err := safefs.OpenParent(src)
+	if err != nil {
 		return "", err
 	}
-	dst := uniquePath(filepath.Join(dir, filepath.Base(src)))
-	if err := os.Rename(src, dst); err == nil {
-		return dst, nil
-	} else if !isCrossDevice(err) {
+	defer sd.Close()
+	return moveEntry(sd, name, dir)
+}
+
+// moveEntry moves name from the open folder sd into dir (see moveInto).
+func moveEntry(sd *safefs.Dir, name, dir string) (string, error) {
+	st, err := sd.Lstat(name)
+	if err != nil {
+		return "", err
+	}
+	isDir := st.Mode&syscall.S_IFMT == syscall.S_IFDIR
+	dd, err := safefs.MkdirAll(dir, 0755)
+	if err != nil {
+		return "", err
+	}
+	defer dd.Close()
+	got, err := renameUnique(sd, name, dd, name, isDir)
+	if err == nil {
+		return filepath.Join(dir, got), nil
+	}
+	if err != syscall.EXDEV {
 		return "", err
 	}
 	// Copy under a temporary name first: an interrupted copy never looks
 	// like a finished file
-	part := filepath.Join(dir, ".dc-part-"+filepath.Base(dst))
-	os.RemoveAll(part)
-	if err := copyTree(src, part); err != nil {
-		os.RemoveAll(part)
+	part := ".dc-part-" + name
+	dd.RemoveAll(part)
+	if err := copyEntry(sd, name, dd, part, 0); err != nil {
+		dd.RemoveAll(part)
 		return "", err
 	}
-	dst = uniquePath(dst)
-	if err := os.Rename(part, dst); err != nil {
-		os.RemoveAll(part)
+	got, err = renameUnique(dd, part, dd, name, isDir)
+	if err != nil {
+		dd.RemoveAll(part)
 		return "", err
 	}
-	os.RemoveAll(src)
-	return dst, nil
+	sd.RemoveAll(name)
+	return filepath.Join(dir, got), nil
 }
 
-func isCrossDevice(err error) bool {
-	var le *os.LinkError
-	if errors.As(err, &le) {
-		return le.Err == syscall.EXDEV
+// renameUnique renames name in from to want in to, or to "want (n)" when
+// that is taken (see uniqueName), and returns the name used.
+func renameUnique(from *safefs.Dir, name string, to *safefs.Dir, want string, isDir bool) (string, error) {
+	for i := 0; i < 10000; i++ {
+		c := uniqueName(want, i, isDir)
+		if to.Exists(c) {
+			continue
+		}
+		err := from.Rename(name, to, c)
+		switch err {
+		case nil:
+			return c, nil
+		case syscall.EEXIST, syscall.ENOTEMPTY, syscall.ENOTDIR, syscall.EISDIR:
+			continue // taken meanwhile
+		}
+		return "", err
 	}
-	return false
+	return "", syscall.EEXIST
 }
 
-func copyTree(src, dst string) error {
-	st, err := os.Lstat(src)
+// uniqueName is name for n = 0 and "name (n)" variants after it, as
+// uniquePath (files) and uniqueDir (folders) make them.
+func uniqueName(name string, n int, isDir bool) string {
+	if n == 0 {
+		return name
+	}
+	if isDir {
+		return fmt.Sprintf("%s (%d)", name, n)
+	}
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	if strings.HasSuffix(stem, ".tar") {
+		ext = ".tar" + ext
+		stem = strings.TrimSuffix(stem, ".tar")
+	}
+	return fmt.Sprintf("%s (%d)%s", stem, n, ext)
+}
+
+// copyEntry copies name from sd to dst in dd. Links and special files are
+// not copied; new files are created, never opened if they exist.
+func copyEntry(sd *safefs.Dir, name string, dd *safefs.Dir, dst string, depth int) error {
+	if depth > 64 {
+		return safefs.ErrDepth
+	}
+	st, err := sd.Lstat(name)
 	if err != nil {
 		return err
 	}
-	switch {
-	case st.Mode()&os.ModeSymlink != 0:
-		return nil // never follow links out of a task folder
-	case st.IsDir():
-		if err := os.MkdirAll(dst, st.Mode().Perm()|0700); err != nil {
-			return err
-		}
-		ents, err := os.ReadDir(src)
-		if err != nil {
-			return err
-		}
-		for _, e := range ents {
-			if err := copyTree(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
-				return err
-			}
-		}
-		return nil
-	default:
-		in, err := os.Open(src)
+	switch st.Mode & syscall.S_IFMT {
+	case syscall.S_IFDIR:
+		in, err := sd.Sub(name)
 		if err != nil {
 			return err
 		}
 		defer in.Close()
-		out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, st.Mode().Perm())
+		out, created, err := dd.Mkdir(dst, (st.Mode&0777)|0700)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		if !created {
+			return syscall.EEXIST
+		}
+		names, err := in.Names()
+		if err != nil {
+			return err
+		}
+		for _, n := range names {
+			if err := copyEntry(in, n, out, n, depth+1); err != nil {
+				return err
+			}
+		}
+		return nil
+	case syscall.S_IFREG:
+		in, err := sd.OpenFile(name, os.O_RDONLY, 0)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := dd.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, st.Mode&0777)
 		if err != nil {
 			return err
 		}
@@ -309,9 +377,11 @@ func copyTree(src, dst string) error {
 			out.Close()
 			return err
 		}
-		os.Chtimes(dst, st.ModTime(), st.ModTime())
+		tv := []syscall.Timeval{syscall.NsecToTimeval(st.Mtim.Nano()), syscall.NsecToTimeval(st.Mtim.Nano())}
+		syscall.Futimes(int(out.Fd()), tv)
 		return out.Close()
 	}
+	return nil // never follow links out of a task folder
 }
 
 // FreeSpace returns the free bytes of the volume holding p.
@@ -341,7 +411,9 @@ func FolderOf(t *Task) (dir, file string) {
 			p = filepath.Join(t.SaveDir(), name)
 		}
 	}
-	if p != "" {
+	// A private staging folder cannot be opened in File Station: its
+	// destination stands in for it
+	if p != "" && browsable(p) {
 		if st, err := os.Stat(p); err == nil {
 			if st.IsDir() {
 				return p, ""
@@ -350,11 +422,24 @@ func FolderOf(t *Task) (dir, file string) {
 		}
 	}
 	for _, d := range []string{t.SaveDir(), t.finalDir()} {
+		if !browsable(d) {
+			continue
+		}
 		if st, err := os.Stat(d); err == nil && st.IsDir() {
 			return d, ""
 		}
 	}
 	return t.TempDir, ""
+}
+
+// browsable reports a path outside the private staging folders.
+func browsable(p string) bool { return !inStaging(p) }
+
+// inStaging reports a path in a private staging folder
+// (<volume root>/@DownloadCenterTemp/...).
+func inStaging(p string) bool {
+	i := strings.Index(p, "/"+TempDirName+"/")
+	return i > 0 && isStagingBase(p[:i])
 }
 
 // inside reports whether p is dir or below it.
@@ -369,13 +454,27 @@ func ownTemp(work string) bool {
 }
 
 // removeTempDir deletes a task's temp folder and an empty
-// @DownloadCenterTemp parent.
+// @DownloadCenterTemp parent. A link on the way stops it: nothing is
+// removed through a link.
 func removeTempDir(work string) {
 	if !ownTemp(work) {
 		return
 	}
-	os.RemoveAll(work)
-	os.Remove(filepath.Dir(work))
+	work = filepath.Clean(work)
+	tmp := filepath.Dir(work)
+	d, err := safefs.OpenDir(tmp)
+	if err != nil {
+		return
+	}
+	d.RemoveAll(filepath.Base(work))
+	d.Close()
+	// A volume's private staging folder stays: other tasks are made in it
+	if base := filepath.Dir(tmp); !isStagingBase(base) {
+		if p, err := safefs.OpenDir(base); err == nil {
+			p.RemoveEmpty(TempDirName)
+			p.Close()
+		}
+	}
 }
 
 // leaveTemp cleans up after a torrent's data moved out of its temporary
@@ -385,21 +484,30 @@ func leaveTemp(work string) {
 		removeTempDir(work)
 		return
 	}
-	removeEmptyDirs(work)
-}
-
-// removeEmptyDirs removes dir and the folders below it that hold no files.
-func removeEmptyDirs(dir string) {
-	ents, err := os.ReadDir(dir)
+	d, name, err := safefs.OpenParent(work)
 	if err != nil {
 		return
 	}
-	for _, e := range ents {
-		if e.IsDir() {
-			removeEmptyDirs(filepath.Join(dir, e.Name()))
+	removeEmptyDirs(d, name, 0)
+	d.Close()
+}
+
+// removeEmptyDirs removes name in d and the folders below it that hold no
+// files, without following links.
+func removeEmptyDirs(d *safefs.Dir, name string, depth int) {
+	sub, err := d.Sub(name)
+	if err != nil {
+		return
+	}
+	if names, err := sub.Names(); err == nil && depth < 64 {
+		for _, n := range names {
+			if st, err := sub.Lstat(n); err == nil && st.Mode&syscall.S_IFMT == syscall.S_IFDIR {
+				removeEmptyDirs(sub, n, depth+1)
+			}
 		}
 	}
-	os.Remove(dir)
+	sub.Close()
+	d.RemoveEmpty(name)
 }
 
 // removePartFiles deletes what libtorrent keeps of a torrent beside its
@@ -425,11 +533,16 @@ func (m *Manager) removePartFiles(hash string, dirs ...string) {
 		if dir == "" {
 			continue
 		}
+		d, err := safefs.OpenDir(dir)
+		if err != nil {
+			continue
+		}
 		for _, n := range names {
-			p := filepath.Join(dir, "."+n+".parts")
-			if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
-				os.Remove(p)
+			p := "." + n + ".parts"
+			if st, err := d.Lstat(p); err == nil && st.Mode&syscall.S_IFMT == syscall.S_IFREG {
+				d.Remove(p)
 			}
 		}
+		d.Close()
 	}
 }

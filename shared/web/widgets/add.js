@@ -10,9 +10,9 @@ const BASE = '/DownloadCenter/';
 const TAG = 'downloadcenter-add';
 
 /* ---------- language: the one chosen in QTS, like the web UI (js/i18n.js) ---------- */
-const LANGS = ['TCH', 'SCH', 'ENG', 'JPN', 'KOR', 'GER', 'FRE', 'SPA', 'ITA', 'POR', 'RUS', 'DUT', 'THA'];
+const LANGS = ['TCH', 'SCH', 'ENG', 'JPN', 'KOR', 'GER', 'FRE', 'SPA', 'ITA', 'POR', 'RUS', 'DUT', 'THA', 'HUN'];
 const BROWSER = [[/^zh-(tw|hk|mo|hant)/, 'TCH'], [/^zh/, 'SCH'], [/^de/, 'GER'], [/^es/, 'SPA'], [/^fr/, 'FRE'], [/^it/, 'ITA'], [/^ja/, 'JPN'],
-  [/^ko/, 'KOR'], [/^ru/, 'RUS'], [/^nl/, 'DUT'], [/^th/, 'THA'], [/^pt/, 'POR']];
+  [/^ko/, 'KOR'], [/^ru/, 'RUS'], [/^nl/, 'DUT'], [/^th/, 'THA'], [/^pt/, 'POR'], [/^hu/, 'HUN']];
 
 function cookie(name) {
   for (const part of document.cookie.split(/;\s*/)) {

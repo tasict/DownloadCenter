@@ -3,7 +3,9 @@
 # architectures as static musl binaries, in a Docker container.
 #
 # Usage: sh tools/build-dcbt.sh [x86_64|arm_64|arm-x41 ...]   (default: all)
-# Output: tools/cache/dc-bt-<arch>; build.sh copies them into <arch>/bin/.
+# Output: tools/cache/dc-bt-<arch> (or $DC_OUT/...: a folder inside the
+# repository, to build without replacing the binaries in tools/cache);
+# build.sh copies them into <arch>/bin/.
 #
 # Needs Docker (Container Station). Everything downloaded is pinned by
 # SHA-256 below; a mismatch aborts. Pieces:
@@ -11,18 +13,25 @@
 #   - Boost 1.88.0 headers only (libtorrent 2.0 links no Boost library)
 #   - OpenSSL 3.5.9 LTS, static
 #   - nlohmann/json 3.12.0 (single header)
-#   - x86_64 is built natively with Alpine 3.20's gcc (musl); aarch64 and
-#     armv7 (hard float) use the musl.cc cross toolchains (gcc 11, musl),
-#     so no qemu/binfmt is needed. QNAP's GitHub downloads are slow, so the
-#     large archives come from archives.boost.io, openssl.org and musl.cc.
+#   - x86_64 is built natively with Alpine 3.20's gcc (musl; image pinned by
+#     digest in tools/dcbt/Dockerfile); aarch64 and armv7 (hard float) use
+#     the musl.cc cross toolchains (gcc 11, musl), so no qemu/binfmt is
+#     needed. QNAP's GitHub downloads are slow, so the large archives come
+#     from archives.boost.io, openssl.org and musl.cc.
+#   - Everything is compiled position independent with the stack protector
+#     and fortified libc calls, and dc-bt is linked as a static PIE with full
+#     RELRO (see tools/dcbt/build-in-container.sh).
 #   - The QTS 5.10 kernel answers fchmodat2 with EFAULT instead of ENOSYS,
 #     which breaks tar/install in current musl and glibc userlands; the
-#     container runs with tools/dcbt/seccomp.json mapping it to ENOSYS.
+#     container runs with tools/dcbt/seccomp.json: Docker 27.1's default
+#     profile, except that fchmodat2 answers ENOSYS.
 
 set -e
 cd "$(dirname "$(readlink -f "$0")")/.."
 ROOT=$(pwd)
 SRC=tools/cache/src
+OUT=${DC_OUT:-tools/cache}
+mkdir -p "$OUT"
 mkdir -p "$SRC" tools/cache/dcbt-build
 
 CS=$(/sbin/getcfg container-station Install_Path -f /etc/config/qpkg.conf 2>/dev/null || true)
@@ -58,9 +67,9 @@ sources | while read -r f sum url; do
 	echo "  OK: $f"
 done
 
-if ! "$DOCKER" image inspect dcbt-builder:1 >/dev/null 2>&1; then
+if ! "$DOCKER" image inspect dcbt-builder:2 >/dev/null 2>&1; then
 	echo "Building the dcbt-builder image..."
-	"$DOCKER" build -t dcbt-builder:1 tools/dcbt
+	"$DOCKER" build -t dcbt-builder:2 tools/dcbt
 fi
 
 TARGETS="$*"
@@ -73,7 +82,7 @@ for t in $TARGETS; do
 		-v "$ROOT/dcbt:/work/dcbt:ro" \
 		-v "$ROOT/tools/dcbt:/work/tools:ro" \
 		-v "$ROOT/tools/cache/dcbt-build:/work/build" \
-		-v "$ROOT/tools/cache:/work/out" \
-		dcbt-builder:1 sh /work/tools/build-in-container.sh "$t"
-	ls -l "tools/cache/dc-bt-$t"
+		-v "$ROOT/$OUT:/work/out" \
+		dcbt-builder:2 sh /work/tools/build-in-container.sh "$t"
+	ls -l "$OUT/dc-bt-$t"
 done

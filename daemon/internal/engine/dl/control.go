@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"downloadcenter/internal/engine"
+	"downloadcenter/internal/safefs"
 )
 
 // control is the progress of a download, kept as .<name>.dcdl next to the
@@ -36,10 +38,23 @@ func IsControlFile(name string) bool {
 }
 
 func controlPath(dir, name string) string {
-	return filepath.Join(dir, "."+name+controlSuffix)
+	return filepath.Join(dir, controlName(name))
 }
 
-// saveControl writes the progress when the download can be resumed.
+func controlName(name string) string { return "." + name + controlSuffix }
+
+// Limits for what is read back from the task's folder.
+const (
+	maxControlFile = 1 << 20  // our control file (the bitfield of at most maxPieces pieces, in hex)
+	maxAria2File   = 16 << 20 // an aria2 control file (its bitfield and in-flight pieces)
+	minPiece       = 1 << 10
+	maxPiece       = 1 << 30
+	maxSavedPieces = 1 << 24
+)
+
+// saveControl writes the progress when the download can be resumed. It is
+// written beside the data under a temporary name, then renamed: neither
+// name is followed if it is a link.
 func (t *task) saveControl() {
 	t.mu.Lock()
 	t.saved = time.Now()
@@ -52,70 +67,85 @@ func (t *task) saveControl() {
 	dir := t.req.Dir
 	t.mu.Unlock()
 	b, _ := json.Marshal(c)
-	p := controlPath(dir, c.Name)
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, 0600); err != nil {
+	d, err := openWorkDir(dir)
+	if err != nil {
 		return
 	}
-	if os.Rename(tmp, p) != nil {
-		os.Remove(tmp)
+	defer d.Close()
+	name := controlName(c.Name)
+	tmp := name + ".tmp"
+	d.Remove(tmp)
+	f, err := d.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return
+	}
+	_, err = f.Write(b)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil || d.Rename(tmp, d, name) != nil {
+		d.Remove(tmp)
 	}
 }
 
 // load picks up the progress of an earlier run: our control file first,
-// then an aria2 control file from before the engine change.
+// then an aria2 control file from before the engine change. Only regular
+// files are read, never through a link, and only up to a size.
 func (t *task) load() {
-	dir := t.req.Dir
-	ents, err := os.ReadDir(dir)
+	d, err := openWorkDir(t.req.Dir)
 	if err != nil {
 		return
 	}
-	for _, e := range ents {
-		n := e.Name()
+	defer d.Close()
+	names, err := d.Names()
+	if err != nil {
+		return
+	}
+	for _, n := range names {
 		if !strings.HasPrefix(n, ".") || !strings.HasSuffix(n, controlSuffix) {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, n))
+		b, err := d.ReadFile(n, maxControlFile)
 		if err != nil {
 			continue
 		}
 		var c control
-		if json.Unmarshal(b, &c) != nil || c.Ref != t.ref || c.Size <= 0 || c.Piece <= 0 || c.Name == "" || controlPath(dir, c.Name) != filepath.Join(dir, n) {
+		if json.Unmarshal(b, &c) != nil || c.Ref != t.ref || c.Name == "" || controlName(c.Name) != n {
 			continue
 		}
 		bits, err := hex.DecodeString(c.Bits)
 		if err != nil {
 			continue
 		}
-		if t.adopt(c.Name, c.Size, c.Piece, bits) {
+		if t.adopt(d, c.Name, c.Size, c.Piece, bits) {
 			t.mu.Lock()
 			t.etag, t.modified = c.ETag, c.Modified
 			t.mu.Unlock()
 			return
 		}
 	}
-	if t.loadAria2(dir, ents) {
+	if t.loadAria2(d, names) {
 		return
 	}
 	// No progress record: a data file under the requested name is continued
 	// after its current size when the server allows ranges
 	if t.req.Out != "" && !strings.ContainsAny(t.req.Out, "/\\") {
-		if st, err := os.Stat(filepath.Join(dir, t.req.Out)); err == nil && st.Mode().IsRegular() && st.Size() > 0 {
+		if st, err := d.Lstat(t.req.Out); err == nil && st.Mode&syscall.S_IFMT == syscall.S_IFREG && st.Nlink == 1 &&
+			st.Size > 0 && st.Size <= maxFileSize {
 			t.mu.Lock()
-			t.contSize = st.Size()
+			t.contSize = st.Size
 			t.mu.Unlock()
 		}
 	}
 }
 
 // loadAria2 takes over the progress of an aria2 control file.
-func (t *task) loadAria2(dir string, ents []os.DirEntry) bool {
-	for _, e := range ents {
-		n := e.Name()
+func (t *task) loadAria2(d *safefs.Dir, names []string) bool {
+	for _, n := range names {
 		if !strings.HasSuffix(n, ".aria2") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, n))
+		b, err := d.ReadFile(n, maxAria2File)
 		if err != nil {
 			continue
 		}
@@ -123,9 +153,9 @@ func (t *task) loadAria2(dir string, ents []os.DirEntry) bool {
 		if err != nil {
 			continue
 		}
-		if t.adopt(strings.TrimSuffix(n, ".aria2"), total, piece, bits) {
+		if t.adopt(d, strings.TrimSuffix(n, ".aria2"), total, piece, bits) {
 			t.mu.Lock()
-			t.adopted = filepath.Join(dir, n)
+			t.adopted = n
 			t.mu.Unlock()
 			t.e.logf(t.ref, "Continuing from the progress aria2 had saved")
 			return true
@@ -136,16 +166,19 @@ func (t *task) loadAria2(dir string, ents []os.DirEntry) bool {
 
 // adopt takes over saved progress when the data file is there and the
 // numbers add up.
-func (t *task) adopt(name string, size, piece int64, bits []byte) bool {
+func (t *task) adopt(d *safefs.Dir, name string, size, piece int64, bits []byte) bool {
 	if name == "" || strings.ContainsAny(name, "/\\") {
 		return false
 	}
-	st, err := os.Stat(filepath.Join(t.req.Dir, name))
-	if err != nil || !st.Mode().IsRegular() {
+	if size <= 0 || size > maxFileSize || piece < minPiece || piece > maxPiece {
 		return false
 	}
-	n := int((size + piece - 1) / piece)
-	if len(bits) != (n+7)/8 {
+	n := pieceCount(size, piece)
+	if n > maxSavedPieces || int64(len(bits)) != (n+7)/8 {
+		return false
+	}
+	st, err := d.Lstat(name)
+	if err != nil || st.Mode&syscall.S_IFMT != syscall.S_IFREG || st.Nlink != 1 {
 		return false
 	}
 	done := make([]bool, n)
@@ -161,18 +194,19 @@ func (t *task) adopt(name string, size, piece int64, bits []byte) bool {
 // removeAdopted deletes the aria2 control file once our own is written.
 func (t *task) removeAdopted() {
 	t.mu.Lock()
-	p := t.adopted
+	n := t.adopted
 	t.adopted = ""
+	d := t.dir
 	t.mu.Unlock()
-	if p != "" {
-		os.Remove(p)
+	if n != "" && d != nil {
+		d.Remove(n)
 	}
 }
 
 // parseAria2Control reads the piece length, total length and bitfield of
 // an aria2 control file ("Control File (*.aria2) Format" in the aria2
 // manual): version 1 is big-endian, version 0 host order (little-endian on
-// QNAP's CPUs).
+// QNAP's CPUs). Lengths are checked as 64-bit numbers, on every CPU.
 func parseAria2Control(b []byte) (piece, total int64, bits []byte, err error) {
 	bad := errors.New("not an aria2 control file")
 	if len(b) < 10 {
@@ -187,9 +221,10 @@ func parseAria2Control(b []byte) (piece, total int64, bits []byte, err error) {
 	default:
 		return 0, 0, nil, bad
 	}
-	p := 6 // version, extension
+	p := int64(6) // version, extension
+	size := int64(len(b))
 	u32 := func() (int64, bool) {
-		if p+4 > len(b) {
+		if p+4 > size {
 			return 0, false
 		}
 		v := int64(bo.Uint32(b[p:]))
@@ -204,14 +239,14 @@ func parseAria2Control(b []byte) (piece, total int64, bits []byte, err error) {
 	if piece, ok = u32(); !ok || piece <= 0 {
 		return 0, 0, nil, bad
 	}
-	if p+16 > len(b) {
+	if p+16 > size {
 		return 0, 0, nil, bad
 	}
 	total = int64(bo.Uint64(b[p:]))
 	p += 16 // total length, upload length
 	bfLen, ok := u32()
-	if !ok || total <= 0 || p+int(bfLen) > len(b) {
+	if !ok || total <= 0 || total > maxFileSize || bfLen > size-p {
 		return 0, 0, nil, bad
 	}
-	return piece, total, b[p : p+int(bfLen)], nil
+	return piece, total, b[p : p+bfLen], nil
 }

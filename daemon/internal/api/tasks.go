@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -95,6 +96,7 @@ func (s *Server) taskJSON(p *auth.Principal, t *core.Task, withBits bool) TaskJS
 	if t.Options.Hoster != "" && t.Options.OrigURL != "" {
 		j.Source = t.Options.OrigURL
 	}
+	j.Source = core.SourceForDisplay(j.Source)
 	viewer := p.User
 	j.Folder = s.M.DisplayPath(viewer, t.TempDir)
 	j.MoveTo = s.M.DisplayPath(viewer, t.MoveDir)
@@ -281,7 +283,8 @@ type addBody struct {
 }
 
 func (b *addBody) options(p *auth.Principal, r *http.Request) core.AddOptions {
-	o := core.AddOptions{Owner: p.User, Admin: p.Admin, AutoRemove: "default", Caller: callerOf(p, r), ContentOf: b.ContentOf, Proxy: b.Proxy}
+	o := core.AddOptions{Owner: p.User, Admin: p.Admin, AllTasks: p.SeesAll(), Guard: !p.Interactive(), AutoRemove: "default",
+		Caller: callerOf(p, r), ContentOf: b.ContentOf, Proxy: b.Proxy}
 	if b.Folder != nil {
 		o.TempDir = *b.Folder
 	}
@@ -321,8 +324,9 @@ func sanitizeName(n string) string {
 }
 
 // callerOf is the program a task is added from, as the task details show
-// it: the web UI, a token, a chat, or a Deskpane widget (a session request
-// marked X-DC-Via: widget, which a token cannot claim).
+// it: the web UI, a token, a chat, a Deskpane widget or the page's tools for an
+// AI agent (session requests marked X-DC-Via: widget or webmcp, which a token
+// cannot claim).
 func callerOf(p *auth.Principal, r *http.Request) string {
 	switch p.Via {
 	case "token":
@@ -330,15 +334,18 @@ func callerOf(p *auth.Principal, r *http.Request) string {
 	case "chat":
 		return "Chat"
 	}
+	if p.Agent {
+		return "AI agent"
+	}
 	if r != nil && r.Header.Get("X-DC-Via") == "widget" {
 		return "Deskpane"
 	}
 	return "Download Center"
 }
 
-// checkFolders applies a token's folder allowlist to where a task goes: its
+// CheckFolders applies a token's folder allowlist to where a task goes: its
 // temporary folder and the folder it is moved to, the defaults included.
-func (s *Server) checkFolders(p *auth.Principal, o *core.AddOptions) bool {
+func (s *Server) CheckFolders(p *auth.Principal, o *core.AddOptions) bool {
 	if len(p.Folders) == 0 {
 		return true
 	}
@@ -392,7 +399,12 @@ func (s *Server) addOne(p *auth.Principal, src string, o core.AddOptions) addOut
 			out.status, out.Error = 403, map[string]string{"code": "source_not_allowed", "message": "The token may not add URLs"}
 			return out
 		}
-		if b := s.M.FetchTorrentLink(src, o.Proxy, p.Admin); b != nil {
+		if b := s.M.FetchTorrentLink(src, o.Proxy, p.Admin && !o.Guard); b != nil {
+			// The link was a .torrent: what is added is a torrent
+			if !p.SourceAllowed("torrent") {
+				out.status, out.Error = 403, map[string]string{"code": "source_not_allowed", "message": "The token may not add torrent files"}
+				return out
+			}
 			res, err = s.M.AddTorrent(b, o)
 		} else {
 			res, err = s.M.AddURL(src, o)
@@ -424,7 +436,7 @@ func (s *Server) addTasks(w http.ResponseWriter, r *http.Request, p *auth.Princi
 		return
 	}
 	o := b.options(p, r)
-	if !s.checkFolders(p, &o) {
+	if !s.CheckFolders(p, &o) {
 		Error(w, 403, "folder_not_allowed", "The token may not use this folder")
 		return
 	}
@@ -454,8 +466,7 @@ func (s *Server) addTorrentUpload(w http.ResponseWriter, r *http.Request, p *aut
 		Error(w, 403, "source_not_allowed", "The token may not add torrent files")
 		return
 	}
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		Error(w, 400, "bad_request", "Invalid upload format")
+	if !parseUpload(w, r) {
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
@@ -487,7 +498,7 @@ func (s *Server) addTorrentUpload(w http.ResponseWriter, r *http.Request, p *aut
 		b.ContentOf = v[0]
 	}
 	o := b.options(p, r)
-	if !s.checkFolders(p, &o) {
+	if !s.CheckFolders(p, &o) {
 		Error(w, 403, "folder_not_allowed", "The token may not use this folder")
 		return
 	}
@@ -533,8 +544,11 @@ func (s *Server) checkTasks(w http.ResponseWriter, r *http.Request, p *auth.Prin
 	var items []core.CheckItem
 	folder := ""
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			Error(w, 400, "bad_request", "Invalid upload format")
+		if !p.SourceAllowed("torrent") {
+			Error(w, 403, "source_not_allowed", "The token may not add torrent files")
+			return
+		}
+		if !parseUpload(w, r) {
 			return
 		}
 		defer r.MultipartForm.RemoveAll()
@@ -574,14 +588,17 @@ func (s *Server) checkTasks(w http.ResponseWriter, r *http.Request, p *auth.Prin
 	} else {
 		dest = s.M.UserDownloadDir(p.User)
 	}
-	OK(w, map[string]any{"items": s.M.Check(p.User, p.Admin, items, dest)})
+	OK(w, map[string]any{"items": s.M.Check(p.User, p.SeesAll(), items, dest)})
 }
 
 // probe returns the file list of a magnet (async) or an uploaded .torrent.
 func (s *Server) probe(w http.ResponseWriter, r *http.Request, p *auth.Principal) {
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			Error(w, 400, "bad_request", "Invalid upload format")
+		if !p.SourceAllowed("torrent") {
+			Error(w, 403, "source_not_allowed", "The token may not add torrent files")
+			return
+		}
+		if !parseUpload(w, r) {
 			return
 		}
 		defer r.MultipartForm.RemoveAll()
@@ -602,13 +619,14 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request, p *auth.Principal
 			Error(w, 400, "torrent_invalid", "Invalid torrent file format")
 			return
 		}
-		OK(w, map[string]any{"state": "ready", "infohash": meta.InfoHash, "torrent": metaJSON(meta), "free": s.freeFor(p, r.MultipartForm.Value["folder"])})
+		OK(w, map[string]any{"state": "ready", "infohash": meta.InfoHash, "torrent": metaJSON(meta), "free": s.freeFor(p, r.MultipartForm.Value["folder"], r.MultipartForm.Value["move_to"])})
 		return
 	}
 	var b struct {
-		Magnet string `json:"magnet"`
-		Cancel bool   `json:"cancel"`
-		Folder string `json:"folder"`
+		Magnet string  `json:"magnet"`
+		Cancel bool    `json:"cancel"`
+		Folder string  `json:"folder"`
+		MoveTo *string `json:"move_to"` // optional: where the data goes when not the default
 	}
 	if err := Decode(r, &b); err != nil {
 		Error(w, 400, "bad_request", err.Error())
@@ -616,12 +634,17 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request, p *auth.Principal
 	}
 	if b.Cancel {
 		if mg, err := torrent.ParseMagnet(b.Magnet); err == nil {
-			s.M.CancelProbe(mg.InfoHash)
+			s.M.CancelProbeOf(mg.InfoHash, p.User, p.SeesAll())
 		}
 		OK(w, map[string]any{"ok": true})
 		return
 	}
-	meta, hash, err := s.M.ProbeMagnet(b.Magnet, p.User, p.Admin)
+	if !p.SourceAllowed("magnet") {
+		Error(w, 403, "source_not_allowed", "The token may not add magnet links")
+		return
+	}
+	// A token's probe is guarded like its adds, whoever owns it
+	meta, hash, err := s.M.ProbeMagnet(b.Magnet, p.User, p.SeesAll(), !(p.Admin && p.Interactive()))
 	if err != nil {
 		Fail(w, err)
 		return
@@ -630,19 +653,38 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request, p *auth.Principal
 		OK(w, map[string]any{"state": "pending", "infohash": hash})
 		return
 	}
-	OK(w, map[string]any{"state": "ready", "infohash": hash, "torrent": metaJSON(meta), "free": s.freeFor(p, []string{b.Folder})})
+	OK(w, map[string]any{"state": "ready", "infohash": hash, "torrent": metaJSON(meta), "free": s.freeFor(p, []string{b.Folder}, optional(b.MoveTo))})
 }
 
-func (s *Server) freeFor(p *auth.Principal, folder []string) int64 {
-	dir := s.M.Settings().TempDir
+// freeSpace is core.FreeSpace (tests replace it).
+var freeSpace = core.FreeSpace
+
+// freeFor is the free space where a torrent added with these folders is
+// written: the volume of its destination, where its private staging folder
+// is. moveTo is the move_to value when the caller gave one ("" = do not
+// move); without one the default move folder applies.
+func (s *Server) freeFor(p *auth.Principal, folder, moveTo []string) int64 {
 	if !p.Admin {
-		dir = s.M.UserDownloadDir(p.User)
-	} else if len(folder) > 0 && folder[0] != "" {
+		return freeSpace(s.M.UserDownloadDir(p.User))
+	}
+	st := s.M.Settings()
+	dest := st.TempDir
+	if len(folder) > 0 && folder[0] != "" {
 		if d, err := s.M.ResolvePath(p.User, folder[0]); err == nil {
-			dir = d
+			dest = d
 		}
 	}
-	return core.FreeSpace(dir)
+	switch {
+	case len(moveTo) > 0:
+		if moveTo[0] != "" {
+			if d, err := s.M.ResolvePath(p.User, moveTo[0]); err == nil {
+				dest = d
+			}
+		}
+	case st.MoveDir != "":
+		dest = st.MoveDir
+	}
+	return freeSpace(dest)
 }
 
 func metaJSON(m *torrent.Meta) map[string]any {
@@ -677,7 +719,12 @@ func (s *Server) taskRoutes() {
 			in := s.M.TrackerInfo(t)
 			j.TrackerCount, j.PublicMissing = &in.Count, &in.PublicMissing
 		}
-		resp := map[string]any{"task": j, "sources": s.M.Sources(t.Hash), "log": s.M.TaskLog(t.Hash, 50),
+		// Merged sources are shown like the task's own: no password of an address
+		sources := s.M.Sources(t.Hash)
+		for i := range sources {
+			sources[i].Source = core.SourceForDisplay(sources[i].Source)
+		}
+		resp := map[string]any{"task": j, "sources": sources, "log": s.M.TaskLog(t.Hash, 50),
 			"trackers": t.Options.Trackers, "public_trackers": t.Options.PublicTrackers}
 		// Torrents that are not complete: what their source health is based on
 		if t.Kind == core.KindBT {
@@ -692,6 +739,8 @@ func (s *Server) taskRoutes() {
 		if t == nil {
 			return
 		}
+		// As the engine has them now (the regular poll is slower)
+		s.M.RefreshFiles(t.Hash)
 		files := s.M.Files(t.Hash)
 		if files == nil {
 			files = []core.FileRow{}
@@ -1073,4 +1122,32 @@ func trResults(w http.ResponseWriter, results []addOut) {
 			results[i].Error["message"] = Tr(w, results[i].Error["message"])
 		}
 	}
+}
+
+// maxUpload bounds a multipart request (torrent files). The whole of it is
+// kept in memory: nothing is spooled to a temporary file.
+const maxUpload = 32 << 20
+
+// parseUpload parses a multipart request of at most maxUpload bytes,
+// answering the error itself when it cannot.
+func parseUpload(w http.ResponseWriter, r *http.Request) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	if err := r.ParseMultipartForm(maxUpload); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			Error(w, 413, "too_large", "The upload is too large")
+		} else {
+			Error(w, 400, "bad_request", "Invalid upload format")
+		}
+		return false
+	}
+	return true
+}
+
+// optional is a JSON value given or not as a form value list.
+func optional(v *string) []string {
+	if v == nil {
+		return nil
+	}
+	return []string{*v}
 }

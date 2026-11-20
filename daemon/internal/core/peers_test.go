@@ -351,6 +351,7 @@ func TestAddTrackers(t *testing.T) {
 }
 
 func TestAutoPublicTrackers(t *testing.T) {
+	anyStaging(t)
 	m, f, _ := clockManager(t)
 	m.Public = &fakePublic{list: []string{"udp://p1.example.org:1/announce", "udp://own.example.org:1/announce"}}
 	o := AddOptions{Owner: "admin", Admin: true, AutoRemove: "default"}
@@ -390,7 +391,7 @@ func TestAutoPublicTrackers(t *testing.T) {
 		t.Fatalf("engine request %+v %v", req, err)
 	}
 	// So is the add dialog's probe of a regular user
-	m.ProbeMagnet("magnet:?xt=urn:btih:5555555555555555555555555555555555555555", "dc-test-nobody", false)
+	m.ProbeMagnet("magnet:?xt=urn:btih:5555555555555555555555555555555555555555", "dc-test-nobody", false, true)
 	if r := f.reqs[len(f.reqs)-1]; !r.MetadataOnly || !r.Guard {
 		t.Fatalf("probe %+v", r)
 	}
@@ -400,6 +401,7 @@ func TestAutoPublicTrackers(t *testing.T) {
 // guarded whoever owns it, before the first announce to them. Changes of
 // role or list reach the engine within a minute.
 func TestGuardFollowsListAndRole(t *testing.T) {
+	anyStaging(t)
 	m, f, _ := clockManager(t)
 	m.Public = &fakePublic{list: []string{"udp://p1.example.org:1/announce"}}
 	task := magnetTask(m, hashA, 1, StMetadata)
@@ -462,13 +464,13 @@ func TestProbeOtherOwner(t *testing.T) {
 	m, _, _ := clockManager(t)
 	task := magnetTask(m, hashA, 1, StDownloading)
 	task.Owner = "carol"
-	if _, _, err := m.ProbeMagnet("magnet:?xt=urn:btih:"+hashA, "bob", false); err != ErrOtherOwner {
+	if _, _, err := m.ProbeMagnet("magnet:?xt=urn:btih:"+hashA, "bob", false, true); err != ErrOtherOwner {
 		t.Fatalf("someone else's task: %v", err)
 	}
-	if _, _, err := m.ProbeMagnet("magnet:?xt=urn:btih:"+hashA, "carol", false); err == ErrOtherOwner {
+	if _, _, err := m.ProbeMagnet("magnet:?xt=urn:btih:"+hashA, "carol", false, true); err == ErrOtherOwner {
 		t.Fatal("the owner's own task")
 	}
-	if _, _, err := m.ProbeMagnet("magnet:?xt=urn:btih:"+hashA, "admin", true); err == ErrOtherOwner {
+	if _, _, err := m.ProbeMagnet("magnet:?xt=urn:btih:"+hashA, "admin", true, false); err == ErrOtherOwner {
 		t.Fatal("an administrator sees every task")
 	}
 }

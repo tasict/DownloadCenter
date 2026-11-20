@@ -244,7 +244,7 @@ func (s *Server) queueStatus(p *auth.Principal, tr func(string, ...string) strin
 func (s *Server) queueItem(p *auth.Principal, tr func(string, ...string) string, lang string, t *core.Task, ranks map[string]int, now time.Time) wdgItem {
 	name := t.Name
 	if name == "" {
-		name = t.Source
+		name = core.SourceForDisplay(t.Source)
 	}
 	it := wdgItem{Title: cut(name, 120), Open: Base + "/#task/" + t.Hash}
 	frac := func() {

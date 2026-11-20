@@ -17,12 +17,15 @@ import (
 
 	"downloadcenter/internal/engine"
 	"downloadcenter/internal/torrent"
+	"downloadcenter/internal/trackers"
 )
 
 // AddOptions are the choices of the add dialog (and its API equivalents).
 type AddOptions struct {
 	Owner       string
 	Admin       bool   // effective role of the owner
+	AllTasks    bool   // the caller acts on every owner's tasks (an administrator's session, a token with tasks: all)
+	Guard       bool   // guard the task's connections even for an administrator (added through a token or a chat)
 	TempDir     string // display or real path; "" = default (admins only)
 	MoveDir     string // "" = do not move
 	MoveSet     bool   // MoveDir was given explicitly (else the default applies)
@@ -266,11 +269,13 @@ func (m *Manager) newTask(hash, kind, source, name string, o *AddOptions, temp, 
 	if caller == "" {
 		caller = "Download Center"
 	}
-	return &Task{
+	t := &Task{
 		Hash: hash, Owner: o.Owner, Kind: kind, Source: source, Name: name,
 		State: StQueued, UserPaused: o.Paused, Position: m.nextPosition(),
 		TempDir: temp, MoveDir: move, CreatedAt: time.Now().Unix(), AutoRemove: auto, Caller: caller,
 	}
+	t.Options.Guarded = o.Guard
+	return t
 }
 
 // resolveLink resolves a file-hosting link with the owner's accounts. A task
@@ -304,7 +309,7 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	}
 	hash := URLHash(raw)
 	if t := m.Live(hash); t != nil {
-		if t.Owner != o.Owner && !o.Admin {
+		if t.Owner != o.Owner && !o.AllTasks {
 			return nil, ErrOtherOwner
 		}
 		return &AddResult{ID: t.Hash, Name: t.Name, Duplicate: true}, &DupError{ID: t.Hash}
@@ -336,7 +341,7 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if ex, ok := m.live[hash]; ok {
-		if ex.Owner != o.Owner && !o.Admin {
+		if ex.Owner != o.Owner && !o.AllTasks {
 			return nil, ErrOtherOwner
 		}
 		return &AddResult{ID: ex.Hash, Name: ex.Name, Duplicate: true}, &DupError{ID: ex.Hash}
@@ -370,7 +375,7 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	if o.AccountMode == "manual" && o.ManualUser != "" {
 		m.db.SetSecret("task:"+hash, o.ManualUser+"\x00"+o.ManualPass)
 	}
-	t.WorkDir = m.workDirFor(temp, hash)
+	t.WorkDir = m.workDirFor(userDest(o.Admin, temp, move), temp, move, hash)
 	// Re-adding a URL from the history replaces the old record
 	m.db.X(`DELETE FROM tasks WHERE hash = ? AND removed_at > 0`, hash)
 	m.db.X(`DELETE FROM task_files WHERE hash = ?`, hash)
@@ -382,6 +387,20 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	m.TaskEvent("task.added", t, map[string]any{"source": "url"})
 	m.Kick()
 	return &AddResult{ID: hash, Name: t.Name}, nil
+}
+
+// SourceForDisplay is a task's source as answers show it: a password in
+// the address (ftp://user:password@host/...) is replaced by "***".
+func SourceForDisplay(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	if _, has := u.User.Password(); !has {
+		return raw
+	}
+	u.User = url.UserPassword(u.User.Username(), "***")
+	return u.String()
 }
 
 func nameFromURL(raw string) string {
@@ -425,13 +444,13 @@ func (m *Manager) AddMagnet(link string, o AddOptions) (*AddResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if ex, ok := m.live[mg.InfoHash]; ok {
-		if ex.Owner != o.Owner && !o.Admin {
+		if ex.Owner != o.Owner && !o.AllTasks {
 			return nil, ErrOtherOwner
 		}
 		if private {
 			return &AddResult{ID: ex.Hash, Name: ex.Name, Duplicate: true}, &DupError{ID: ex.Hash}
 		}
-		return m.mergeTrackers(ex, append(mg.Trackers, o.Trackers...), link)
+		return m.mergeTrackers(ex, o.allowedTrackers(append(mg.Trackers, o.Trackers...)), link)
 	}
 	t := m.newTask(mg.InfoHash, KindBT, strings.TrimSpace(link), mg.Name, &o, temp, move)
 	if e := m.BTEngine(); e != nil {
@@ -445,7 +464,7 @@ func (m *Manager) AddMagnet(link string, o AddOptions) (*AddResult, error) {
 	t.Options.AutoPrio = true
 	t.Options.Magnet = strings.TrimSpace(link)
 	t.State = StMetadata
-	m.stageTorrent(t, "")
+	m.stageTorrent(t, o.Admin)
 	m.db.X(`DELETE FROM tasks WHERE hash = ? AND removed_at > 0`, t.Hash)
 	if err := m.saveTask(t); err != nil {
 		return nil, err
@@ -484,14 +503,14 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if ex, ok := m.live[meta.InfoHash]; ok {
-		if ex.Owner != o.Owner && !o.Admin {
+		if ex.Owner != o.Owner && !o.AllTasks {
 			return nil, ErrOtherOwner
 		}
 		// The same info hash is the same info dictionary: private for both
 		if meta.Private {
 			return &AddResult{ID: ex.Hash, Name: ex.Name, Duplicate: true}, &DupError{ID: ex.Hash}
 		}
-		return m.mergeTrackers(ex, append(meta.Trackers, o.Trackers...), "")
+		return m.mergeTrackers(ex, o.allowedTrackers(append(meta.Trackers, o.Trackers...)), "")
 	}
 	source := meta.Name + ".torrent"
 	if magnet != "" {
@@ -514,7 +533,7 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	if err := os.WriteFile(m.torrentPath(t.Hash), b, 0600); err != nil {
 		return nil, err
 	}
-	m.stageTorrent(t, meta.Name)
+	m.stageTorrent(t, o.Admin)
 	files := make([]FileRow, 0, len(meta.Files))
 	for _, f := range meta.Files {
 		prio := 1
@@ -556,27 +575,25 @@ func (m *Manager) addTorrentBytes(b []byte, magnet string, o AddOptions) (*AddRe
 	return &AddResult{ID: t.Hash, Name: t.Name}, nil
 }
 
-// stageTorrent decides where a new torrent downloads. Like a URL task it
-// goes to @DownloadCenterTemp/<hash> and moves to its destination once its
-// data is complete. Data that already sits at the destination (a torrent
-// added again) is checked and seeded where it is; data in the temporary
-// location is checked and moved when seeding ends, as before.
-func (m *Manager) stageTorrent(t *Task, name string) {
-	if name != "" && name == filepath.Base(name) && name != "." && name != ".." {
-		if p := filepath.Join(t.finalDir(), name); pathExists(p) {
-			t.DataPath = p
-			t.Options.Check = true
-			return
-		}
-		if pathExists(filepath.Join(t.TempDir, name)) {
-			t.Options.Check = true
-			return
-		}
-	}
-	if e := m.BTEngine(); e == nil || !e.Caps().MoveWhileSeeding {
+// stageTorrent decides where a new torrent downloads: like a URL task, in
+// its private staging folder (workDirFor), from where the engine hands the
+// data over to its destination once complete. When something of the
+// torrent's name is already at the destination, the engine is asked to take
+// it over (AdoptFrom): only files that are plain files of the owner and
+// hold the torrent's data are, linked into the private folder; the torrent
+// then continues there instead of downloading as new under another name.
+func (m *Manager) stageTorrent(t *Task, admin bool) {
+	e := m.BTEngine()
+	if e == nil || !e.Caps().MoveWhileSeeding {
 		return
 	}
-	t.WorkDir = m.workDirFor(t.TempDir, t.Hash)
+	t.WorkDir = m.workDirFor(userDest(admin, t.TempDir, t.MoveDir), t.TempDir, t.MoveDir, t.Hash)
+	n := t.Name
+	if e.Caps().AdoptData && n != "" && n == filepath.Base(n) && n != "." && n != ".." && !t.IsMagnet() {
+		if pathExists(filepath.Join(t.finalDir(), n)) {
+			t.Options.AdoptFrom = t.finalDir()
+		}
+	}
 }
 
 func validSelection(sel []int, meta *torrent.Meta) []int {
@@ -741,7 +758,7 @@ func (m *Manager) Check(owner string, admin bool, items []CheckItem, destDir str
 			}
 		}
 		if r.Status == "new" && name != "" && destDir != "" {
-			if st, err := os.Stat(filepath.Join(destDir, name)); err == nil {
+			if st, err := os.Lstat(filepath.Join(destDir, name)); err == nil {
 				if meta == nil || st.IsDir() || st.Size() == meta.Size {
 					r.Status = "downloaded"
 				}
@@ -805,12 +822,26 @@ func realFiles(m *torrent.Meta) []torrent.File {
 
 type probe struct {
 	started time.Time
+	done    time.Time // when the metadata arrived (zero while fetching)
 	ref     string
 	eng     engine.Engine
+	owner   string // who started it: only they (or an administrator) cancel it
 	meta    *torrent.Meta
 	data    []byte
-	err     string
 }
+
+// Probes still fetching end after probeTimeout (the per-minute pass ends
+// them even when nobody asks again); a finished one is kept probeKeep for
+// the add that follows. An account has at most maxProbes fetching at once
+// (the API's probe_limit message says "three").
+const (
+	probeTimeout = 10 * time.Minute
+	probeKeep    = 30 * time.Minute
+	maxProbes    = 3
+)
+
+// ErrProbeLimit: the account already has maxProbes probes fetching.
+var ErrProbeLimit = errors.New("probe_limit")
 
 var (
 	probeMu sync.Mutex
@@ -828,18 +859,19 @@ func (m *Manager) probeTorrent(hash string) []byte {
 	return nil
 }
 
-// ProbeMagnet starts (or polls) fetching a magnet's metadata for owner (an
-// administrator when admin). It returns the parsed torrent when ready, nil
-// while pending. A regular user's probe is guarded (engine.AddRequest.Guard)
-// and never sees the file list of someone else's task.
-func (m *Manager) ProbeMagnet(link, owner string, admin bool) (*torrent.Meta, string, error) {
+// ProbeMagnet starts (or polls) fetching a magnet's metadata for owner. It
+// returns the parsed torrent when ready, nil while pending. all: the caller
+// acts on every owner's tasks (else it never sees the file list of someone
+// else's task); guard: the probe's connections are guarded
+// (engine.AddRequest.Guard), as for a regular user or a program.
+func (m *Manager) ProbeMagnet(link, owner string, all, guard bool) (*torrent.Meta, string, error) {
 	mg, err := torrent.ParseMagnet(link)
 	if err != nil {
 		return nil, "", ErrBadMagnet
 	}
 	if t := m.Live(mg.InfoHash); t != nil {
 		// Adding it would be refused the same way
-		if !admin && t.Owner != owner {
+		if !all && t.Owner != owner {
 			return nil, mg.InfoHash, ErrOtherOwner
 		}
 		if b, err := os.ReadFile(m.torrentPath(t.Hash)); err == nil {
@@ -853,58 +885,103 @@ func (m *Manager) ProbeMagnet(link, owner string, admin bool) (*torrent.Meta, st
 	if p != nil && p.meta != nil {
 		return p.meta, mg.InfoHash, nil
 	}
-	if p != nil && p.err != "" {
-		delete(probes, mg.InfoHash)
-		return nil, mg.InfoHash, errors.New(p.err)
-	}
 	if p == nil {
 		e := m.BTEngine()
 		if e == nil {
 			return nil, mg.InfoHash, ErrNoBT
 		}
+		n := 0
+		for _, o := range probes {
+			if o.owner == owner && o.meta == nil {
+				n++
+			}
+		}
+		if n >= maxProbes {
+			return nil, mg.InfoHash, ErrProbeLimit
+		}
 		dir := m.probeDir(mg.InfoHash)
 		os.MkdirAll(dir, 0700)
-		ref, err := e.Add("", engine.AddRequest{Magnet: link, Dir: dir, MetadataOnly: true, SeedTime: -1, Guard: !admin})
+		ref, err := e.Add("", engine.AddRequest{Magnet: link, Dir: dir, MetadataOnly: true, SeedTime: -1, Guard: guard})
 		if err != nil {
 			return nil, mg.InfoHash, err
 		}
-		p = &probe{started: time.Now(), ref: ref, eng: e}
+		p = &probe{started: time.Now(), ref: ref, eng: e, owner: owner}
 		probes[mg.InfoHash] = p
 		return nil, mg.InfoHash, nil
 	}
 	// Poll the engine
 	if b, err := os.ReadFile(filepath.Join(m.probeDir(mg.InfoHash), mg.InfoHash+".torrent")); err == nil {
 		if meta, perr := torrent.Parse(b); perr == nil {
-			p.meta, p.data = meta, b
+			p.meta, p.data, p.done = meta, b, time.Now()
 			p.eng.Remove(p.ref)
 			os.RemoveAll(m.probeDir(mg.InfoHash))
-			go func(h string) { time.Sleep(30 * time.Minute); probeMu.Lock(); delete(probes, h); probeMu.Unlock() }(mg.InfoHash)
 			return meta, mg.InfoHash, nil
 		}
 	}
 	if st, err := p.eng.Status(p.ref); err == nil && st.State == engine.Error {
-		p.eng.Remove(p.ref)
-		delete(probes, mg.InfoHash)
+		m.endProbe(mg.InfoHash, p)
 		return nil, mg.InfoHash, errors.New("Cannot get the file list of this magnet link")
 	}
-	if time.Since(p.started) > 10*time.Minute {
-		p.eng.Remove(p.ref)
-		delete(probes, mg.InfoHash)
-		os.RemoveAll(m.probeDir(mg.InfoHash))
+	if time.Since(p.started) > probeTimeout {
+		m.endProbe(mg.InfoHash, p)
 		return nil, mg.InfoHash, errors.New("Timed out getting the file list")
 	}
 	return nil, mg.InfoHash, nil
 }
 
-// CancelProbe stops a pending probe.
+// endProbe stops a probe and forgets it. Caller holds probeMu.
+func (m *Manager) endProbe(hash string, p *probe) {
+	if p.meta == nil {
+		p.eng.Remove(p.ref)
+	}
+	delete(probes, hash)
+	os.RemoveAll(m.probeDir(hash))
+}
+
+// expireProbes ends the probes still fetching after probeTimeout and
+// forgets finished ones after probeKeep (per-minute pass).
+func (m *Manager) expireProbes(now time.Time) {
+	probeMu.Lock()
+	defer probeMu.Unlock()
+	for h, p := range probes {
+		if p.meta == nil && now.Sub(p.started) > probeTimeout || p.meta != nil && now.Sub(p.done) > probeKeep {
+			m.endProbe(h, p)
+		}
+	}
+}
+
+// CancelProbe stops a pending probe (the add of the same magnet).
 func (m *Manager) CancelProbe(hash string) {
 	probeMu.Lock()
 	defer probeMu.Unlock()
 	if p := probes[hash]; p != nil {
-		if p.meta == nil {
-			p.eng.Remove(p.ref)
-		}
-		delete(probes, hash)
-		os.RemoveAll(m.probeDir(hash))
+		m.endProbe(hash, p)
 	}
+}
+
+// CancelProbeOf stops a probe for user: only one they started, or any for
+// an administrator.
+func (m *Manager) CancelProbeOf(hash, user string, admin bool) {
+	probeMu.Lock()
+	defer probeMu.Unlock()
+	if p := probes[hash]; p != nil && (admin || p.owner == user) {
+		m.endProbe(hash, p)
+	}
+}
+
+// allowedTrackers drops, from what a program adds (o.Guard: a token, a
+// chat, the page's AI agent tools), the trackers on loopback, link-local or
+// the NAS's own addresses: merged into an administrator's torrent, which
+// has no guard, they would make the engine announce to the NAS itself.
+func (o *AddOptions) allowedTrackers(list []string) []string {
+	if !o.Guard {
+		return list
+	}
+	var out []string
+	for _, u := range list {
+		if trackers.Allowed(u) == nil {
+			out = append(out, u)
+		}
+	}
+	return out
 }

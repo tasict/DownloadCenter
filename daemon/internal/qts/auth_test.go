@@ -22,3 +22,17 @@ func TestSIDAnswer(t *testing.T) {
 		}
 	}
 }
+
+// What cannot be a session id is refused without asking authLogin.cgi.
+func TestPlausibleSID(t *testing.T) {
+	for sid, want := range map[string]bool{"abcd1234": true, "a-b_c.d~e+f/g=": true, "": false, "a b": false,
+		"x;y": false, "x\x00": false, "é": false, string(make([]byte, 129)): false} {
+		if PlausibleSID(sid) != want {
+			t.Errorf("%q: %v", sid, !want)
+		}
+	}
+	// Answered without a request to authLogin.cgi
+	if a, err := ValidateSID("x;y", "", ""); err != nil || a["authPassed"] != "0" {
+		t.Errorf("implausible sid: %v %v", a, err)
+	}
+}

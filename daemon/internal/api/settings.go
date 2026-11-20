@@ -230,6 +230,7 @@ func checkPort(network string, port int) (*portCheck, error) {
 			return dialer.DialContext(ctx, network, addr)
 		},
 		TLSHandshakeTimeout: 10 * time.Second,
+		TLSClientConfig:     netutil.TLSConfig(),
 	}}
 	resp, err := cl.Get(fmt.Sprintf("https://ifconfig.co/port/%d", port))
 	if err != nil {

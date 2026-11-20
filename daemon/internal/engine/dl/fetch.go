@@ -73,7 +73,7 @@ func isHTTP(u string) bool {
 
 // request builds the dc-dl request for this task. With a proxy the target
 // is checked here (dc-dl only sees the proxy's address); without one dc-dl
-// checks every address it connects to.
+// checks every address it connects to (see also fetchHTTP).
 func (t *task) request(ctx context.Context, rng string, head bool) (xreq, error) {
 	raw := t.uri()
 	r := xreq{URL: raw, Range: rng, Head: head, User: t.req.User, Pass: t.req.Pass, Proxy: t.req.Proxy, Guard: t.req.Guard}
@@ -87,16 +87,122 @@ func (t *task) request(ctx context.Context, rng string, head bool) (xreq, error)
 			r.Pass, _ = u.User.Password()
 		}
 	}
-	if r.Proxy != "" && r.Guard {
-		u, err := url.Parse(raw)
+	return r, checkTarget(ctx, r)
+}
+
+// checkTarget: a guarded request through a proxy may only go where a direct
+// one could (the proxy reaches the target, dc-dl cannot check it).
+func checkTarget(ctx context.Context, r xreq) error {
+	if r.Proxy == "" || !r.Guard {
+		return nil
+	}
+	u, err := url.Parse(r.URL)
+	if err != nil {
+		return &dlError{code: engine.ErrUnknown, msg: "bad URL"}
+	}
+	if err := netutil.CheckHost(ctx, u.Hostname(), strings.HasPrefix(r.Proxy, "socks5h:")); err != nil {
+		return &dlError{code: engine.ErrUnknown, msg: err.Error()}
+	}
+	return nil
+}
+
+const maxRedirects = 10
+
+// Request headers that still go to another host after a redirect. Every
+// other one (cookies, tokens, whatever the task added) stays with the host
+// it was meant for, like the credentials.
+var redirectSafe = map[string]bool{"accept": true, "accept-encoding": true, "accept-language": true, "if-range": true}
+
+// fetchHTTP sends an HTTP request and follows its redirects here, one at a
+// time (dc-dl 1.2 does not follow them when asked): each new address is
+// checked like the first, and a request to another host (or from https to
+// http) keeps neither credentials nor headers outside redirectSafe.
+func (t *task) fetchHTTP(ctx context.Context, r xreq) (*xfer, context.CancelFunc, error) {
+	if !t.e.sc.followsItself() {
+		// An older dc-dl: libcurl follows the redirects itself
+		return t.e.sc.transfer(ctx, r)
+	}
+	no := false
+	r.Follow = &no
+	for hops := 0; ; hops++ {
+		x, cancel, err := t.e.sc.transfer(ctx, r)
 		if err != nil {
-			return r, &dlError{code: engine.ErrUnknown, msg: "bad URL"}
+			return nil, nil, err
 		}
-		if err := netutil.CheckHost(ctx, u.Hostname(), strings.HasPrefix(r.Proxy, "socks5h:")); err != nil {
-			return r, &dlError{code: engine.ErrUnknown, msg: err.Error()}
+		loc := x.h.header("Location")
+		if !isRedirect(x.h.Status) || loc == "" {
+			return x, cancel, nil
+		}
+		cancel()
+		x.Close()
+		if hops >= maxRedirects {
+			return nil, nil, &dlError{code: engine.ErrRedirects, msg: "Maximum (10) redirects followed"}
+		}
+		next, err := redirectTarget(r.URL, loc)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !sameOrigin(r.URL, next) {
+			var keep []string
+			for _, h := range r.Headers {
+				if k, _, ok := strings.Cut(h, ":"); ok && redirectSafe[strings.ToLower(strings.TrimSpace(k))] {
+					keep = append(keep, h)
+				}
+			}
+			r.Headers, r.User, r.Pass = keep, "", ""
+		}
+		r.URL = next
+		if err := checkTarget(ctx, r); err != nil {
+			return nil, nil, err
 		}
 	}
-	return r, nil
+}
+
+func isRedirect(status int) bool {
+	switch status {
+	case 301, 302, 303, 307, 308:
+		return true
+	}
+	return false
+}
+
+// redirectTarget resolves a Location against the URL that answered it:
+// http or https only, without credentials.
+func redirectTarget(from, loc string) (string, error) {
+	base, err := url.Parse(from)
+	if err != nil {
+		return "", &dlError{code: engine.ErrUnknown, msg: "bad URL"}
+	}
+	ref, err := url.Parse(strings.TrimSpace(loc))
+	if err != nil {
+		return "", &dlError{code: engine.ErrBadResponse, msg: "bad redirect"}
+	}
+	u := base.ResolveReference(ref)
+	if s := strings.ToLower(u.Scheme); s != "http" && s != "https" || u.Host == "" {
+		return "", &dlError{code: engine.ErrUnknown, msg: "unsupported protocol"}
+	}
+	u.User, u.Fragment = nil, ""
+	return u.String(), nil
+}
+
+// sameOrigin: the same host and port, and not from https down to http.
+func sameOrigin(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	sa, sb := strings.ToLower(ua.Scheme), strings.ToLower(ub.Scheme)
+	port := func(u *url.URL, s string) string {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		if s == "https" {
+			return "443"
+		}
+		return "80"
+	}
+	return strings.EqualFold(ua.Hostname(), ub.Hostname()) && port(ua, sa) == port(ub, sb) && !(sa == "https" && sb == "http")
 }
 
 // probe opens the first connection. For HTTP (and SCP, which has no
@@ -187,7 +293,7 @@ func (t *task) openHTTP(ctx context.Context, from, to int64, probe bool) (*strea
 	if !probe && validator != "" {
 		r.Headers = append(r.Headers, "If-Range: "+validator)
 	}
-	x, cancel, err := t.e.sc.transfer(ctx, r)
+	x, cancel, err := t.fetchHTTP(ctx, r)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -373,6 +479,9 @@ func curlError(code int, msg string) *dlError {
 		return &dlError{code: engine.ErrFTPCommand, msg: msg}
 	case 1:
 		return &dlError{code: engine.ErrUnknown, msg: "unsupported protocol"}
+	case 60:
+		// On old firmware the system's list of authorities is the usual cause
+		return &dlError{code: engine.ErrUnknown, msg: "The server's certificate cannot be verified; the list of trusted certificate authorities on the NAS may be out of date"}
 	}
 	return &dlError{code: engine.ErrUnknown, msg: msg}
 }

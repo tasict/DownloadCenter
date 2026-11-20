@@ -83,42 +83,97 @@
 		install:DC.t('Could not start the installer.')
 	};
 
+	/* The steps of an update and the symbol each one moves in the middle of the ring */
+	var STEPS = [['download', 'down', DC.t('Download')], ['verify', 'check', DC.t('Verify files')], ['backup', 'copy', DC.t('Back up')], ['install', 'retry', DC.t('Install and restart')]];
+	var RING = 2 * Math.PI * 26, SVGNS = 'http://www.w3.org/2000/svg';
+	function svgEl(tag, attrs){ var el = document.createElementNS(SVGNS, tag), k; for(k in attrs) el.setAttribute(k, attrs[k]); return el; }
+	/* m:ss, or h:mm:ss past an hour */
+	function clock(sec){
+		var x = Math.max(0, Math.floor(sec)), hh = Math.floor(x / 3600), mm = Math.floor(x % 3600 / 60);
+		return (hh ? hh + ':' + DC.pad(mm) : mm) + ':' + DC.pad(x % 60);
+	}
+
 	/* Progress: the download and checks come from dcd; once the installer runs dcd goes away, so the page waits for the
-	   package to answer again with the new version and then reloads. */
+	   package to answer again with the new version and then reloads. The window shows where the update is: a ring around
+	   the step's symbol (the downloaded share while downloading, a turning arc otherwise; green with a check when it worked,
+	   red when it failed), the four steps, and the time since the update started, measured by the NAS and counted on here
+	   while the package restarts. */
 	function progress(target){
-		var phase = h('b', {'class':'up-phase', text:DC.t('Preparing…')}), fill = h('i'), sub = h('p', {'class':'note num'});
+		var phase = h('b', {'class':'up-phase', role:'status', text:DC.t('Preparing…')}), sub = h('p', {'class':'note num'}), time = h('p', {'class':'up-time num'});
+		var arc = svgEl('circle', {'class':'up-arc', cx:'30', cy:'30', r:'26', 'stroke-dasharray':RING.toFixed(2), 'stroke-dashoffset':RING.toFixed(2)});
+		var ring = svgEl('svg', {'class':'up-ring', viewBox:'0 0 60 60', 'aria-hidden':'true'});
+		var mid = h('span', {'class':'up-mid'}), badge = h('div', {'class':'up-badge spin'}, [ring, mid]);
+		var list = h('ol', {'class':'up-steps'}), items = [], i;
+		ring.appendChild(svgEl('circle', {'class':'up-track', cx:'30', cy:'30', r:'26'}));
+		ring.appendChild(arc);
+		for(i = 0; i < STEPS.length; i++){ items.push(h('li', null, [h('span', {'class':'up-dot', 'aria-hidden':'true'}), h('span', {text:STEPS[i][2]})])); list.appendChild(items[i]); }
 		var closeW = DC.modal(DC.t('Update to {version}', {version:target}), 'up', [
-			h('div', {'class':'up-prog'}, [phase, h('div', {'class':'upbar', 'aria-hidden':'true'}, fill), sub]),
+			h('div', {'class':'up-prog'}, [badge, phase, sub, list, time]),
 			h('p', {'class':'note', text:DC.t('You can close this page: the update carries on on the NAS, and the result shows the next time you open Download Center.')})
-		], function(){ return []; }, {persist:true});
-		var box = document.querySelectorAll('.modal'), t0 = Date.now(), wentDown = false;
+		], function(){ return []; }, {persist:true, onclose:function(){ clearInterval(tick); U.busy = false; }});
+		var box = document.querySelectorAll('.modal'), t0 = Date.now(), wentDown = false, step = -1, base = 0, baseAt = Date.now(), counting = true;
+		var tick = setInterval(showTime, 1000);
+		U.busy = true;
 		box = box[box.length - 1];
+		function showTime(){ if(counting) time.textContent = DC.t('Elapsed {time}', {time:clock(base + (Date.now() - baseAt) / 1000)}); }
+		/* The NAS says how long the update has run; locally it counts on from there */
+		function elapsed(j){ if(j && typeof j.elapsed === 'number'){ base = j.elapsed; baseAt = Date.now(); } showTime(); }
+		/* n: the step in progress (STEPS.length: all done); state: on (default) or bad */
+		function setStep(n, state){
+			var k;
+			if(n !== step && n < STEPS.length){
+				clear(mid).appendChild(icon(STEPS[n][1]));
+				badge.className = 'up-badge spin ph-' + STEPS[n][0];
+			}
+			step = n;
+			for(k = 0; k < items.length; k++) items[k].className = k < n ? 'done' : k === n ? (state || 'on') : '';
+		}
+		/* share: the downloaded part (0..1), or null for a turning arc */
+		function share(x){
+			badge.classList.toggle('spin', x === null);
+			arc.setAttribute('stroke-dashoffset', (x === null ? RING * .72 : RING * (1 - x)).toFixed(2));
+		}
 		function done(buttons){ var a = box && box.querySelector('.acts'); if(a){ clear(a); add(a, buttons); } }
 		function failed(text, detail){
+			counting = false; clearInterval(tick);
 			phase.textContent = text; phase.className = 'up-phase bad';
 			sub.textContent = detail || '';
+			setStep(Math.max(step, 0), 'bad');
+			badge.className = 'up-badge bad'; share(1); badge.classList.remove('spin');
+			clear(mid).appendChild(icon('error'));
 			done([btn(null, DC.t('Close'), function(){ closeW(); load(); }, 'pri')]);
 		}
 		function job(){
 			DC.api.get('update/job', null, {quiet:true}).then(function(j){
+				elapsed(j);
 				if(j.phase === 'download'){
+					setStep(0);
 					phase.textContent = DC.t('Downloading…');
-					if(j.total){ fill.style.width = Math.min(100, j.done * 100 / j.total).toFixed(1) + '%'; sub.textContent = DC.fsize(j.done) + ' / ' + DC.fsize(j.total); }
-				}else if(j.phase === 'verify'){ phase.textContent = DC.t('Checking the signature and files…'); fill.style.width = '100%'; sub.textContent = ''; }
-				else if(j.phase === 'backup') phase.textContent = DC.t('Backing up the database…');
+					if(j.total){ share(Math.min(1, j.done / j.total)); sub.textContent = DC.fsize(j.done) + ' / ' + DC.fsize(j.total); }
+					else share(null);
+				}else if(j.phase === 'verify'){ setStep(1); share(null); phase.textContent = DC.t('Checking the signature and files…'); sub.textContent = ''; }
+				else if(j.phase === 'backup'){ setStep(2); share(null); phase.textContent = DC.t('Backing up the database…'); sub.textContent = ''; }
 				else if(j.phase === 'install' || !j.phase){ installing(); return; }
 				else if(j.phase === 'failed'){ DC.ls('dc-update-failed-seen', j.at || 0); failed(FAIL[j.error] || DC.t('The update failed.'), j.detail); return; }
 				setTimeout(job, 800);
-			}, function(){ installing(); });
+			}, function(){
+				/* No progress: dcd may still be there (the network hiccuped) or it is restarting for the install */
+				health(function(ver){ if(ver === null) installing(); else setTimeout(job, 1500); });
+			});
 		}
 		/* dcd stops during the install; ask the package's health check until the new version answers */
 		function installing(){
-			phase.textContent = DC.t('Installing; the package is restarting…'); fill.style.width = '100%'; sub.textContent = '';
+			setStep(3); share(null);
+			phase.textContent = DC.t('Installing; the package is restarting…'); sub.textContent = '';
 			health(function(ver){
 				if(ver === null){ wentDown = true; return again(); }
 				if(ver === target){
+					counting = false; clearInterval(tick);
+					setStep(4);
+					badge.className = 'up-badge ok'; share(1);
+					clear(mid).appendChild(icon('done'));
 					phase.textContent = DC.t('Updated to {version}; reloading the page…', {version:target});
-					setTimeout(function(){ location.reload(); }, 1500);
+					setTimeout(function(){ location.reload(); }, 1800);
 					return;
 				}
 				/* The old version answers again after it was down: the installer did not complete */
@@ -130,6 +185,7 @@
 			if(Date.now() - t0 > 8 * 60 * 1000) return failed(DC.t('This is taking too long. Reload the page later.'), DC.t('Details are in the package\'s data/logs/update.log.'));
 			setTimeout(installing, 2000);
 		}
+		setStep(0); share(null); showTime();
 		job();
 	}
 
@@ -223,5 +279,7 @@
 		return list;
 	}
 
-	DC.update = {boot:boot, settings:settings, offer:function(){ if(U.view && U.view.latest) offer(U.view.latest); }, load:load};
+	/* busy: the update window is open (it explains a restart itself); health: the version the package answers with, or null */
+	DC.update = {boot:boot, settings:settings, offer:function(){ if(U.view && U.view.latest) offer(U.view.latest); }, load:load,
+		busy:function(){ return !!U.busy; }, health:health};
 })();

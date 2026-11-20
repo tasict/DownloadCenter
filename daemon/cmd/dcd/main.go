@@ -22,6 +22,8 @@ import (
 	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
 	"downloadcenter/internal/engine/dl"
+	"downloadcenter/internal/netutil"
+	"downloadcenter/internal/phpbox"
 	"downloadcenter/internal/qts"
 	"downloadcenter/internal/store"
 	"downloadcenter/internal/trackers"
@@ -31,11 +33,17 @@ import (
 var Version = "dev"
 
 func main() {
-	log.SetFlags(log.LstdFlags)
-	// Invoked as ds.cgi through the Qdownload symlink: forward to the daemon
-	if strings.HasSuffix(os.Args[0], ".cgi") || os.Getenv("GATEWAY_INTERFACE") != "" {
+	switch startMode(os.Args, os.Getenv) {
+	case "cgi":
+		// Invoked as ds.cgi through the Qdownload symlink: forward to the
+		// daemon. Decided first: a web request never reaches anything else
+		log.SetFlags(log.LstdFlags)
 		os.Exit(runCGI())
+	case "helper":
+		// The sandbox's first process for search plugins (see phpbox)
+		os.Exit(phpbox.Helper())
 	}
+	log.SetFlags(log.LstdFlags)
 	if len(os.Args) < 2 {
 		usage()
 	}
@@ -60,6 +68,19 @@ func main() {
 	default:
 		usage()
 	}
+}
+
+// startMode tells how dcd was started: "cgi" (ds.cgi, or anything with a
+// CGI environment), "helper" (the search sandbox's first process, never
+// with a CGI environment, whatever its arguments) or "" (the commands).
+func startMode(args []string, getenv func(string) string) string {
+	if strings.HasSuffix(args[0], ".cgi") || getenv("GATEWAY_INTERFACE") != "" {
+		return "cgi"
+	}
+	if getenv("REQUEST_METHOD") == "" && len(args) == 2 && args[1] == phpbox.HelperArg {
+		return "helper"
+	}
+	return ""
 }
 
 func usage() {
@@ -121,16 +142,31 @@ func serve(args []string) {
 	os.MkdirAll(filepath.Join(data, "run"), 0700)
 	os.MkdirAll(filepath.Join(data, "logs"), 0700)
 	os.Chmod(data, 0700)
+	// Temporary files (such as large uploads) stay in the package's private
+	// folder, not in the NAS's small shared /tmp
+	tmp := filepath.Join(data, "tmp")
+	os.RemoveAll(tmp)
+	os.MkdirAll(tmp, 0700)
+	os.Setenv("TMPDIR", tmp)
+	// The value Apache and ds.cgi prove themselves with (data/proxy_auth)
+	if err := api.LoadProxyAuth(data); err != nil {
+		log.Printf("proxy key: %v (client addresses from the proxy are not believed)", err)
+	}
 	if *port == 0 {
 		*port = readPort(filepath.Join(data, "http_port"), 18780)
 	}
 	log.Printf("dcd %s starting (root %s, port %d)", Version, *root, *port)
+	// The package's CA list, trusted besides the system's
+	netutil.SetExtraRoots(filepath.Join(*root, "certs", "cacert.pem"))
 
 	db, err := store.Open(filepath.Join(data, "dc.db"))
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}
 	m := core.New(db, data)
+	// A development instance shares the NAS with the installed package: it
+	// never sweeps the NAS's shared folders
+	m.Dev = *devUser != ""
 	// The public tracker list, read through the notifications proxy
 	public := trackers.New(db, data, Version)
 	public.Proxy = func() string { return m.ProxyURL(m.Settings().Proxy.NotifyProfile) }
