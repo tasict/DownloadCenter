@@ -261,7 +261,10 @@ func TestPreviewHandedOverFiles(t *testing.T) {
 	m := testManager(t)
 	_, download := scratchNAS(t)
 	seed := t.TempDir()
-	for _, c := range []struct{ owner string }{{testUser}, {"admin"}} {
+	for _, c := range []struct{ owner string }{{"admin"}, {testUser}} {
+		if c.owner == testUser {
+			needRoot(t)
+		}
 		data := filepath.Join(download, "Sintel-"+c.owner)
 		os.MkdirAll(data, 0775)
 		copyAt := filepath.Join(seed, "a-"+c.owner+".mp4")

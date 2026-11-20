@@ -28,6 +28,7 @@ func must(t *testing.T, err error) {
 }
 
 // tree makes root/home (owned by user) and root/outside/secret (root's).
+// Not run by root, home stays the test's own.
 func tree(t *testing.T) (home, outside, secret string) {
 	root := t.TempDir()
 	home = filepath.Join(root, "home")
@@ -36,7 +37,9 @@ func tree(t *testing.T) (home, outside, secret string) {
 	must(t, os.MkdirAll(outside, 0700))
 	secret = filepath.Join(outside, "secret")
 	must(t, os.WriteFile(secret, []byte("SECRET"), 0600))
-	must(t, os.Chown(home, user, user))
+	if os.Geteuid() == 0 {
+		must(t, os.Chown(home, user, user))
+	}
 	return
 }
 
@@ -68,12 +71,21 @@ func TestOpenDirRefusesLinks(t *testing.T) {
 
 func TestOpenRootDir(t *testing.T) {
 	home, outside, _ := tree(t)
-	if _, err := OpenRootDir(home); !errors.Is(err, ErrOwner) {
-		t.Errorf("a user's folder: %v", err)
-	}
 	d, err := OpenRootDir(outside)
 	must(t, err)
 	d.Close()
+	link := filepath.Join(filepath.Dir(outside), "l")
+	must(t, os.Symlink(outside, link))
+	if _, err := OpenRootDir(link); !errors.Is(err, ErrLink) {
+		t.Errorf("a link: %v", err)
+	}
+	needRoot(t)
+	if _, err := OpenRootDir(home); !errors.Is(err, ErrOwner) {
+		t.Errorf("a user's folder: %v", err)
+	}
+	if _, err := OpenRootDir(filepath.Join(home, "x")); !errors.Is(err, ErrOwner) {
+		t.Errorf("below a user's folder: %v", err)
+	}
 }
 
 func TestRemoveAllNeverFollows(t *testing.T) {
@@ -101,6 +113,7 @@ func TestRemoveAllNeverFollows(t *testing.T) {
 }
 
 func TestChownAll(t *testing.T) {
+	needRoot(t)
 	home, outside, secret := tree(t)
 	data := filepath.Join(home, "data")
 	must(t, os.MkdirAll(filepath.Join(data, "sub"), 0755))

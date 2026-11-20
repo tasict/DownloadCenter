@@ -81,7 +81,7 @@ func intact(t *testing.T, file string) {
 	if b, err := os.ReadFile(file); err != nil || string(b) != "ORIGINAL" {
 		t.Errorf("%s changed: %q %v", file, b, err)
 	}
-	if st := statOf(t, file); st.Uid != 0 {
+	if st := statOf(t, file); st.Uid != rootUID {
 		t.Errorf("%s now belongs to %d", file, st.Uid)
 	}
 }
@@ -111,7 +111,7 @@ func TestUserTaskWorksInPrivateFolder(t *testing.T) {
 		t.Fatalf("engine folder %q, want %q", req.Dir, want)
 	}
 	for _, p := range []string{filepath.Join(vol, TempDirName), want} {
-		if st := statOf(t, p); st.Uid != 0 || st.Mode&0777 != 0700 || st.Mode&syscall.S_IFMT != syscall.S_IFDIR {
+		if st := statOf(t, p); st.Uid != rootUID || st.Mode&0777 != 0700 || st.Mode&syscall.S_IFMT != syscall.S_IFDIR {
 			t.Errorf("%s: uid %d mode %o", p, st.Uid, st.Mode)
 		}
 	}
@@ -126,24 +126,27 @@ func TestUserTaskWorksInPrivateFolder(t *testing.T) {
 		t.Errorf("open folder of a staged task: %q", d)
 	}
 
-	// Someone else's folder or a link in its place: the task stops
-	os.RemoveAll(want)
-	os.Mkdir(want, 0700)
-	os.Chown(want, testUID, testUID)
-	if _, err := m.buildAdd(task); !errors.Is(err, errWorkUnsafe) {
-		t.Errorf("another account's folder: %v", err)
-	}
+	// A link or someone else's folder in its place: the task stops
 	os.RemoveAll(filepath.Join(vol, TempDirName))
 	os.Symlink(victim, filepath.Join(vol, TempDirName))
 	if _, err := m.buildAdd(task); !errors.Is(err, errWorkUnsafe) {
 		t.Errorf("a link for the staging root: %v", err)
 	}
 	intact(t, file)
+	needRoot(t)
+	os.Remove(filepath.Join(vol, TempDirName))
+	os.Mkdir(filepath.Join(vol, TempDirName), 0700)
+	os.Mkdir(want, 0700)
+	os.Chown(want, testUID, testUID)
+	if _, err := m.buildAdd(task); !errors.Is(err, errWorkUnsafe) {
+		t.Errorf("another account's folder: %v", err)
+	}
 }
 
 // Handing data over to its owner never changes a file that a hard link
 // makes known elsewhere, nor follows a link.
 func TestChownSkipsHardLinks(t *testing.T) {
+	needRoot(t)
 	_, download := scratchNAS(t)
 	_, outside := victimDir(t)
 	data := filepath.Join(download, "Movie")
@@ -398,11 +401,12 @@ func TestFinalMoveIntoUserFolder(t *testing.T) {
 	if task.State != StDone || task.DataPath != got {
 		t.Fatalf("state %s data %q (%s)", task.State, task.DataPath, task.ErrorMsg)
 	}
-	if st := statOf(t, got); st.Uid != testUID {
-		t.Errorf("not handed to the user: uid %d", st.Uid)
-	}
 	if pathExists(work) {
 		t.Error("private folder left behind")
+	}
+	needRoot(t)
+	if st := statOf(t, got); st.Uid != testUID {
+		t.Errorf("not handed to the user: uid %d", st.Uid)
 	}
 }
 
@@ -421,13 +425,7 @@ func TestOpenTaskFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	// Hard link of the user's own file: fine; of someone else's: refused
-	os.Link(data, filepath.Join(download, "again.txt"))
-	if f, err := m.OpenTaskFile(task, filepath.Join(download, "again.txt")); err != nil {
-		t.Errorf("own hard link: %v", err)
-	} else {
-		f.Close()
-	}
+	// Hard link of someone else's file: refused
 	os.Remove(data)
 	os.Link(outside, data)
 	if _, err := m.OpenTaskFile(task, data); !errors.Is(err, ErrOutsideTask) {
@@ -448,6 +446,17 @@ func TestOpenTaskFile(t *testing.T) {
 	if _, err := m.OpenTaskFile(task, outside); !errors.Is(err, ErrOutsideTask) {
 		t.Errorf("outside the task: %v", err)
 	}
+	// Hard link of the user's own file: fine
+	needRoot(t)
+	os.Remove(download)
+	os.Rename(download+".real", download)
+	os.Chown(data, testUID, testUID)
+	os.Link(data, filepath.Join(download, "again.txt"))
+	if f, err := m.OpenTaskFile(task, filepath.Join(download, "again.txt")); err != nil {
+		t.Errorf("own hard link: %v", err)
+	} else {
+		f.Close()
+	}
 }
 
 // Deleting a torrent with its data deletes the torrent's own files and
@@ -456,6 +465,7 @@ func TestRemoveTorrentKeepsForeignFiles(t *testing.T) {
 	m := testManager(t)
 	m.Engines["libtorrent"] = &fakeBT{}
 	temp := t.TempDir()
+	needShareTree(t, temp)
 	st := m.Settings()
 	st.TempDir = temp
 	m.SaveSettings(st)
@@ -496,9 +506,10 @@ func TestUserDownloadDir(t *testing.T) {
 	_, download := scratchNAS(t)
 	home := filepath.Dir(download)
 	os.Remove(download)
-	if got := m.UserDownloadDir(testUser); got != download || statOf(t, download).Uid != testUID {
-		t.Errorf("made %q uid %d", got, statOf(t, download).Uid)
+	if got := m.UserDownloadDir(testUser); got != download {
+		t.Errorf("made %q", got)
 	}
+	madeUID := statOf(t, download).Uid
 	os.Remove(download)
 	os.Mkdir(filepath.Join(home, "Files"), 0777)
 	os.Symlink("Files", download)
@@ -510,6 +521,10 @@ func TestUserDownloadDir(t *testing.T) {
 	if got := m.UserDownloadDir(testUser); got != home {
 		t.Errorf("link out of the home: %q", got)
 	}
+	needRoot(t)
+	if madeUID != testUID {
+		t.Errorf("made folder not handed to the user: uid %d", madeUID)
+	}
 }
 
 // The staging folder lives at the root of the volume of the user's tree,
@@ -518,14 +533,19 @@ func TestUserDownloadDir(t *testing.T) {
 func TestVolumeStagingBase(t *testing.T) {
 	homes := filepath.Join(t.TempDir(), "homes")
 	os.MkdirAll(filepath.Join(homes, "u", "Download"), 0777)
-	root, err := mountRoot(homes)
-	if err != nil {
-		t.Fatal(err)
-	}
 	oh, os2 := homesRoot, shareList
 	defer func() { homesRoot, shareList = oh, os2 }()
 	homesRoot = func() string { return homes }
 	shareList = func() []qts.Share { return nil }
+	root, err := mountRoot(homes)
+	if err != nil {
+		// The scratch folders are on the file system of "/": never a
+		// staging base
+		if b, err := volumeStagingBase(filepath.Join(homes, "u", "Download")); err == nil {
+			t.Errorf("a folder on the root file system gave the base %q", b)
+		}
+		t.Skip("needs scratch folders on a file system of their own")
+	}
 	if b, err := volumeStagingBase(filepath.Join(homes, "u", "Download")); err != nil || b != root {
 		t.Errorf("base %q %v, want %q", b, err, root)
 	}
@@ -595,7 +615,7 @@ func TestAdminTaskWorksInPrivateFolder(t *testing.T) {
 	if err != nil || req.Dir != want || task.WorkDir != want {
 		t.Fatalf("new task works in %q (%v)", req.Dir, err)
 	}
-	if s := statOf(t, want); s.Uid != 0 || s.Mode&0777 != 0700 {
+	if s := statOf(t, want); s.Uid != rootUID || s.Mode&0777 != 0700 {
 		t.Errorf("staging mode %o", s.Mode)
 	}
 
@@ -659,6 +679,7 @@ func TestSweepOldShareTemp(t *testing.T) {
 func TestDeleteDataOnlyTheFile(t *testing.T) {
 	m := testManager(t)
 	_, download := scratchNAS(t)
+	needShareTree(t, download)
 	for _, swapped := range []bool{false, true} {
 		src := fmt.Sprintf("http://example.invalid/report-%v.pdf", swapped)
 		hash := URLHash(src)

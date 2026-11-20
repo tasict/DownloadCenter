@@ -25,6 +25,15 @@ var (
 	isStagingBase = isMountRoot
 )
 
+// The account private folders and the engines' files belong to: root, which
+// dcd runs as (tests not run by root use their own), and the walk that
+// opens a folder on a chain of that account's folders.
+var (
+	rootUID     uint32
+	rootGID     uint32
+	openRootDir = safefs.OpenRootDir
+)
+
 // Errors of temporary folders that cannot be used safely; a task stops with
 // one of these rather than let root write through someone else's link.
 var (
@@ -171,7 +180,7 @@ func openWork(work string, create bool) (*safefs.Dir, error) {
 	var err error
 	mode := uint32(0775)
 	if private {
-		d, err = safefs.OpenRootDir(base)
+		d, err = openRootDir(base)
 		mode = 0700
 	} else {
 		d, err = safefs.OpenDir(base)
@@ -204,7 +213,7 @@ func ownedDir(d *safefs.Dir, name string, mode uint32, private, create bool) (*s
 		return nil, err
 	}
 	st, err := sub.Stat()
-	if err == nil && (st.Uid != 0 || !private && (st.Mode&0002 != 0 || st.Mode&0020 != 0 && st.Gid != 0)) {
+	if err == nil && (st.Uid != rootUID || !private && (st.Mode&0002 != 0 || st.Mode&0020 != 0 && st.Gid != rootGID)) {
 		err = safefs.ErrOwner
 	}
 	if err == nil && private && st.Mode&0077 != 0 {
@@ -452,7 +461,7 @@ func carry(src, dst *safefs.Dir, keep func(rel string, dir bool) bool, prefix st
 // engineFile reports a regular file as the engines leave it: root's, with a
 // single name.
 func engineFile(st *syscall.Stat_t) bool {
-	return st.Uid == 0 && uint64(st.Nlink) == 1
+	return st.Uid == rootUID && uint64(st.Nlink) == 1
 }
 
 // ErrOutsideTask: a file that is not the task's own (outside its folders,

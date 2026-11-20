@@ -745,6 +745,10 @@ func TestCommandAddFolderList(t *testing.T) {
 	if r := e.s.Run(p, "c", "/add https://example.com/files/b.iso"); r.OK || asked != 1 || e.m.Live(core.URLHash("https://example.com/files/b.iso")) != nil {
 		t.Errorf("folder outside the list: %+v (asked %d)", r, asked)
 	}
+	// The add itself downloads into the folder the token names
+	if _, err := e.m.ResolvePath("boss", "Download"); err != nil {
+		t.Skip("needs a Download shared folder")
+	}
 	e.s.folders = func(*auth.Principal, *core.AddOptions) bool { return true }
 	if r := e.s.Run(p, "c", "/add https://example.com/files/b.iso"); !r.OK {
 		t.Errorf("folder on the list: %+v", r)

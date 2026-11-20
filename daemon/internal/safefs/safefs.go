@@ -65,6 +65,10 @@ func (d *Dir) fd() int { return int(d.f.Fd()) }
 // kernels before 3.6).
 var fstatOPath = syscall.Fstat
 
+// trustedUID is the one account besides root whose folders OpenRootDir
+// accepts: root itself (tests not run by root trust their own account).
+var trustedUID uint32
+
 func openat(dirfd int, name string, flags int, perm uint32) (int, error) {
 	for {
 		fd, err := syscall.Openat(dirfd, name, flags|syscall.O_CLOEXEC, perm)
@@ -137,7 +141,7 @@ func (d *Dir) rootOwned() error {
 	if err != nil {
 		return err
 	}
-	if st.Uid != 0 {
+	if st.Uid != 0 && st.Uid != trustedUID {
 		return ErrOwner
 	}
 	return nil
