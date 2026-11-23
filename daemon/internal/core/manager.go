@@ -68,12 +68,18 @@ type Manager struct {
 	lastSave   map[string]int64
 	dirty      map[string]bool
 	moving     map[string]bool
-	down       map[string]bool   // engines currently unreachable
-	restarting map[string]bool   // engines restarted on purpose (no engine.down event)
-	resolving  map[string]bool   // file-hosting links being resolved
-	stall      map[string]*stall // torrents without peers (watchPeers)
-	guards     map[string]bool   // torrents: the address guard the engine has (guardFor)
-	adopting   map[string]bool   // torrents: the engine is checking the data in the destination (said once)
+	down       map[string]bool      // engines currently unreachable
+	restarting map[string]bool      // engines restarted on purpose (no engine.down event)
+	resolving  map[string]bool      // file-hosting links being resolved
+	stall      map[string]*stall    // torrents without peers (watchPeers)
+	guards     map[string]bool      // torrents: the address guard the engine has (guardFor)
+	adopting   map[string]bool      // torrents: the engine is checking the data in the destination (said once)
+	seedIdle   map[string]time.Time // seeding torrents: running without uploading since
+	sigMu      sync.Mutex           // taskSig, filesSig (saveTask runs with and without mu)
+	taskSig    map[string]uint64    // what was last written of a task (rowSig)
+	taskWrites atomic.Int64         // rows written to tasks (tests)
+	fileWrites atomic.Int64         // file lists written by syncFiles (tests)
+	filesSig   map[string]uint64    // ... and of its file list (filesSig), by syncFiles
 	clock      func() time.Time
 	health     sync.Map    // engine name -> down (bool), readable without mu
 	inMinute   atomic.Bool // housekeeping pass running
@@ -107,6 +113,9 @@ func New(db *store.DB, dataDir string) *Manager {
 		stall:      map[string]*stall{},
 		guards:     map[string]bool{},
 		adopting:   map[string]bool{},
+		seedIdle:   map[string]time.Time{},
+		taskSig:    map[string]uint64{},
+		filesSig:   map[string]uint64{},
 		clock:      time.Now,
 		kick:       make(chan struct{}, 1),
 		stopCh:     make(chan struct{}),
@@ -136,6 +145,8 @@ func (m *Manager) Start() error {
 	parts := map[string]string{}
 	m.mu.Lock()
 	for _, t := range ts {
+		// What the database has: written again only once something changes
+		m.loadedTask(t)
 		if adoptOfficialTemp(t) {
 			m.saveTask(t)
 		}
@@ -284,6 +295,13 @@ type fileLister interface {
 // fileEvery is how often the engines are asked for the tasks' file lists.
 const fileEvery = 10 * time.Second
 
+// How often the progress of running and seeding tasks is written (when it
+// changed), in seconds.
+const (
+	saveRunningEvery = 15
+	saveSeedingEvery = 60
+)
+
 // RefreshFiles stores what the engine says of one task's files now:
 // someone looks at them, and the regular poll brings them only every
 // fileEvery. The engine is asked outside the manager lock.
@@ -401,13 +419,7 @@ func (m *Manager) tick() {
 	m.schedule(now)
 	m.recordRates(now)
 	nowU := now.Unix()
-	for h, t := range m.live {
-		if m.dirty[h] || nowU-m.lastSave[h] >= 15 && (t.State == StDownloading || t.State == StSeeding || t.State == StChecking || t.State == StMetadata) {
-			m.saveTask(t)
-			m.lastSave[h] = nowU
-			delete(m.dirty, h)
-		}
-	}
+	m.saveProgress(nowU)
 	if now.Sub(m.lastMin) >= time.Minute {
 		m.lastMin = now
 		if m.inMinute.CompareAndSwap(false, true) {
@@ -415,6 +427,26 @@ func (m *Manager) tick() {
 				defer m.inMinute.Store(false)
 				m.minute()
 			}()
+		}
+	}
+}
+
+// saveProgress writes what changed: what a person or the queue did at once
+// (dirty), the progress of a running task every 15 s, of a seeding one every
+// 60 s, and nothing while nothing changes. Caller holds m.mu.
+func (m *Manager) saveProgress(nowU int64) {
+	for h, t := range m.live {
+		every := int64(0)
+		switch t.State {
+		case StDownloading, StChecking, StMetadata:
+			every = saveRunningEvery
+		case StSeeding:
+			every = saveSeedingEvery
+		}
+		if m.dirty[h] || every > 0 && nowU-m.lastSave[h] >= every {
+			m.saveChanged(t)
+			m.lastSave[h] = nowU
+			delete(m.dirty, h)
 		}
 	}
 }
@@ -982,7 +1014,21 @@ func (m *Manager) syncFiles(t *Task, files []engine.File) {
 	}
 	t.FilesTotal, t.FilesChosen = len(rows), chosen
 	t.IsFolder = len(rows) > 1 || (len(rows) == 1 && strings.Contains(rows[0].Path, "/"))
-	m.db.Tx(func(tx *sqlTx) error { return m.storeFiles(tx, t.Hash, rows) })
+	// Written only when the list changed (a torrent of many files is a
+	// statement per file)
+	sig := filesSig(rows)
+	m.sigMu.Lock()
+	old, ok := m.filesSig[t.Hash]
+	m.sigMu.Unlock()
+	if ok && old == sig {
+		return
+	}
+	if m.db.Tx(func(tx *sqlTx) error { return m.storeFiles(tx, t.Hash, rows) }) == nil {
+		m.fileWrites.Add(1)
+		m.sigMu.Lock()
+		m.filesSig[t.Hash] = sig
+		m.sigMu.Unlock()
+	}
 }
 
 // metadataDone handles a magnet whose metadata arrived.
@@ -1559,7 +1605,10 @@ func (m *Manager) schedule(now time.Time) {
 		}
 	}
 	holders, free := m.slotHolders(list, mode)
+	seeding := 0 // seeding slots taken
 	for _, t := range list {
+		// Set again below for the seeding torrents that wait for a slot
+		t.SeedWaiting = false
 		switch t.State {
 		case StDone, StError, StMoving:
 			continue
@@ -1593,7 +1642,7 @@ func (m *Manager) schedule(now time.Time) {
 			continue
 		}
 		if t.State == StSeeding {
-			want[t.Hash] = true
+			want[t.Hash] = m.seedSlot(t, &seeding)
 			continue
 		}
 		if holders[t.Hash] {
@@ -1670,7 +1719,7 @@ func (m *Manager) taskLimits(t *Task, mode string, count map[string]int) (down, 
 	if u > 0 {
 		seeding := int64(0)
 		for _, o := range m.live {
-			if o.Kind == t.Kind && (o.State == StSeeding || o.State == StDownloading) {
+			if o.Kind == t.Kind && (o.State == StSeeding && !o.SeedWaiting || o.State == StDownloading) {
 				seeding++
 			}
 		}
@@ -1711,6 +1760,8 @@ func (m *Manager) minute() {
 			delete(m.stall, h)
 		}
 	}
+	m.pruneSeedIdle()
+	m.forgetSigs()
 	m.mu.Unlock()
 	m.syncGuards()
 	m.expireProbes(now)

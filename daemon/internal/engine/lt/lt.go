@@ -60,6 +60,22 @@ type Engine struct {
 	finder  atomic.Bool // dc-bt 1.4 or newer: refresh_peers, set_trackers
 	safeDir atomic.Bool // dc-bt 1.5 or newer: untrusted_dir
 	adoptOK atomic.Bool // dc-bt 1.7 or newer: adopt_from (1.6 took over files on weaker checks)
+	// dc-bt 1.8 or newer: status_all answers only the torrents that changed
+	changedOK atomic.Bool
+	connGen   atomic.Uint64 // counts the connections to dc-bt
+
+	// The last status of every torrent (without file lists), which the
+	// changed answers of dc-bt 1.8 are merged into
+	cmu      sync.Mutex
+	cache    map[string]*engine.Status
+	cacheGen uint64    // connGen of the answers in cache
+	cacheAt  time.Time // when dc-bt last answered every torrent
+	now      func() time.Time
+	// Torrents dcd has just sent a command for (until when): asked for one
+	// by one until then, as are those moving or being checked, whatever the
+	// changed answers say
+	watchMu sync.Mutex
+	watch   map[string]time.Time
 
 	// CAFile: certificate authorities trusted besides the system's (the
 	// package's list); a missing file means the system's alone
@@ -91,7 +107,7 @@ type reply struct {
 func newEngine(bin, dataDir string) *Engine {
 	return &Engine{bin: bin, dataDir: dataDir, pending: map[int64]chan reply{},
 		offsets: map[string]int64{}, needOff: map[string]bool{}, resumeFor: map[string]string{}, seeded: map[string]*engine.Status{},
-		adopted: map[string]bool{}, CAFile: PackageCAFile(bin)}
+		adopted: map[string]bool{}, CAFile: PackageCAFile(bin), now: time.Now}
 }
 
 // PackageCAFile is where the package keeps its list of certificate
@@ -244,6 +260,8 @@ func settingsJSON(g engine.Global, lib string) map[string]any {
 		"connections_limit": g.MaxConn, "max_down": g.MaxDown, "max_up": g.MaxUp,
 		"peer_id_prefix": prefix, "user_agent": agent,
 		"proxy": px,
+		// dc-bt 1.8: lighter session settings on NAS models with little memory
+		"memory_profile": g.MemoryProfile,
 	}
 }
 
@@ -375,6 +393,7 @@ func (e *Engine) connect() error {
 		e.conn.Close()
 	}
 	e.conn = c
+	e.connGen.Add(1)
 	e.mu.Unlock()
 	go e.readLoop(c)
 	return nil
@@ -433,7 +452,27 @@ func (e *Engine) readLoop(c net.Conn) {
 
 // call sends one command and waits for its answer.
 func (e *Engine) call(cmd string, args map[string]any, out any) error {
+	if ref, _ := args["infohash"].(string); ref != "" && !readOnly[cmd] {
+		e.touch(ref)
+	}
 	return e.callTimeout(cmd, args, out, 30*time.Second)
+}
+
+// readOnly are the commands that change nothing of a torrent.
+var readOnly = map[string]bool{"status": true, "peers": true, "trackers": true, "sources": true}
+
+// watchFor is how long after a command its torrent is asked for one by one.
+const watchFor = 5 * time.Second
+
+// touch: dcd sent a command for ref; its status is asked for by itself until
+// watchFor has passed (the effect may not show in libtorrent's updates yet).
+func (e *Engine) touch(ref string) {
+	e.watchMu.Lock()
+	if e.watch == nil {
+		e.watch = map[string]time.Time{}
+	}
+	e.watch[ref] = e.now().Add(watchFor)
+	e.watchMu.Unlock()
 }
 
 func (e *Engine) callTimeout(cmd string, args map[string]any, out any, timeout time.Duration) error {
@@ -502,6 +541,7 @@ func (e *Engine) getVersion() (string, error) {
 	e.finder.Store(versionAtLeast(v.Dcbt, 1, 4))
 	e.safeDir.Store(versionAtLeast(v.Dcbt, 1, 5))
 	e.adoptOK.Store(versionAtLeast(v.Dcbt, 1, 7))
+	e.changedOK.Store(versionAtLeast(v.Dcbt, 1, 8))
 	e.lib.Store(v.Libtorrent)
 	return v.Libtorrent, nil
 }
@@ -680,6 +720,7 @@ func (e *Engine) Add(hash string, r engine.AddRequest) (string, error) {
 	if res.Adopting {
 		return "", engine.ErrPending
 	}
+	e.touch(res.Infohash)
 	e.omu.Lock()
 	delete(e.seeded, res.Infohash)
 	e.adopted[res.Infohash] = res.Adopted > 0
@@ -954,22 +995,142 @@ func (e *Engine) convert(r *rawStatus) *engine.Status {
 }
 
 func (e *Engine) StatusAll() (map[string]*engine.Status, error) {
-	return e.StatusAllFiles(true)
+	return e.statusAll(true, true)
+}
+
+// fullEvery is how often the poll asks dc-bt 1.8 for every torrent rather
+// than for those that changed (also after every new connection).
+const fullEvery = 60 * time.Second
+
+// statusChanged asks dc-bt 1.8 for the torrents that changed since its last
+// answer and merges them into the statuses it keeps of the others: a torrent
+// that did not change has the status it last had, without a file list (dcd
+// takes a file list only when one comes); one whose pieces did not change
+// keeps its last bitfield. Every fullEvery, and on a new connection, it asks
+// for all of them, file lists included.
+func (e *Engine) statusChanged(files, force bool) (map[string]*engine.Status, error) {
+	e.cmu.Lock()
+	defer e.cmu.Unlock()
+	for attempt := 0; ; attempt++ {
+		gen := e.connGen.Load()
+		full := force || e.cache == nil || gen != e.cacheGen || e.now().Sub(e.cacheAt) >= fullEvery || attempt > 0
+		var res struct {
+			Torrents []rawStatus `json:"torrents"`
+			Present  []string    `json:"present"`
+			Full     bool        `json:"full"`
+		}
+		if err := e.call("status_all", map[string]any{"files": files || full, "changed": true, "full": full}, &res); err != nil {
+			return nil, err
+		}
+		if full || res.Full {
+			e.cache = map[string]*engine.Status{}
+			e.cacheAt = e.now()
+		}
+		e.cacheGen = gen
+		out := make(map[string]*engine.Status, len(res.Present))
+		for i := range res.Torrents {
+			r := &res.Torrents[i]
+			st := e.convert(r)
+			if old := e.cache[st.Ref]; old != nil && r.Pieces == "" && r.NumPieces > 0 {
+				st.Bitfield = old.Bitfield
+			}
+			c := *st
+			c.Files = nil
+			e.cache[st.Ref] = &c
+			out[st.Ref] = st
+		}
+		present := make(map[string]bool, len(res.Present))
+		missing := false
+		for _, ref := range res.Present {
+			present[ref] = true
+			if out[ref] != nil {
+				continue
+			}
+			if c := e.cache[ref]; c != nil {
+				cp := *c
+				out[ref] = &cp
+			} else {
+				missing = true
+			}
+		}
+		for ref := range e.cache {
+			if !present[ref] {
+				delete(e.cache, ref)
+			}
+		}
+		// A torrent dc-bt has but never answered: never report it missing
+		// (dcd would add it again), ask for everything once more
+		if missing && attempt == 0 {
+			continue
+		}
+		e.askWatched(out, res.Torrents)
+		return out, nil
+	}
+}
+
+// askWatched asks dc-bt for the status of the torrents a changed answer
+// left out while dcd sent a command for them a moment ago, they move or they
+// are being checked: what dcd decides from them (a move that seems lost, the
+// progress of a check) must not come from an older answer. Caller holds cmu.
+func (e *Engine) askWatched(out map[string]*engine.Status, answered []rawStatus) {
+	now := e.now()
+	got := make(map[string]bool, len(answered))
+	for i := range answered {
+		got[answered[i].Infohash] = true
+	}
+	watched := map[string]bool{}
+	e.watchMu.Lock()
+	for ref, until := range e.watch {
+		if now.After(until) {
+			delete(e.watch, ref)
+		} else {
+			watched[ref] = true
+		}
+	}
+	e.watchMu.Unlock()
+	for ref, c := range e.cache {
+		if got[ref] || !(c.Moving || c.Verifying || watched[ref]) {
+			continue
+		}
+		var r rawStatus
+		if err := e.call("status", map[string]any{"infohash": ref}, &r); err != nil {
+			continue
+		}
+		st := e.convert(&r)
+		cp := *st
+		cp.Files = nil
+		e.cache[ref] = &cp
+		out[ref] = st
+	}
 }
 
 // StatusAllFiles is StatusAll, with the file lists only when files is set
 // (they are the larger part of the answer for torrents of many files).
 func (e *Engine) StatusAllFiles(files bool) (map[string]*engine.Status, error) {
-	var res struct {
-		Torrents []rawStatus `json:"torrents"`
-	}
-	if err := e.call("status_all", map[string]any{"files": files}, &res); err != nil {
-		return nil, err
-	}
-	out := make(map[string]*engine.Status, len(res.Torrents))
-	for i := range res.Torrents {
-		s := e.convert(&res.Torrents[i])
-		out[s.Ref] = s
+	return e.statusAll(files, false)
+}
+
+// statusAll: every torrent with all its fields when all is set (StatusAll),
+// else what changed merged into the last answers (dc-bt 1.8).
+func (e *Engine) statusAll(files, all bool) (map[string]*engine.Status, error) {
+	var out map[string]*engine.Status
+	if e.changedOK.Load() {
+		var err error
+		if out, err = e.statusChanged(files, all); err != nil {
+			return nil, err
+		}
+	} else {
+		var res struct {
+			Torrents []rawStatus `json:"torrents"`
+		}
+		if err := e.call("status_all", map[string]any{"files": files}, &res); err != nil {
+			return nil, err
+		}
+		out = make(map[string]*engine.Status, len(res.Torrents))
+		for i := range res.Torrents {
+			s := e.convert(&res.Torrents[i])
+			out[s.Ref] = s
+		}
 	}
 	e.omu.Lock()
 	for ref, st := range e.seeded {

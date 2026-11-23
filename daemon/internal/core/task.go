@@ -3,6 +3,8 @@ package core
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"hash/fnv"
 	"path/filepath"
 	"strings"
 )
@@ -122,6 +124,7 @@ type Task struct {
 	SourceHealth string `json:"-"` // torrents not complete: Health* level
 	Verifying    bool   `json:"-"`
 	SchedPaused  bool   `json:"sched_paused"`
+	SeedWaiting  bool   `json:"seed_waiting,omitempty"` // seeding torrent paused by max_seeding (not stored)
 	Bitfield     string `json:"-"`
 	NumPieces    int    `json:"-"`
 	ProxyUsed    string `json:"-"` // URL tasks: proxy URL the engine task was added with
@@ -161,9 +164,83 @@ func b2i(b bool) int {
 	return 0
 }
 
+// taskRow is what saveTask writes of t, in taskCols order.
+func taskRow(t *Task) []any {
+	opts, _ := json.Marshal(t.Options)
+	return []any{t.Hash, t.Owner, t.Kind, t.Source, t.Name, t.Engine, t.EngineRef, t.State, b2i(t.UserPaused), t.WakeTime, t.Position,
+		t.TempDir, t.MoveDir, t.WorkDir, t.DataPath, t.Size, t.DoneBytes, t.DownTotal, t.UpTotal, t.UpBase, t.DownBase,
+		t.FilesTotal, t.FilesChosen, b2i(t.IsFolder), t.ErrorCode, t.ErrorMsg, t.CreatedAt, t.StartedAt, t.FinishedAt, t.SeededAt,
+		t.ActiveSecs, t.AutoRemove, t.Account, string(opts), t.Comment, t.Caller, b2i(t.Imported), t.RemovedAt}
+}
+
+// rowSig is a fingerprint of the values of a row.
+func rowSig(row []any) uint64 {
+	h := fnv.New64a()
+	for _, v := range row {
+		fmt.Fprint(h, v)
+		h.Write([]byte{0})
+	}
+	return h.Sum64()
+}
+
 // saveTask writes every persisted column of t.
 func (m *Manager) saveTask(t *Task) error {
-	opts, _ := json.Marshal(t.Options)
+	row := taskRow(t)
+	err := m.writeTask(row)
+	if err == nil {
+		m.sigMu.Lock()
+		m.taskSig[t.Hash] = rowSig(row)
+		m.sigMu.Unlock()
+	}
+	return err
+}
+
+// saveChanged writes t only when a column differs from what was last
+// written of it (or read at start). It reports whether it wrote.
+func (m *Manager) saveChanged(t *Task) (bool, error) {
+	row := taskRow(t)
+	sig := rowSig(row)
+	m.sigMu.Lock()
+	old, ok := m.taskSig[t.Hash]
+	m.sigMu.Unlock()
+	if ok && old == sig {
+		return false, nil
+	}
+	err := m.writeTask(row)
+	if err == nil {
+		m.sigMu.Lock()
+		m.taskSig[t.Hash] = sig
+		m.sigMu.Unlock()
+	}
+	return err == nil, err
+}
+
+// loadedTask notes what a task read from the database has there.
+func (m *Manager) loadedTask(t *Task) {
+	m.sigMu.Lock()
+	m.taskSig[t.Hash] = rowSig(taskRow(t))
+	m.sigMu.Unlock()
+}
+
+// forgetSigs drops the fingerprints of tasks that are not in the list.
+// Caller holds m.mu.
+func (m *Manager) forgetSigs() {
+	m.sigMu.Lock()
+	defer m.sigMu.Unlock()
+	for h := range m.taskSig {
+		if m.live[h] == nil {
+			delete(m.taskSig, h)
+		}
+	}
+	for h := range m.filesSig {
+		if m.live[h] == nil {
+			delete(m.filesSig, h)
+		}
+	}
+}
+
+func (m *Manager) writeTask(row []any) error {
+	m.taskWrites.Add(1)
 	_, err := m.db.X(`INSERT INTO tasks (`+taskCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(hash) DO UPDATE SET owner=excluded.owner, kind=excluded.kind, source=excluded.source, name=excluded.name,
 		engine=excluded.engine, engine_ref=excluded.engine_ref, state=excluded.state, user_paused=excluded.user_paused,
@@ -174,11 +251,7 @@ func (m *Manager) saveTask(t *Task) error {
 		error_code=excluded.error_code, error_msg=excluded.error_msg, created_at=excluded.created_at, started_at=excluded.started_at,
 		finished_at=excluded.finished_at, seeded_at=excluded.seeded_at, active_secs=excluded.active_secs,
 		auto_remove=excluded.auto_remove, account=excluded.account, options=excluded.options, comment=excluded.comment,
-		caller=excluded.caller, imported=excluded.imported, removed_at=excluded.removed_at`,
-		t.Hash, t.Owner, t.Kind, t.Source, t.Name, t.Engine, t.EngineRef, t.State, b2i(t.UserPaused), t.WakeTime, t.Position,
-		t.TempDir, t.MoveDir, t.WorkDir, t.DataPath, t.Size, t.DoneBytes, t.DownTotal, t.UpTotal, t.UpBase, t.DownBase,
-		t.FilesTotal, t.FilesChosen, b2i(t.IsFolder), t.ErrorCode, t.ErrorMsg, t.CreatedAt, t.StartedAt, t.FinishedAt, t.SeededAt,
-		t.ActiveSecs, t.AutoRemove, t.Account, string(opts), t.Comment, t.Caller, b2i(t.Imported), t.RemovedAt)
+		caller=excluded.caller, imported=excluded.imported, removed_at=excluded.removed_at`, row...)
 	return err
 }
 
@@ -306,7 +379,25 @@ func (m *Manager) Files(hash string) []FileRow {
 	return out
 }
 
+// filesSig is a fingerprint of a file list.
+func filesSig(files []FileRow) uint64 {
+	h := fnv.New64a()
+	for _, f := range files {
+		fmt.Fprint(h, f.Index, "\x00", f.Path, "\x00", f.Size, "\x00", f.Done, "\x00", f.Priority, "\x00")
+	}
+	return h.Sum64()
+}
+
+// forgetFiles: the stored file list of hash was changed elsewhere than by
+// syncFiles, which then writes the next one whatever it is.
+func (m *Manager) forgetFiles(hash string) {
+	m.sigMu.Lock()
+	delete(m.filesSig, hash)
+	m.sigMu.Unlock()
+}
+
 func (m *Manager) storeFiles(tx *sql.Tx, hash string, files []FileRow) error {
+	m.forgetFiles(hash)
 	if _, err := tx.Exec(`DELETE FROM task_files WHERE hash = ?`, hash); err != nil {
 		return err
 	}

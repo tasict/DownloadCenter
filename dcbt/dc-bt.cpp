@@ -74,7 +74,7 @@ namespace lt = libtorrent;
 using json = nlohmann::json;
 using clk = std::chrono::steady_clock;
 
-static const char *DCBT_VERSION = "1.7";
+static const char *DCBT_VERSION = "1.8";
 
 static volatile sig_atomic_t g_stop = 0;
 static void on_signal(int) { g_stop = 1; }
@@ -1436,6 +1436,62 @@ static Tuning tuning_for(Hardware const &h)
 	return t;
 }
 
+// --- the low memory profile ---
+//
+// dcd decides the profile from the NAS's memory (memory_profile "low" on
+// models with 1.5 GB or less) and sends it with the settings. The values
+// follow libtorrent's min_memory_usage() where it saves memory without
+// breaking anything dc-bt relies on: not its alert queue of 100 (resume data
+// and moves would be lost), its one-block disk queue and send buffer (no
+// throughput left), disable_os_cache (seeding would read every block from
+// disk) or 5 connection attempts a second.
+static bool low_memory(json const &s) { return s.value("memory_profile", std::string()) == "low"; }
+
+static void apply_low_memory(lt::settings_pack &p, Tuning const &t)
+{
+	p.set_int(lt::settings_pack::max_peer_recv_buffer_size, 256 * 1024); // default 2 MiB
+	p.set_int(lt::settings_pack::send_buffer_watermark, 128 * 1024);    // default 500 KiB
+	p.set_int(lt::settings_pack::recv_socket_buffer_size, 64 * 1024);   // default: the system's
+	p.set_int(lt::settings_pack::send_socket_buffer_size, 64 * 1024);
+	p.set_int(lt::settings_pack::max_peerlist_size, 500);            // default 3000
+	p.set_int(lt::settings_pack::max_paused_peerlist_size, 50);      // default 1000
+	p.set_int(lt::settings_pack::file_pool_size, 10);                // default 40
+	p.set_int(lt::settings_pack::max_out_request_queue, 300);        // default 500
+	p.set_int(lt::settings_pack::max_allowed_in_request_queue, 250); // default 2000
+	p.set_int(lt::settings_pack::connection_speed, 10);              // default 30 a second
+	// fewer partly downloaded pieces to keep track of
+	p.set_int(lt::settings_pack::whole_pieces_threshold, 2);
+	p.set_bool(lt::settings_pack::prioritize_partial_pieces, true);
+	p.set_int(lt::settings_pack::active_checking, 1);
+	p.set_int(lt::settings_pack::alert_queue_size, 2000);
+	// The disk tuning of a large NAS (64-bit back end; also when the profile
+	// is forced on one) at most libtorrent's defaults
+	p.set_int(lt::settings_pack::max_queued_disk_bytes, std::min(t.max_queued_disk_bytes, 1024 * 1024));
+	p.set_int(lt::settings_pack::checking_mem_usage, std::min(t.checking_mem_usage, 256));
+}
+
+// restore_memory_defaults puts back libtorrent's defaults of what the low
+// profile changes (settings left out of a pack keep the session's values).
+static void restore_memory_defaults(lt::settings_pack &p)
+{
+	static const int ints[] = {lt::settings_pack::max_peer_recv_buffer_size, lt::settings_pack::send_buffer_watermark,
+		lt::settings_pack::recv_socket_buffer_size, lt::settings_pack::send_socket_buffer_size,
+		lt::settings_pack::max_peerlist_size, lt::settings_pack::max_paused_peerlist_size, lt::settings_pack::file_pool_size,
+		lt::settings_pack::max_out_request_queue, lt::settings_pack::max_allowed_in_request_queue,
+		lt::settings_pack::connection_speed, lt::settings_pack::whole_pieces_threshold};
+	static lt::settings_pack const def = lt::default_settings();
+	for (int k : ints)
+		p.set_int(k, def.get_int(k));
+	p.set_bool(lt::settings_pack::prioritize_partial_pieces, def.get_bool(lt::settings_pack::prioritize_partial_pieces));
+}
+
+static json low_memory_json()
+{
+	return json{{"max_peer_recv_buffer_size", 256 * 1024}, {"send_buffer_watermark", 128 * 1024},
+		{"socket_buffer_size", 64 * 1024}, {"max_peerlist_size", 500}, {"max_paused_peerlist_size", 50},
+		{"file_pool_size", 10}, {"connection_speed", 10}, {"active_checking", 1}, {"alert_queue_size", 2000}};
+}
+
 static json hardware_json(Hardware const &h, Tuning const &t)
 {
 	return json{{"cores", h.cores}, {"ram_mb", h.ram_mb}, {"disk_io", h.mmap ? "mmap" : "posix"},
@@ -1549,6 +1605,14 @@ struct Engine
 	size_t outoff = 0;
 	static constexpr size_t max_out = size_t(256) << 20;
 	int pending_saves = 0;
+	// status_all's changed answers (dc-bt 1.8): the torrents that may have
+	// changed since the last answer, what was last sent of each, and whether
+	// the connected dcd has had a full answer
+	std::set<std::string> changed_keys;
+	std::map<std::string, std::string> sent_sig;
+	std::map<std::string, int> sent_pieces;
+	bool full_sent = false;
+	bool got_state_update = false;
 	json settings = json::object();
 	Hardware hw = detect_hardware();
 	Tuning tune = tuning_for(hw);
@@ -2020,7 +2084,36 @@ struct Engine
 		p.set_int(lt::settings_pack::hashing_threads, tune.hashing_threads);
 		p.set_int(lt::settings_pack::max_queued_disk_bytes, tune.max_queued_disk_bytes);
 		p.set_int(lt::settings_pack::checking_mem_usage, tune.checking_mem_usage);
+		if (low_memory(s))
+			apply_low_memory(p, tune);
+		else
+			restore_memory_defaults(p);
 		return p;
+	}
+
+	// What the session is tuned for: the hardware and the memory profile
+	json tuning_json()
+	{
+		json j = hardware_json(hw, tune);
+		bool low = low_memory(settings);
+		j["memory_profile"] = low ? "low" : "normal";
+		if (low)
+			j["low_memory"] = low_memory_json();
+		// What the session has now, read back from libtorrent
+		if (ses)
+		{
+			lt::settings_pack cur = ses->get_settings();
+			j["session"] = json{{"connections_limit", cur.get_int(lt::settings_pack::connections_limit)},
+				{"active_checking", cur.get_int(lt::settings_pack::active_checking)},
+				{"alert_queue_size", cur.get_int(lt::settings_pack::alert_queue_size)},
+				{"max_peer_recv_buffer_size", cur.get_int(lt::settings_pack::max_peer_recv_buffer_size)},
+				{"send_buffer_watermark", cur.get_int(lt::settings_pack::send_buffer_watermark)},
+				{"max_peerlist_size", cur.get_int(lt::settings_pack::max_peerlist_size)},
+				{"file_pool_size", cur.get_int(lt::settings_pack::file_pool_size)},
+				{"max_queued_disk_bytes", cur.get_int(lt::settings_pack::max_queued_disk_bytes)},
+				{"checking_mem_usage", cur.get_int(lt::settings_pack::checking_mem_usage)}};
+		}
+		return j;
 	}
 
 	void start(json const &initial)
@@ -2754,6 +2847,7 @@ struct Engine
 		if (ti)
 		{
 			j["pieces"] = bits_hex(s.pieces);
+			j["pieces_done"] = s.num_pieces;
 			j["num_pieces"] = ti->num_pieces();
 			j["piece_length"] = ti->piece_length();
 			j["comment"] = ti->comment();
@@ -2814,24 +2908,78 @@ struct Engine
 		write_file(path, out.data(), out.size());
 	}
 
+	// What of a torrent's own options shows in its status: a change of it is
+	// a change of the torrent for the changed answers
+	static std::string options_sig(Options const &o)
+	{
+		return std::string(o.complete ? "c" : "-") + (o.handed ? "h" : "-") + "|" + o.handed_to + "|" + o.handed_root + "|" + o.move_error;
+	}
+
+	// changed_since asks libtorrent which torrents changed since the last
+	// call (post_torrent_updates answers at once, also when nothing did) and
+	// waits for its answer while handling the other alerts. False when it does
+	// not come within a second.
+	bool changed_since()
+	{
+		got_state_update = false;
+		ses->post_torrent_updates(lt::status_flags_t{});
+		auto deadline = clk::now() + std::chrono::seconds(1);
+		while (!got_state_update && clk::now() < deadline)
+		{
+			ses->wait_for_alert(std::chrono::milliseconds(50));
+			handle_alerts();
+		}
+		return got_state_update;
+	}
+
+	// status_all answers every torrent; with "changed": true (dc-bt 1.8),
+	// after a first full answer to the connected dcd and unless "full" is set,
+	// only those that changed since the last answer, with "present" listing
+	// every torrent so that dcd can drop the ones that are gone.
 	json cmd_status_all(json const &req)
 	{
 		bool files = req.value("files", true);
-		json arr = json::array();
+		bool changed = req.value("changed", false);
+		bool full = !changed || req.value("full", false) || !full_sent || !changed_since();
+		json arr = json::array(), present = json::array();
 		for (auto &kv : handles)
 		{
 			if (!kv.second.is_valid() || opts[kv.first].metadata_only)
 				continue;
+			present.push_back(kv.first);
+			std::string sig = options_sig(opts[kv.first]);
+			auto ss = sent_sig.find(kv.first);
+			if (!full && !changed_keys.count(kv.first) && ss != sent_sig.end() && ss->second == sig)
+				continue;
 			try
 			{
-				arr.push_back(status_of(kv.first, kv.second, files));
+				json j = status_of(kv.first, kv.second, files);
+				// The pieces only when more are done than dcd was last sent
+				if (changed && j.contains("pieces_done"))
+				{
+					int done = j["pieces_done"].get<int>();
+					auto sp = sent_pieces.find(kv.first);
+					if (!full && sp != sent_pieces.end() && sp->second == done)
+						j.erase("pieces");
+					sent_pieces[kv.first] = done;
+				}
+				arr.push_back(std::move(j));
+				sent_sig[kv.first] = sig;
 			}
 			catch (std::exception const &e)
 			{
 				dlog("status %s: %s", kv.first.c_str(), e.what());
 			}
 		}
-		return json{{"torrents", arr}};
+		if (!changed)
+			return json{{"torrents", arr}};
+		changed_keys.clear();
+		for (auto it = sent_sig.begin(); it != sent_sig.end();)
+			it = handles.count(it->first) ? std::next(it) : sent_sig.erase(it);
+		for (auto it = sent_pieces.begin(); it != sent_pieces.end();)
+			it = handles.count(it->first) ? std::next(it) : sent_pieces.erase(it);
+		full_sent = true;
+		return json{{"torrents", arr}, {"present", present}, {"full", full}};
 	}
 
 	// Replace every tracker of a torrent (a magnet that turned out to be a
@@ -2999,15 +3147,18 @@ struct Engine
 	{
 		std::string cmd = req.value("cmd", std::string());
 		if (cmd == "version")
-			return json{{"dcbt", DCBT_VERSION}, {"libtorrent", LIBTORRENT_VERSION}, {"hardware", hardware_json(hw, tune)}};
+			return json{{"dcbt", DCBT_VERSION}, {"libtorrent", LIBTORRENT_VERSION}, {"hardware", tuning_json()}};
 		if (cmd == "apply_settings")
 		{
 			json next = req.value("settings", req);
 			// Peer exchange is chosen when the session starts: dcd restarts dc-bt
 			if (next.value("pex", true) != settings.value("pex", true))
 				throw std::runtime_error("restart required");
+			bool was_low = low_memory(settings);
 			settings = next;
 			ses->apply_settings(pack_from(settings));
+			if (low_memory(settings) != was_low)
+				dlog("memory profile: %s", low_memory(settings) ? "low" : "normal");
 			if (!dht_on)
 				dht_up = false;
 			update_guard(false);
@@ -3220,12 +3371,36 @@ struct Engine
 			dlog("%s: %d files not handed over: something else is in their place", k.c_str(), int(skipped.size()));
 	}
 
+	// note_change remembers the torrents an alert is about for the next
+	// changed answer of status_all. The statuses that changed (state, progress,
+	// a transfer rate above 0 or the last one at 0) come in state_update_alert.
+	void note_change(lt::alert *a)
+	{
+		if (auto *su = lt::alert_cast<lt::state_update_alert>(a))
+		{
+			for (auto const &st : su->status)
+				changed_keys.insert(key_of(st.info_hashes));
+			got_state_update = true;
+			return;
+		}
+		auto *ta = dynamic_cast<lt::torrent_alert *>(a);
+		if (!ta || !ta->handle.is_valid())
+			return;
+		for (auto const &kv : handles)
+			if (kv.second == ta->handle)
+			{
+				changed_keys.insert(kv.first);
+				return;
+			}
+	}
+
 	void handle_alerts()
 	{
 		std::vector<lt::alert *> alerts;
 		ses->pop_alerts(&alerts);
 		for (lt::alert *a : alerts)
 		{
+			note_change(a);
 			if (auto *r = lt::alert_cast<lt::save_resume_data_alert>(a))
 			{
 				std::string k = key_of(r->handle.info_hashes());
@@ -3485,6 +3660,7 @@ struct Engine
 					{
 						drop_client();
 						client_fd = c;
+						full_sent = false;
 					}
 				}
 				if (n > 1 && client_fd >= 0 && (fds[1].revents & POLLOUT))
@@ -3698,7 +3874,7 @@ int main(int argc, char **argv)
 		dlog("cannot listen on %s: %s", e.socket_path.c_str(), strerror(errno));
 		return 1;
 	}
-	dlog("ready (libtorrent %s), tuned for %s", LIBTORRENT_VERSION, hardware_json(e.hw, e.tune).dump().c_str());
+	dlog("ready (libtorrent %s), tuned for %s", LIBTORRENT_VERSION, e.tuning_json().dump().c_str());
 	e.run();
 	return 0;
 }

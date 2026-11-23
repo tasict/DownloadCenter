@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"net"
 	"strconv"
 	"strings"
@@ -37,7 +38,8 @@ type BTSettings struct {
 	UPnP             bool    `json:"upnp"`
 	Encrypt          bool    `json:"encrypt"`
 	SeedRatio        float64 `json:"seed_ratio"`
-	SeedTime         int     `json:"seed_time"` // minutes; -1 no seeding, 0 no time limit (with SeedRatio 0: forever)
+	SeedTime         int     `json:"seed_time"`   // minutes; -1 no seeding, 0 no time limit (with SeedRatio 0: forever)
+	MaxSeeding       int     `json:"max_seeding"` // torrents seeding at once (0-50, 0 = no limit)
 	MaxConn          int     `json:"max_conn"`
 	TorrentMaxConn   int     `json:"torrent_max_conn"`
 	TorrentMaxUp     int     `json:"torrent_max_up"` // KB/s
@@ -170,6 +172,14 @@ func DefaultSettings() Settings {
 	for i := range s.Schedule.Days {
 		s.Schedule.Days[i] = full
 	}
+	// NAS models with little memory: fewer torrents and connections at once
+	// (installations that never saved their settings; see loadSettings for
+	// max_seeding)
+	if MemoryProfile() == ProfileLow {
+		s.BT.MaxNum = 2
+		s.Torrent.MaxConn = 100
+		s.Torrent.MaxSeeding = 3
+	}
 	for _, sh := range qts.Shares() {
 		if strings.EqualFold(sh.Name, "Download") {
 			s.TempDir = sh.Path
@@ -214,7 +224,8 @@ func (s *Settings) normalize() {
 	}
 	fix(&s.HTTP, 3)
 	fix(&s.FTP, 2)
-	fix(&s.BT, 5)
+	fix(&s.BT, d.BT.MaxNum)
+	s.Torrent.MaxSeeding = min(max(s.Torrent.MaxSeeding, 0), 50)
 	if s.Torrent.PortFrom <= 0 || s.Torrent.PortFrom > 65535 {
 		s.Torrent.PortFrom, s.Torrent.PortTo = d.Torrent.PortFrom, d.Torrent.PortTo
 	}
@@ -250,6 +261,9 @@ func (m *Manager) Settings() Settings {
 func (m *Manager) loadSettings() {
 	s := DefaultSettings()
 	m.db.GetJSON("config", &s)
+	if def := m.seedingDefault(); def == seedingUnlimited && !m.savedMaxSeeding() {
+		s.Torrent.MaxSeeding = 0
+	}
 	migrated := m.migrateProxy(&s)
 	s.normalize()
 	if migrated {
@@ -453,4 +467,38 @@ func (m *Manager) SetTaskProxy(hash, choice string) error {
 	m.Log(hash, "Switched to the new proxy, reconnecting")
 	go m.Kick()
 	return nil
+}
+
+// The default of torrent.max_seeding: the low memory profile limits seeding
+// only on new installations; installations upgraded from a version without
+// the setting keep seeding everything until an administrator sets a limit.
+const (
+	seedingProfile   = "profile"
+	seedingUnlimited = "unlimited"
+)
+
+// seedingDefault reads meta seeding_default, writing it on the first start
+// that has it: "profile" when the database was just created, "unlimited" when
+// it existed before (an upgrade).
+func (m *Manager) seedingDefault() string {
+	v := m.db.Meta("seeding_default")
+	if v == seedingProfile || v == seedingUnlimited {
+		return v
+	}
+	v = seedingUnlimited
+	if m.db.Created {
+		v = seedingProfile
+	}
+	m.db.SetMeta("seeding_default", v)
+	return v
+}
+
+// savedMaxSeeding reports whether the saved settings have max_seeding.
+func (m *Manager) savedMaxSeeding() bool {
+	var raw struct {
+		Torrent map[string]json.RawMessage `json:"torrent"`
+	}
+	m.db.GetJSON("config", &raw)
+	_, ok := raw.Torrent["max_seeding"]
+	return ok
 }

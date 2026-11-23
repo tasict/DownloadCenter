@@ -777,11 +777,11 @@
 			}else{ r.fill = h('i'); r.bar.appendChild(h('div', {'class':'flow', 'aria-hidden':'true'}, r.fill)); }
 			r.barKind = t.proto; r.primed = false;
 		}
-		key = s + '|' + (t.user_paused ? 1 : 0);
+		key = s + '|' + (t.user_paused ? 1 : 0) + (s === 'seed' && t.seed_waiting ? '|w' : '');
 		if(r.state !== key){
 			r.el.className = r.el.className.replace(/\bst-\w+/g, '').replace(/\s+$/, '') + ' st-' + s;
 			clear(r.ic).appendChild(icon(ST[s].icon));
-			r.ic.title = ST[s].label;
+			r.ic.title = s === 'seed' && t.seed_waiting ? DC.t('Waiting to seed') : ST[s].label;
 			clear(r.act);
 			if(DC.can('tasks:control')){
 				if(s === 'down' || s === 'wait' || s === 'seed' || s === 'check') r.act.appendChild(ibtn('hold', s === 'seed' ? DC.t('Stop seeding') : DC.t('Pause'), function(){ act(r.id, 'pause'); }));
@@ -817,6 +817,8 @@
 		else if(S.sort === 'progress' && s !== 'done' && s !== 'error') r.meta.appendChild(h('span', {'class':'em', text:pct}));
 		else if(s === 'wait') meta([t.sched_paused ? DC.t('Paused by schedule') : S.sort === 'queue' && t.queue_rank ? h('span', {'class':'qrank', text:DC.reorder.waitText(t.proto, t.queue_rank)}) : DC.t('Queued'), t.size ? DC.fsize(t.size) : null]);
 		else if(s === 'pause') meta([t.wake_time ? DC.t('Resumes at {time}', {time:DC.fclock(t.wake_time)}) : DC.t('Paused at {pct}', {pct:pct}), t.size ? DC.fsize(t.size) : null]);
+		/* Waiting for a seeding slot (torrent.max_seeding): it uploads nothing until it gets one */
+		else if(s === 'seed' && t.seed_waiting) meta([h('span', {'class':'em', text:DC.t('Waiting to seed')}), DC.t('Share ratio {ratio}', {ratio:(t.ratio || 0).toFixed(2)}), DC.fsize(t.size)]);
 		else if(s === 'seed') meta([h('span', {'class':'em', text:DC.t('Share ratio {ratio}', {ratio:(t.ratio || 0).toFixed(2)})}), DC.t('Upload {speed}', {speed:DC.fspeed(t.up_rate)}), DC.fsize(t.size)]);
 		else if(s === 'done') meta([DC.fsize(t.size), h('span', {'class':'opt', text:t.location || t.folder})]);
 		else if(s === 'check') meta([DC.t('Checking downloaded data {pct}', {pct:pct}), DC.fsize(t.size)]);

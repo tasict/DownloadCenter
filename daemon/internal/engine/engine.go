@@ -177,6 +177,9 @@ type Global struct {
 	PeerID         string // peer id prefix, e.g. "-TR2940-"; empty = the engine's own identity
 	PeerAgent      string
 	Proxy          Proxy
+	// MemoryProfile: "low" on NAS models with little memory (lighter engine
+	// settings), else "normal"
+	MemoryProfile string
 }
 
 // Proxy is the proxy configuration for an engine.

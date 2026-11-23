@@ -199,6 +199,8 @@
 					speedRow(DC.t('FTP download'), 'fDn', 'ftp.max_down', 'fLDn', 'ftp.limited_down')])
 			]),
 			sec('torrent', DC.t('Torrent'), null, [
+				/* Decided by dcd from the NAS's memory: lighter engine settings and lower defaults */
+				r.memory_profile === 'low' ? h('p', {'class':'note', text:DC.t('This NAS has 1.5 GB of memory or less, so Download Center uses engine settings that need less memory.')}) : null,
 				fieldDiv(DC.t('Incoming port'), caps.upnp ? null : DC.t('Forward these ports to the NAS on your router'), [h('input', {type:'number', id:'pFrom', value:String(tor.lt_port_from), min:'1024', max:'65535', 'aria-label':DC.t('Start port')}), '–', h('input', {type:'number', id:'pTo', value:String(tor.lt_port_to), min:'1024', max:'65535', 'aria-label':DC.t('End port')}),
 					btn('link', DC.t('Test incoming port'), function(e){
 						var b = e.currentTarget;
@@ -220,6 +222,7 @@
 				toggle('bPex', DC.t('Peer exchange'), DC.t('Ask connected peers for more sources'), !!tor.pex),
 				toggle('bEnc', DC.t('Encrypted connections only'), DC.t('Transfer only with peers that support encryption; there may be fewer sources'), !!tor.encrypt),
 				fieldDiv(DC.t('Share ratio and seeding time'), DC.t('Seeding stops when either the share ratio or the seeding time is reached; a share ratio of 0 means the ratio is ignored'), [num('bRatio', tor.seed_ratio, DC.t('ratio'), {step:'0.1'}), h('span', {'class':'unit', text:DC.t('or')}), seedTime]),
+				field(DC.t('Torrents seeding at once'), DC.t('Torrents beyond this wait to seed in list order; a torrent that has not uploaded anything for 30 minutes does not count. 0 means no limit'), num('bSeedMax', tor.max_seeding || 0, DC.t('max'), {min:'0', max:'50', step:'1', inputmode:'numeric'}), 'bSeedMax'),
 				caps.global_conn_limit ? field(DC.t('Total connection limit'), null, num('bConn', tor.max_conn, DC.t('max')), 'bConn') : null,
 				field(DC.t('Connection limit per torrent'), DC.t('0 means no limit'), num('bTConn', tor.torrent_max_conn, DC.t('max')), 'bTConn'),
 				field(DC.t('Upload limit per torrent'), DC.t('0 means no limit'), num('bTUp', tor.torrent_max_up, 'KB/s'), 'bTUp'),
@@ -248,7 +251,7 @@
 				ftp:{max_num:DC.ival('ftpMax'), max_down:DC.ival('fDn'), limited_down:DC.ival('fLDn'), max_up:(s.ftp || {}).max_up || 0, limited_up:(s.ftp || {}).limited_up || 0},
 				bt:{max_num:DC.ival('btMax'), max_down:DC.ival('bDn'), max_up:DC.ival('bUp'), limited_down:DC.ival('bLDn'), limited_up:DC.ival('bLUp')},
 				torrent:{dht:DC.chk('bDht'), lsd:DC.chk('bLsd'), pex:DC.chk('bPex'), encrypt:DC.chk('bEnc'), seed_ratio:DC.fval('bRatio'), seed_time:parseInt(DC.val('bTime'), 10),
-					torrent_max_conn:DC.ival('bTConn'), torrent_max_up:DC.ival('bTUp'), peer_mode:DC.ival('bPeerMode'), public_trackers:DC.chk('bPub'),
+					max_seeding:DC.ival('bSeedMax'), torrent_max_conn:DC.ival('bTConn'), torrent_max_up:DC.ival('bTUp'), peer_mode:DC.ival('bPeerMode'), public_trackers:DC.chk('bPub'),
 					no_sharing_hours:DC.ival('bNoShare'), likely_dead_days:DC.ival('bDead')},
 				disk_low_mb:DC.ival('sDisk') * 1024
 			};

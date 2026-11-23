@@ -189,7 +189,7 @@ Poll `GET /tasks/{id}` until `state` is `done` or `seeding` (finished) or `error
 
 ### Settings (administrators with `settings:*`)
 
-`GET /settings` (it also answers `bt_identity`: the peer ID prefix and User-Agent the default client identity sends), then `PUT /settings` with only the keys you change, for example the speed limits in **KB/s** under `http`, `ftp`, `bt`: `{"bt": {"max_down": 5000}}`. `GET /schedule`; `PUT /schedule` with `{"enabled": true}` or `{"days": [7 strings of 24 characters, Monday first]}` where each character is one hour: `1` full speed, `2` limited, `0` paused. Settings apply to every user of the NAS: change them only when asked, and say what you changed.
+`GET /settings` (it also answers `bt_identity`: the peer ID prefix and User-Agent the default client identity sends, and `memory_profile`: `low` on a NAS with 1.5 GB of memory or less, where some defaults are lower; read-only; `torrent.max_seeding` is how many torrents seed at once, `0` for no limit), then `PUT /settings` with only the keys you change, for example the speed limits in **KB/s** under `http`, `ftp`, `bt`: `{"bt": {"max_down": 5000}}`. `GET /schedule`; `PUT /schedule` with `{"enabled": true}` or `{"days": [7 strings of 24 characters, Monday first]}` where each character is one hour: `1` full speed, `2` limited, `0` paused. Settings apply to every user of the NAS: change them only when asked, and say what you changed.
 
 ## Task fields
 
@@ -208,6 +208,7 @@ Poll `GET /tasks/{id}` until `state` is `done` or `seeding` (finished) or `error
 | `position` | Place in the queue |
 | `private` | `GET /tasks/{id}` only: `true` for a private torrent, which finds peers only through its own tracker |
 | `queue_rank` | Waiting tasks only: place among the waiting tasks of the same type (1 = next to start) |
+| `seed_waiting` | Present (`true`) on a `seeding` torrent that waits for a seeding slot (`torrent.max_seeding`): it uploads nothing until another one stops seeding |
 | `peers_known`, `no_peers_since`, `peer_searches`, `metadata_since` | Torrents only: peers found (connected or not); running with no connection and no progress since (Unix time, 0 = not now); how often it looked for peers again since then; a magnet getting its file list since (0 = has it) |
 | `tracker_count`, `public_missing` | `GET /tasks/{id}` of a torrent only: all its trackers; trackers of the public list it does not have |
 | `source_health` | Torrents that are not complete: `ok`, `searching`, `no_sharing` or `likely_dead` (see A torrent that finds no peers) |

@@ -379,6 +379,7 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	// Re-adding a URL from the history replaces the old record
 	m.db.X(`DELETE FROM tasks WHERE hash = ? AND removed_at > 0`, hash)
 	m.db.X(`DELETE FROM task_files WHERE hash = ?`, hash)
+	m.forgetFiles(hash)
 	if err := m.saveTask(t); err != nil {
 		return nil, err
 	}

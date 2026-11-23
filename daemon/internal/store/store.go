@@ -23,6 +23,9 @@ import (
 type DB struct {
 	*sql.DB
 	mu sync.Mutex
+	// Created: Open made the database file (a new installation), not an
+	// existing one (an upgrade, or a restart)
+	Created bool
 }
 
 // SchemaVersion is the database layout this build writes. Raise it with any
@@ -228,13 +231,15 @@ func Open(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
+	_, statErr := os.Stat(path)
+	created := errors.Is(statErr, os.ErrNotExist)
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
 	sdb, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 	sdb.SetMaxOpenConns(4)
-	db := &DB{DB: sdb}
+	db := &DB{DB: sdb, Created: created}
 	for _, s := range schema {
 		if _, err := db.Exec(s); err != nil {
 			return nil, fmt.Errorf("schema: %w", err)

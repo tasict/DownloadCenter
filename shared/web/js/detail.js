@@ -147,7 +147,7 @@
 			for(i = 0; i < srcs.length; i++) srcText.push((srcs[i].active ? '● ' : '○ ') + (srcs[i].name || srcs[i].source) + (srcs[i].active ? DC.t(' (in use)') : ''));
 			srcText = srcText.join('\n');
 		}else srcText = t.source;
-		var stateText = DC.ST[s].label;
+		var waitSeed = s === 'seed' && t.seed_waiting, stateText = waitSeed ? DC.t('Waiting to seed') : DC.ST[s].label;
 		/* URL tasks: the proxy in use (resolved by the server for the detail view), changeable while not finished */
 		var xt = ex.task || {}, pxText = null;
 		if(t.proxy){
@@ -170,7 +170,8 @@
 		kv = h('dl', {'class':'kv num'}, [
 			h('dt', {text:DC.t('Status')}), h('dd', {text:stateText}),
 			h('dt', {text:DC.t('Progress')}), h('dd', {text:DC.t('{pct}%, {done} / {size}', {pct:Math.floor(t.progress || 0), done:DC.fsize(t.done), size:DC.fsize(t.size)})}),
-			h('dt', {text:DC.t('Speed')}), h('dd', {text:DC.t('Download {down}, upload {up}', {down:DC.fspeed(t.down_rate), up:DC.fspeed(t.up_rate)})}),
+			/* A torrent waiting to seed transfers nothing: no speed to show */
+			waitSeed ? null : h('dt', {text:DC.t('Speed')}), waitSeed ? null : h('dd', {text:DC.t('Download {down}, upload {up}', {down:DC.fspeed(t.down_rate), up:DC.fspeed(t.up_rate)})}),
 			h('dt', {text:DC.t('Download time')}), h('dd', {text:DC.fdur(t.active_secs) + (s === 'down' && t.eta > 0 ? DC.t('; ') + DC.feta(t.eta) : '')}),
 			t.proto === 'bt' ? h('dt', {text:DC.t('Share ratio')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{ratio}, {size} uploaded', {ratio:(t.ratio || 0).toFixed(2), size:DC.fsize(t.up_total)})}) : null,
 			t.proto === 'bt' ? h('dt', {text:DC.t('Connections')}) : null, t.proto === 'bt' ? h('dd', {text:DC.t('{peers} peers, {seeds} seeds', {peers:t.peers || 0, seeds:t.seeds || 0})}) : null,

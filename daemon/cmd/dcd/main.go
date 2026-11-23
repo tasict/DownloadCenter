@@ -159,6 +159,19 @@ func serve(args []string) {
 	// The package's CA list, trusted besides the system's
 	netutil.SetExtraRoots(filepath.Join(*root, "certs", "cacert.pem"))
 
+	// NAS models with little memory: lighter engine settings and defaults
+	// (decided before the settings are loaded, which depend on it)
+	profile, totalMiB, forced := core.DetectMemoryProfile("/proc/meminfo", data)
+	core.SetMemoryProfile(profile)
+	how := "memory " + strconv.FormatInt(totalMiB, 10) + " MiB"
+	if forced {
+		how = "set in data/memory_profile"
+	}
+	log.Printf("memory profile: %s (%s)", profile, how)
+	if limit := core.ApplyMemoryLimit(profile, os.Getenv); limit > 0 {
+		log.Printf("memory profile: soft memory limit %d MiB", limit>>20)
+	}
+
 	db, err := store.Open(filepath.Join(data, "dc.db"))
 	if err != nil {
 		log.Fatalf("database: %v", err)

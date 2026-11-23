@@ -25,6 +25,7 @@ type TaskJSON struct {
 	State       string         `json:"state"`
 	UserPaused  bool           `json:"user_paused"`
 	SchedPaused bool           `json:"sched_paused"`
+	SeedWaiting bool           `json:"seed_waiting,omitempty"` // seeding, waiting for a slot (torrent.max_seeding)
 	WakeTime    int64          `json:"wake_time"`
 	Position    int            `json:"position"`
 	Size        int64          `json:"size"`
@@ -77,7 +78,7 @@ type TaskJSON struct {
 func (s *Server) taskJSON(p *auth.Principal, t *core.Task, withBits bool) TaskJSON {
 	j := TaskJSON{
 		ID: t.Hash, Name: t.Name, Proto: t.Kind, Source: t.Source, Owner: t.Owner, State: t.State,
-		UserPaused: t.UserPaused, SchedPaused: t.SchedPaused, WakeTime: t.WakeTime, Position: t.Position,
+		UserPaused: t.UserPaused, SchedPaused: t.SchedPaused, SeedWaiting: t.SeedWaiting, WakeTime: t.WakeTime, Position: t.Position,
 		Size: t.Size, Done: t.DoneBytes, Progress: round1(t.Progress()), DownRate: t.DownRate, UpRate: t.UpRate,
 		ETA: t.ETA(), Peers: t.Peers, Seeds: t.Seeds, Ratio: round2(t.Ratio()), UpTotal: t.UpTotal,
 		ActiveSecs: t.ActiveSecs, CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt,

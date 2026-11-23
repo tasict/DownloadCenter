@@ -24,6 +24,7 @@ func (m *Manager) GlobalFor(name string) engine.Global {
 		MaxConn: s.Torrent.MaxConn, TorrentMaxConn: s.Torrent.TorrentMaxConn, TorrentMaxUp: int64(s.Torrent.TorrentMaxUp) * 1024,
 		SeedRatio: s.Torrent.SeedRatio, SeedTime: s.Torrent.SeedTime,
 		PortFrom: s.Torrent.PortFrom, PortTo: s.Torrent.PortTo,
+		MemoryProfile: MemoryProfile(),
 	}
 	g.PeerID, g.PeerAgent = peerIdentity(s.Torrent)
 	// Torrents share one profile: libtorrent's proxy is per session

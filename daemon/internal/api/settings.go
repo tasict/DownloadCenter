@@ -47,6 +47,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request, p *auth.Pri
 		"engines":         s.engineCaps(),
 		"engine_versions": s.engineVersions(),
 		"health":          s.M.EngineHealth(),
+		// Read-only: decided by dcd at start (see core.DetectMemoryProfile)
+		"memory_profile": core.MemoryProfile(),
 	}
 	if s.Public != nil {
 		resp["public_tracker_list"] = s.Public.Peek(false)

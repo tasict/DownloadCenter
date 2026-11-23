@@ -48,6 +48,36 @@ libtorrent's defaults otherwise.
 | `max_queued_disk_bytes` | 1 MiB below 1 GB RAM, 2 MiB from 1 GB, 4 MiB from 2 GB, 8 MiB from 4 GB, 16 MiB from 8 GB | 1 MiB |
 | `checking_mem_usage` (16 KiB blocks) | 256, 512 from 2 GB, 1024 from 4 GB, 2048 from 8 GB | 256 |
 
+### Low memory profile
+
+Since 1.8 the settings carry `memory_profile`: dcd sends `"low"` on NAS
+models with 1.5 GB of memory or less (or when `data/memory_profile` says so),
+`"normal"` otherwise. With `"low"` dc-bt uses the values below, taken from
+libtorrent's `min_memory_usage()` where they save memory without breaking
+anything dc-bt relies on; with anything else (and in 1.7 and older) the
+session has libtorrent's defaults for them, as before. `version` and the
+start line of the log report the profile (`memory_profile`), the values of
+the low profile (`low_memory`) and what the session has now (`session`).
+
+| Setting | `low` | libtorrent default |
+|---|---|---|
+| `max_peer_recv_buffer_size` | 256 KiB | 2 MiB |
+| `send_buffer_watermark` | 128 KiB | 500 KiB |
+| `recv_socket_buffer_size`, `send_socket_buffer_size` | 64 KiB | the system's |
+| `max_peerlist_size`, `max_paused_peerlist_size` | 500, 50 | 3000, 1000 |
+| `file_pool_size` | 10 | 40 |
+| `max_out_request_queue`, `max_allowed_in_request_queue` | 300, 250 | 500, 2000 |
+| `connection_speed` | 10 | 30 |
+| `whole_pieces_threshold`, `prioritize_partial_pieces` | 2, true | 20, false |
+| `active_checking` | 1 | 2 (dc-bt) |
+| `alert_queue_size` | 2000 | 10000 (dc-bt) |
+| `max_queued_disk_bytes`, `checking_mem_usage` | at most 1 MiB, 256 | the hardware's (above) |
+
+Not taken from `min_memory_usage()`: its alert queue of 100 (resume data and
+moves would be lost), its one-block disk queue and send buffer (no throughput
+left), `disable_os_cache` (seeding would read every block from disk) and 5
+connection attempts a second.
+
 ## Requests and responses
 
 ```json
@@ -76,7 +106,7 @@ Lines without `id`, sent as they happen:
 
 | cmd | Arguments | Result |
 |---|---|---|
-| `version` | — | `{"dcbt": "1.7", "libtorrent": "2.0.15", "hardware": {"cores": 4, "ram_mb": 31891, "disk_io": "mmap", "hashing_threads": 2, "max_queued_disk_bytes": 16777216, "checking_mem_usage": 2048}}` (`move` and `root` need 1.1; `hardware` since 1.2, see Tuning; `refresh_peers`, `set_trackers`, `set_guard`, `sources`, `guard`, the peer counts and the source fields since 1.4; `untrusted_dir` since 1.5; `--ca-file` and the tracker messages of Sources as described since 1.6; `adopt_from` since 1.7 (1.6 took files over on weaker checks: dcd offers data to 1.7 and newer only)) |
+| `version` | — | `{"dcbt": "1.8", "libtorrent": "2.0.15", "hardware": {"cores": 4, "ram_mb": 31891, "disk_io": "mmap", "hashing_threads": 2, "max_queued_disk_bytes": 16777216, "checking_mem_usage": 2048, "memory_profile": "normal", "session": {…}}}` (`move` and `root` need 1.1; `hardware` since 1.2, see Tuning; `refresh_peers`, `set_trackers`, `set_guard`, `sources`, `guard`, the peer counts and the source fields since 1.4; `untrusted_dir` since 1.5; `--ca-file` and the tracker messages of Sources as described since 1.6; `adopt_from` since 1.7 (1.6 took files over on weaker checks: dcd offers data to 1.7 and newer only); `memory_profile` and the `changed` answers of `status_all` since 1.8) |
 | `apply_settings` | settings object (below) | `{}` |
 | `add` | `torrent_b64` or `magnet`, `save_path`, `select` ([file index], omitted = all), `priorities` ({"index": 0..7}), `trackers` ([url]), `paused`, `seed_ratio` (float, 0 = none), `seed_time` (minutes; -1 = do not seed, 0 = no time limit), `sequential`, `check` (force a recheck), `max_down`, `max_up` (bytes/s), `max_peers`, `fastresume` (path of an official libtorrent 1.2 `.fastresume` to try first), `metadata_only` (fetch the metadata, write `<save_path>/<infohash>.torrent`, then drop the torrent), `root` (the data's top folder, or its single file, is called this instead of the torrent's name), `guard` (a regular user's torrent: see Address guard; kept with the torrent, a `metadata_only` add never changes it on a torrent that is already there), `untrusted_dir` (the destination folder is treated as one other accounts can change; dcd sends it for every torrent: see Regular users' torrents; omitted = false), `owner_uid` and `owner_gid` (with `untrusted_dir`: the account the handed-over files belong to; omitted = the owner of the folder they are handed to), `adopt_from`, `adopt_root` and `adopt_required` (with `untrusted_dir`: the torrent's data may already sit in `adopt_from`/`adopt_root`, see Data already in the destination) | `{"infohash": "…", "existed": false, "resumed": true, "adopted": n}` (`adopted`: files taken over, see below); for `untrusted_dir` also `{"infohash": "…", "seed_done": true, "total_wanted": n}`: not started (see Regular users' torrents) |
 | `pause` / `resume` / `remove` / `force_recheck` | `infohash` | `{}` (`remove` keeps the data, except the private folder an `untrusted_dir` torrent seeded from after its hand-over or take-over, and is idempotent) |
@@ -89,13 +119,41 @@ Lines without `id`, sent as they happen:
 | `set_trackers` | `infohash`, `trackers` | `{}`: the torrent's trackers are replaced by these (in this order), the saved `.torrent` and resume data are rewritten |
 | `set_guard` | `infohash`, `on` | `{}`: turns the address guard of the torrent on or off (see Address guard) |
 | `refresh_peers` | `infohash` | `{"refreshed": true}`: the torrent had no connection, so its peer list was cleared and it asked DHT (not for private torrents) and its trackers for peers again; `{"refreshed": false}` when it has a connection (nothing changed). libtorrent never tries a peer again after three failed connections while the torrent runs; this is how dcd makes it try again |
-| `status_all` | `files` (bool, default true) | `{"torrents": [status…]}` |
+| `status_all` | `files` (bool, default true), `changed`, `full` (bool, 1.8) | `{"torrents": [status…]}`; with `changed`: `{"torrents": [status…], "present": ["infohash", …], "full": false}`, see Changed answers |
 | `status` | `infohash` | status |
 | `peers` | `infohash` | `{"peers": [{"ip","port","client","down_rate","up_rate","seed","progress"}]}` |
 | `trackers` | `infohash` | `{"trackers": [url]}` |
 | `sources` | `infohash` | `{"trackers": [{"url", "tier", "contacted", "fails", "message", "seeds", "leechers", "updating"}]}`, see Sources |
 | `save_state` | — | `{"saved": n}` once every resume file is written (10 s max) |
 | `shutdown` | — | `{}`, then the process saves its state and exits |
+
+### Changed answers
+
+Polling every torrent every second costs one status call per torrent in
+libtorrent's network thread (where the 32-bit back end also reads, writes and
+hashes) and a JSON object per torrent, also for torrents that only seed
+without peers. Since 1.8 `status_all` with `"changed": true` answers only
+what changed since its previous changed answer to the connected client:
+
+- dc-bt asks libtorrent which torrents changed (`post_torrent_updates`;
+  libtorrent answers at once, also when nothing changed) and waits up to a
+  second for the answer while handling other alerts. A torrent counts as
+  changed when libtorrent says so (its state, progress, a transfer rate above
+  0, and the update that brings a rate back to 0), when an alert was about it,
+  or when what dc-bt keeps of it (complete, handed over, move error) changed.
+  Peer counts and the source fields alone do not make a torrent changed.
+- `present` lists every torrent (without metadata-only probes), so that the
+  client can forget those that are gone.
+- `pieces` is left out when as many pieces are done as in the client's
+  last answer; `pieces_done` (since 1.8, in every status) is that number.
+- With `files`, only the changed torrents carry their file list.
+- The first changed request of a connection, one with `"full": true` and one
+  whose libtorrent answer does not come in time get every torrent with
+  `"full": true` (pieces and, with `files`, file lists included).
+
+Without `changed` (dc-bt 1.7 and older, and dcd's `StatusAll`), every
+torrent is answered and the changed answers are left as they were. dcd asks
+for a full answer every 60 seconds and keeps the last status of the others.
 
 ### Status object
 
@@ -107,7 +165,7 @@ Lines without `id`, sent as they happen:
   "total_wanted": 0, "total_wanted_done": 0, "all_time_upload": 0, "all_time_download": 0,
   "down_rate": 0, "up_rate": 0, "peers": 0, "seeds": 0, "known_peers": 0, "connect_candidates": 0,
   "availability": 0.82, "last_seen_complete": 0, "found_peers": 0, "dht_up": true, "dht_peers": 0, "dht_reply_at": 0,
-  "pieces": "ff80…", "num_pieces": 987, "piece_length": 131072,
+  "pieces": "ff80…", "pieces_done": 412, "num_pieces": 987, "piece_length": 131072,
   "sequential": false, "comment": "", "private": false,
   "files": [{"index": 0, "path": "Sintel/Sintel.mp4", "size": 1, "done": 0, "priority": 4, "pad": false}]
 }
@@ -171,6 +229,7 @@ announced, maybe more than once with several addresses); `updating` means an ann
   "dht": true, "lsd": true, "pex": true, "upnp": false, "encrypt": false,
   "connections_limit": 300, "max_down": 0, "max_up": 0,
   "peer_id_prefix": "-DC1000-", "user_agent": "", "dht_bootstrap_nodes": "host:port,…",
+  "memory_profile": "normal|low",
   "proxy": {"type": "none|http|socks5", "host": "", "port": 0, "user": "", "pass": "",
             "hostnames": true, "peers": true, "trackers": true, "force": true}
 }

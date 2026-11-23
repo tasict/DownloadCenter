@@ -99,6 +99,10 @@ func TestStateMapping(t *testing.T) {
 			t.Errorf("%s -> %d, want %d", st, got, want)
 		}
 	}
+	// Waiting for a seeding slot is still seeding for V4 clients
+	if got := stateCode(&core.Task{State: core.StSeeding, SeedWaiting: true}); got != 100 || !statusMatch(&core.Task{State: core.StSeeding, SeedWaiting: true}, "seeding") {
+		t.Errorf("waiting to seed -> %d", got)
+	}
 	if typeString(core.KindBT) != "BT" || typeString(core.KindHTTP) != "HTTP" || typeString(core.KindFTP) != "FTP" {
 		t.Error("type strings")
 	}

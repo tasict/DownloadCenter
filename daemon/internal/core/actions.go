@@ -510,6 +510,7 @@ func (m *Manager) SetFiles(hash string, prio map[int]int) error {
 				p = v
 			}
 			m.db.Exec(`UPDATE task_files SET priority = ? WHERE hash = ? AND idx = ?`, p, hash, f.Index)
+			m.forgetFiles(hash)
 		}
 		return nil
 	})
@@ -518,6 +519,7 @@ func (m *Manager) SetFiles(hash string, prio map[int]int) error {
 		// More files selected after completion: download them
 		if t.State == StSeeding {
 			t.State = StDownloading
+			t.SeedWaiting = false
 		}
 	}
 	m.markDirty(t)
