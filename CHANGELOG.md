@@ -2,6 +2,12 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.4.1
+
+- Download Center now does much less work for torrents that have not changed: it no longer asks the torrent engine for their status and file lists every few seconds, and it saves tasks to its database only when something about them changed, so seeding torrents no longer cause disk writes every few seconds.
+- On NAS models with 1.5 GB of memory or less, the torrent engine uses smaller buffers and peer lists and checks one torrent at a time, and unless the settings were saved before, such models now default to 2 torrents downloading at once and 100 connections in total.
+- New setting: Torrents seeding at once (Settings › Download › Torrent). Torrents beyond the limit wait to seed in list order and start when another one stops seeding or has not uploaded anything for 30 minutes; time spent waiting does not count as seeding time. There is no limit by default; new installations on NAS models with 1.5 GB of memory or less start with 3.
+
 ## 1.4.0
 
 - Search for torrents by keyword: type what you are looking for in the new Search page, and Download Center asks every enabled search source at once and lists what they find as the answers arrive. Filter by source or category, sort by seeders, size, date or name, and add a result with one click through the usual add window. Typing words instead of a link in the add window searches for them too. Thanks to Sam for suggesting it.
