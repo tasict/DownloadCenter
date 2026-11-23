@@ -176,7 +176,7 @@ func TestQueueDocStatus(t *testing.T) {
 
 	// Low on space: below the threshold, named as a shared folder
 	st.Schedule.Enabled = false
-	st.DiskLowMB = 1 << 40 // more than any disk
+	st.DiskLowMB = 1 << 30 // 1 PiB, more than any disk (fits a 32-bit int)
 	st.TempDir = t.TempDir()
 	if err := s.M.SaveSettings(st); err != nil {
 		t.Fatal(err)
