@@ -1,0 +1,106 @@
+name: Bug report
+description: Something in Download Center does not work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Issues are public: please do not paste download names, links, account names, tokens or passwords.
+
+  - type: input
+    id: version
+    attributes:
+      label: Download Center version
+      description: Settings → About and updates
+      placeholder: "1.4.1"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: NAS model
+      placeholder: "TS-464"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - QTS
+        - QuTS hero
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system version
+      description: Control Panel → System → System Status, or the QTS / QuTS hero desktop
+      placeholder: "5.2.1 build 20240930"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package architecture
+      description: The end of the .qpkg file name you installed (DownloadCenter_<version>_<architecture>.qpkg)
+      options:
+        - x86_64
+        - arm_64
+        - arm-x41
+        - arm-x31
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: memory
+    attributes:
+      label: Installed memory
+      placeholder: "8 GB"
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead. Include any error message you saw.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+
+  - type: textarea
+    id: system-log
+    attributes:
+      label: Messages in the system log
+      description: Entries that start with [DownloadCenter] in the QTS / QuTS hero system log (Control Panel → System → System Logs), with their times.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log file
+      description: |
+        If your version has **Settings → About and updates → Download logs**, attach that file here (drag it into this box). The file leaves out what you download and your account names.
+        Older versions have no such file: please do not attach the files under the package's data/logs folder, because they can contain the names and links of your downloads. Describe the problem instead, and we will ask for the lines we need.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the existing issues and did not find this problem.
+          required: true
+        - label: This report contains no download names, links, account names, tokens or passwords.
+          required: true
