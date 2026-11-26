@@ -2,6 +2,13 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.4.2
+
+- When the service script lost track of a running Download Center, its watchdog started another copy every minute: URL downloads were interrupted, uploads in progress failed and the system log showed "dcd was not running; restarting" every minute. Only one copy now runs per installation, the service script finds the running one again, and stopping or updating the package stops it.
+- The system log gets at most one "dcd was not running; restarting" warning an hour, with the number of restarts since the previous one and, when Download Center could not start, the reason. The details of each restart are kept in `data/logs/watchdog.log` in the package folder.
+- When Download Center did not stop cleanly, the log of that run is kept as `data/logs/dcd.log.crash`. Starting Download Center while it runs no longer replaces the log of the running copy.
+- A failure in the background housekeeping, in moving completed files, in resolving file-hosting links or in handing files to their owner now ends only that piece of work instead of the whole program.
+
 ## 1.4.1
 
 - Download Center now does much less work for torrents that have not changed: it no longer asks the torrent engine for their status and file lists every few seconds, and it saves tasks to its database only when something about them changed, so seeding torrents no longer cause disk writes every few seconds.
