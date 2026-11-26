@@ -32,6 +32,10 @@ import (
 // Version is set at build time (-ldflags "-X main.Version=...").
 var Version = "dev"
 
+// instanceLock holds data/run/dcd.lock for the life of the process (kept
+// here so that the garbage collector never closes it).
+var instanceLock *os.File
+
 func main() {
 	switch startMode(os.Args, os.Getenv) {
 	case "cgi":
@@ -99,6 +103,46 @@ func readPort(path string, def int) int {
 	return def
 }
 
+// rotateLog keeps the previous run's log as dcd.log.1 (and as dcd.log.crash
+// when that run did not stop cleanly: data/run/ready names a process that
+// is gone) and points stdout and stderr at a new dcd.log. It only acts when
+// they are that file (the service script's redirect), and runs after the
+// lock, so a dcd that leaves because another one runs rotates nothing.
+func rotateLog(data string) {
+	logs := filepath.Join(data, "logs")
+	cur := filepath.Join(logs, "dcd.log")
+	var out, st syscall.Stat_t
+	if syscall.Fstat(1, &out) != nil || syscall.Stat(cur, &st) != nil || out.Dev != st.Dev || out.Ino != st.Ino {
+		return
+	}
+	unclean := 0
+	if b, err := os.ReadFile(filepath.Join(data, "run", "ready")); err == nil {
+		if pid, _ := strconv.Atoi(strings.TrimSpace(string(b))); pid > 1 && pid != os.Getpid() {
+			if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); err != nil {
+				unclean = pid
+			}
+		}
+	}
+	if unclean > 0 {
+		crash := filepath.Join(logs, "dcd.log.crash")
+		os.Remove(crash)
+		os.Link(cur, crash)
+	}
+	if os.Rename(cur, filepath.Join(logs, "dcd.log.1")) != nil {
+		return
+	}
+	f, err := os.OpenFile(cur, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		return
+	}
+	syscall.Dup3(int(f.Fd()), 1, 0)
+	syscall.Dup3(int(f.Fd()), 2, 0)
+	f.Close()
+	if unclean > 0 {
+		log.Printf("the previous dcd (pid %d) did not stop cleanly; its log is kept as dcd.log.crash", unclean)
+	}
+}
+
 // removeAria2 cleans up after versions that ran aria2 (up to 0.9.0): those
 // kept aria2c running across dcd restarts, and a package update leaves
 // files the new package no longer has.
@@ -142,6 +186,23 @@ func serve(args []string) {
 	os.MkdirAll(filepath.Join(data, "run"), 0700)
 	os.MkdirAll(filepath.Join(data, "logs"), 0700)
 	os.Chmod(data, 0700)
+	// One dcd per installation: a second one (two starts at once, or a
+	// service script that lost track of the running one) leaves before it
+	// touches anything. The lock is close-on-exec, so the engines never
+	// hold it after dcd is gone
+	lock, err := os.OpenFile(filepath.Join(data, "run", "dcd.lock"), os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		log.Fatalf("lock: %v", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		b, _ := os.ReadFile(filepath.Join(data, "run", "dcd.pid"))
+		log.Printf("another dcd is running (pid %s); exiting", strings.TrimSpace(string(b)))
+		os.Exit(3)
+	}
+	instanceLock = lock
+	// Written by dcd itself: the shell's $! is not always this process
+	os.WriteFile(filepath.Join(data, "run", "dcd.pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0600)
+	rotateLog(data)
 	// Temporary files (such as large uploads) stay in the package's private
 	// folder, not in the NAS's small shared /tmp
 	tmp := filepath.Join(data, "tmp")
@@ -156,6 +217,12 @@ func serve(args []string) {
 		*port = readPort(filepath.Join(data, "http_port"), 18780)
 	}
 	log.Printf("dcd %s starting (root %s, port %d)", Version, *root, *port)
+	// The port first: when it is taken, fail before the engines and the
+	// tasks are touched (requests wait in the backlog until Serve)
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
 	// The package's CA list, trusted besides the system's
 	netutil.SetExtraRoots(filepath.Join(*root, "certs", "cacert.pem"))
 
@@ -212,10 +279,6 @@ func serve(args []string) {
 	}
 	registerExtensions(srv, m, au, *root, data)
 
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
-	if err != nil {
-		log.Fatalf("listen: %v", err)
-	}
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	go func() {
 		if err := hs.Serve(ln); err != nil && err != http.ErrServerClosed {

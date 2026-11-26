@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -425,6 +426,12 @@ func (m *Manager) tick() {
 		if m.inMinute.CompareAndSwap(false, true) {
 			go func() {
 				defer m.inMinute.Store(false)
+				// A failure in the housekeeping ends this pass, not dcd
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("core: housekeeping panic: %v\n%s", r, debug.Stack())
+					}
+				}()
 				m.minute()
 			}()
 		}
@@ -1139,7 +1146,7 @@ func (m *Manager) downloadDone(t *Task, st *engine.Status, e engine.Engine) {
 	m.Log(t.Hash, "Download finished; seeding started")
 	if p := t.dataPath(); p != "" {
 		if u := ownerFor(t.Owner, m.isAdminOwner(t.Owner), p); u != "" {
-			go chownPath(p, u, true)
+			goChown(p, u)
 		}
 	}
 	m.TaskEvent("task.completed", t, nil)
@@ -1257,7 +1264,7 @@ func (m *Manager) torrentMoved(t *Task, st *engine.Status, e engine.Engine) {
 	m.saveTask(t)
 	leaveTemp(t.WorkDir)
 	if u := ownerFor(t.Owner, m.isAdminOwner(t.Owner), t.DataPath); u != "" {
-		go chownPath(t.DataPath, u, true)
+		goChown(t.DataPath, u)
 	}
 	m.Log(t.Hash, "Files moved")
 	if report {
@@ -1370,7 +1377,7 @@ func (m *Manager) startMove(t *Task, src, dst string, urlTask bool) {
 	m.markDirty(t)
 	m.saveTask(t)
 	owner, admin := t.Owner, m.isAdminOwner(t.Owner)
-	go func() {
+	goSafe("move", func() {
 		var final string
 		var err error
 		if urlTask {
@@ -1410,7 +1417,7 @@ func (m *Manager) startMove(t *Task, src, dst string, urlTask bool) {
 			m.TaskEvent("task.moved", t, map[string]any{"path": m.DisplayPath(t.Owner, final)})
 		}
 		m.finish(t)
-	}()
+	})
 }
 
 // moveURLResult moves the downloaded file(s) of a URL task from its temp
@@ -1754,15 +1761,19 @@ func (m *Manager) minute() {
 	if m.Public != nil {
 		m.Public.Tick(s.Torrent.PublicTrackers)
 	}
-	m.mu.Lock()
-	for h := range m.stall {
-		if m.live[h] == nil {
-			delete(m.stall, h)
+	// Unlocked by defer: a panic in here must not leave m.mu locked (the
+	// recover in tick's caller would then let every later tick hang)
+	func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for h := range m.stall {
+			if m.live[h] == nil {
+				delete(m.stall, h)
+			}
 		}
-	}
-	m.pruneSeedIdle()
-	m.forgetSigs()
-	m.mu.Unlock()
+		m.pruneSeedIdle()
+		m.forgetSigs()
+	}()
 	m.syncGuards()
 	m.expireProbes(now)
 	m.askTrackers()
@@ -1939,7 +1950,7 @@ func (m *Manager) resolveAsync(t *Task) {
 	// The share link is resolved through the proxy the download uses: many
 	// services tie the direct link to the address that asked for it
 	proxy, perr := m.proxyFor(t)
-	go func() {
+	goSafe("link resolve", func() {
 		var res *Resolved
 		err := perr
 		if err == nil {
@@ -1966,6 +1977,21 @@ func (m *Manager) resolveAsync(t *Task) {
 		}
 		m.markDirty(t)
 		go m.Kick()
+	})
+}
+
+// goSafe runs f in a goroutine: a panic is logged with its stack and ends
+// only that work, not dcd. Only for work whose locking is deferred: a panic
+// between Lock and an undeferred Unlock would leave m.mu locked and stop
+// every later tick (worse than ending, the watchdog cannot see it).
+func goSafe(what string, f func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("core: %s panic: %v\n%s", what, r, debug.Stack())
+			}
+		}()
+		f()
 	}()
 }
 
@@ -1980,4 +2006,10 @@ func transient(st *engine.Status) bool {
 			strings.Contains(msg, "status=504") || strings.Contains(msg, "No URI available") || strings.Contains(msg, "timeout")
 	}
 	return false
+}
+
+// goChown hands a completed download to its owner in the background (the
+// arguments are taken now, not when the goroutine runs).
+func goChown(p, user string) {
+	goSafe("chown", func() { chownPath(p, user, true) })
 }

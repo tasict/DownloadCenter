@@ -144,31 +144,60 @@ cron_remove() {
 	/etc/init.d/crond.sh restart >/dev/null 2>&1
 }
 
+# The running dcd: the pid file, else data/run/ready (written by dcd itself
+# once it serves), which then repairs the pid file. Without the second
+# look, a pid file that lost track of dcd made the watchdog start another
+# one every minute.
 dcd_pid() {
-	pid=$(cat "$PIDFILE" 2>/dev/null)
-	[ -n "$pid" ] || return 1
-	[ -d "/proc/$pid" ] || return 1
-	grep -q "bin/dcd" "/proc/$pid/cmdline" 2>/dev/null || return 1
-	echo "$pid"
+	for f in "$PIDFILE" "${DATA}/run/ready"; do
+		pid=$(cat "$f" 2>/dev/null)
+		case "$pid" in ''|*[!0-9]*) continue ;; esac
+		[ -d "/proc/$pid" ] || continue
+		grep -q "bin/dcd" "/proc/$pid/cmdline" 2>/dev/null || continue
+		[ "$f" = "$PIDFILE" ] || (umask 077; echo "$pid" > "$PIDFILE")
+		echo "$pid"
+		return 0
+	done
+	return 1
 }
 
 dcd_start() {
 	dcd_pid >/dev/null && return 0
 	[ -x "$DCD" ] || { log "dcd binary missing" 2; return 1; }
-	# Keep the previous log for one restart
-	[ -f "${LOGDIR}/dcd.log" ] && mv -f "${LOGDIR}/dcd.log" "${LOGDIR}/dcd.log.1"
+	# dcd keeps the previous log as dcd.log.1 itself, once it holds its lock
+	# (rotating here lost the running dcd's log when a second start failed)
 	# Its log and pid file are private (dcd sets its own umask for downloads)
 	umask 077
 	setsid "$DCD" serve -root "$QPKG_ROOT" -port "$(http_port)" >> "${LOGDIR}/dcd.log" 2>&1 < /dev/null &
-	echo $! > "$PIDFILE"
+	# dcd writes its own pid once it holds its lock; $! stands in until
+	# then (it is setsid's when setsid had to fork)
+	dcd_pid >/dev/null || echo $! > "$PIDFILE"
 	umask 022
+	# Wait up to 10 s for it to serve; when it exits instead, the last line
+	# of its log (the reason) is left in START_ERR
 	i=0
 	while [ $i -lt 10 ]; do
-		[ -f "${DATA}/run/ready" ] && return 0
 		sleep 1
+		pid=$(dcd_pid) || { START_ERR=$(tail -n 1 "${LOGDIR}/dcd.log" 2>/dev/null | cut -c1-300); return 1; }
+		[ "$(cat "${DATA}/run/ready" 2>/dev/null)" = "$pid" ] && return 0
 		i=$((i + 1))
 	done
 	return 0
+}
+
+# What the watchdog saw when it decided to restart dcd, for whoever
+# investigates later (bounded: cut to its last half past 256 KiB)
+watchdog_note() {
+	f="${LOGDIR}/watchdog.log"
+	(
+		umask 077
+		[ -f "$f" ] && [ "$(wc -c < "$f")" -gt 262144 ] && tail -c 131072 "$f" > "$f.tmp" && mv -f "$f.tmp" "$f"
+		{
+			echo "$(date '+%Y-%m-%d %H:%M:%S') dcd not running: pid file '$(cat "$PIDFILE" 2>/dev/null)', ready '$(cat "${DATA}/run/ready" 2>/dev/null)'"
+			ps 2>/dev/null | grep '[b]in/dcd'
+			tail -n 5 "${LOGDIR}/dcd.log" 2>/dev/null
+		} >> "$f"
+	)
 }
 
 dcd_stop() {
@@ -198,7 +227,7 @@ case "$1" in
 		write_apache_conf
 		/sbin/setcfg "$QPKG_NAME" Web_Port -1 -f "$CONF"
 		reload_admin_web
-		dcd_start
+		dcd_start || log "dcd did not start: $START_ERR" 2
 		cron_add
 		log "started"
 		echo "$QPKG_NAME started."
@@ -223,8 +252,22 @@ case "$1" in
 		ENABLED=$(/sbin/getcfg "$QPKG_NAME" Enable -u -d FALSE -f "$CONF")
 		[ "$ENABLED" = "TRUE" ] || exit 0
 		if ! dcd_pid >/dev/null; then
-			log "dcd was not running; restarting" 1
-			dcd_start
+			# The system log gets one line an hour at most, with the number
+			# of restarts since the last line (data/run/watchdog: "<time> <count>")
+			set -- $(cat "${DATA}/run/watchdog" 2>/dev/null)
+			last=${1:-0} count=${2:-0}
+			case "$last$count" in *[!0-9]*) last=0 count=0 ;; esac
+			count=$((count + 1)) now=$(date +%s)
+			msg="dcd was not running; restarting"
+			[ "$count" -gt 1 ] && msg="$msg ($count restarts since the last message)"
+			report=0
+			if [ $((now - last)) -ge 3600 ]; then
+				report=1 last=$now count=0
+			fi
+			echo "$last $count" > "${DATA}/run/watchdog"
+			watchdog_note
+			dcd_start || msg="$msg; it did not start: $START_ERR"
+			[ $report -eq 1 ] && log "$msg" 1
 		fi
 		[ -f "$APACHE_CONF" ] || { write_apache_conf; reload_admin_web; }
 		;;
