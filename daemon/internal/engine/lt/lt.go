@@ -55,7 +55,8 @@ type Engine struct {
 	pending map[int64]chan reply
 	global  engine.Global
 	haveG   bool
-	version string
+	version string       // libtorrent's (the client identity is built from it)
+	dcbt    atomic.Value // dc-bt's own version (string)
 	cmd     *exec.Cmd
 	oldBT   atomic.Bool // dc-bt older than 1.1: cannot move data while seeding
 	finder  atomic.Bool // dc-bt 1.4 or newer: refresh_peers, set_trackers
@@ -293,7 +294,7 @@ func (e *Engine) Start() error {
 			if e.haveG {
 				e.call("apply_settings", map[string]any{"settings": settingsJSON(e.global, e.libVersion())}, nil)
 			}
-			log.Printf("libtorrent: reusing running dc-bt (%s)", v)
+			log.Printf("libtorrent: reusing running dc-bt %s (libtorrent %s)", e.dcbtVersion(), v)
 			return nil
 		}
 		e.disconnect()
@@ -343,7 +344,7 @@ func (e *Engine) spawn() error {
 		if e.connect() == nil {
 			if v, err := e.getVersion(); err == nil {
 				e.version = v
-				log.Printf("libtorrent: started dc-bt %s (pid %d)", v, cmd.Process.Pid)
+				log.Printf("libtorrent: started dc-bt %s (libtorrent %s, pid %d)", e.dcbtVersion(), v, cmd.Process.Pid)
 				return nil
 			}
 			e.disconnect()
@@ -542,7 +543,14 @@ func (e *Engine) getVersion() (string, error) {
 	e.adoptOK.Store(versionAtLeast(v.Dcbt, 1, 7))
 	e.changedOK.Store(versionAtLeast(v.Dcbt, 1, 8))
 	e.lib.Store(v.Libtorrent)
+	e.dcbt.Store(v.Dcbt)
 	return v.Libtorrent, nil
+}
+
+// dcbtVersion is the version dc-bt reported ("" before it answered).
+func (e *Engine) dcbtVersion() string {
+	v, _ := e.dcbt.Load().(string)
+	return v
 }
 
 // versionAtLeast compares a "major.minor" version.

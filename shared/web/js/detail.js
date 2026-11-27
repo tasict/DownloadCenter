@@ -140,6 +140,27 @@
 		}, function(e){ DC.toast(DC.errText(e)); });
 	}
 
+	/* URL tasks: whether the server's certificate is checked. Turning the check off asks first and says what it gives up; a task that
+	   stopped over its certificate starts again. */
+	function certCheck(t, retry){
+		var box = DC.toggle('dpSkipCert', DC.t('Skip certificate check'),
+			DC.t('Downloads even when the server\'s certificate cannot be verified. Anyone between the NAS and the server could then read or change the download, including account details sent with it.'), retry || !!t.skip_cert_check);
+		DC.modal(retry ? DC.t('Skip certificate check and retry') : DC.t('Change certificate check'), 'link',
+			[h('p', {'class':'lead', text:DC.t('A running task reconnects and continues from what it has already downloaded.')}), box], function(close){
+			var ok = btn(null, retry ? DC.t('Retry') : DC.t('Change'), function(){
+				var on = box.querySelector('input').checked;
+				DC.busy(ok, true);
+				DC.api.patch('tasks/' + t.id, {skip_cert_check:on}).then(function(res){
+					close();
+					if(res.task) DC.upsertTask(res.task);
+					DC.toast(on ? DC.t('The certificate is no longer checked for this task') : DC.t('The certificate is checked again for this task'));
+					DC.pollNow();
+				}, function(e){ DC.busy(ok, false); DC.toast(DC.errText(e)); });
+			}, 'pri');
+			return [btn(null, DC.t('Cancel'), close), ok];
+		});
+	}
+
 	function info(t){
 		var s = DC.uiState(t), ex = D.extra || {}, srcs = ex.sources || [], srcText, i, admin = DC.isAdmin(), kv;
 		if(srcs.length){
@@ -172,8 +193,11 @@
 			var el = h('span', {'class':'mono', text:code});
 			return h('dd', {'class':'pathdd'}, [el, ibtn('copy', DC.t('Copy code'), function(){ DC.copyText(code, el); })]);
 		}
+		var certErr = t.error && t.error.certificate && !t.skip_cert_check && DC.can('tasks:control');
 		kv = h('dl', {'class':'kv num'}, [
-			h('dt', {text:DC.t('Status')}), h('dd', {text:stateText}),
+			h('dt', {text:DC.t('Status')}),
+			certErr ? h('dd', null, [h('span', {text:stateText}), h('div', {'class':'srcs'}, [btn(null, DC.t('Skip certificate check and retry'), function(){ certCheck(t, true); })])])
+				: h('dd', {text:stateText}),
 			h('dt', {text:DC.t('Progress')}), h('dd', {text:DC.t('{pct}%, {done} / {size}', {pct:Math.floor(t.progress || 0), done:DC.fsize(t.done), size:DC.fsize(t.size)})}),
 			/* A torrent waiting to seed transfers nothing: no speed to show */
 			waitSeed ? null : h('dt', {text:DC.t('Speed')}), waitSeed ? null : h('dd', {text:DC.t('Download {down}, upload {up}', {down:DC.fspeed(t.down_rate), up:DC.fspeed(t.up_rate)})}),
@@ -192,6 +216,9 @@
 			t.diag_code ? h('dt', {text:DC.t('Diagnostic code')}) : null, t.diag_code ? diagCode(t.diag_code) : null,
 			t.finished_at ? h('dt', {text:DC.t('Finished at')}) : null, t.finished_at ? h('dd', {text:DC.ftime(t.finished_at)}) : null,
 			admin ? h('dt', {text:DC.t('Owner')}) : null, admin ? h('dd', {text:t.owner + (t.caller && t.caller !== 'Download Center' ? DC.t(' ({caller})', {caller:t.caller}) : '')}) : null,
+			typeof t.skip_cert_check === 'boolean' ? h('dt', {text:DC.t('Certificate check')}) : null,
+			typeof t.skip_cert_check === 'boolean' ? h('dd', {'class':'inline'}, [h('span', {text:t.skip_cert_check ? DC.t('Skipped') : DC.t('Checked')}),
+				DC.can('tasks:control') && s !== 'done' ? ibtn('edit', DC.t('Change certificate check'), function(){ certCheck(t, false); }) : null]) : null,
 			pxText ? h('dt', {text:DC.t('Proxy')}) : null,
 			pxText ? h('dd', {'class':'inline'}, [h('span', {text:pxText}), DC.can('tasks:control') && s !== 'done' ? ibtn('edit', DC.t('Change proxy'), function(){ changeProxy(t); }) : null]) : null,
 			admin && t.engine ? h('dt', {text:DC.t('Engine')}) : null, admin && t.engine ? h('dd', {text:t.engine}) : null

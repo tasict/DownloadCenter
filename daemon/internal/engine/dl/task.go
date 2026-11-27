@@ -66,6 +66,8 @@ type task struct {
 	saved      time.Time
 
 	lim limiter
+
+	chained map[string]bool // hosts whose missing intermediates were fetched (logged once)
 }
 
 // worker is one connection downloading [pos, end) of the file.

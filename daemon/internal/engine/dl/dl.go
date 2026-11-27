@@ -19,10 +19,16 @@ type Engine struct {
 	MaxConns int
 	// Logf records a line in the task log; ref is the task hash.
 	Logf func(ref, msg string)
+	// AIAProxy is the proxy URL for fetching a missing intermediate
+	// certificate from rawURL ("" = direct; an error: do not fetch) when the
+	// task that needs it connects directly: the rule of a regular user's
+	// request to that address. A task's own proxy is always used instead.
+	AIAProxy func(rawURL string) (string, error)
 
-	sc    *sidecar
-	mu    sync.Mutex
-	tasks map[string]*task
+	chains *chains
+	sc     *sidecar
+	mu     sync.Mutex
+	tasks  map[string]*task
 }
 
 // New returns the engine; bin is the dc-dl executable, dataDir the data/
@@ -30,7 +36,14 @@ type Engine struct {
 // (certs/cacert.pem beside the bin folder) is trusted besides the system's.
 func New(bin, dataDir string) *Engine {
 	ca := filepath.Join(filepath.Dir(filepath.Dir(bin)), "certs", "cacert.pem")
-	return &Engine{MaxConns: 4, tasks: map[string]*task{}, sc: &sidecar{bin: bin, dataDir: dataDir, caFile: ca}}
+	e := &Engine{MaxConns: 4, tasks: map[string]*task{}, sc: &sidecar{bin: bin, dataDir: dataDir, caFile: ca}, chains: newChains()}
+	e.chains.proxy = func(raw string) (string, error) {
+		if e.AIAProxy == nil {
+			return "", nil
+		}
+		return e.AIAProxy(raw)
+	}
+	return e
 }
 
 func (e *Engine) Name() string { return "builtin" }

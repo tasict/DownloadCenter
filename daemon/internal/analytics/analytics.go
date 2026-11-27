@@ -130,6 +130,11 @@ type Service struct {
 	dirty  bool
 	uiLast map[string]time.Time
 	stop   chan struct{}
+
+	// Run's own: a report failing since (a DNS filter that answers 0.0.0.0
+	// fails every check), logged when it starts and then once a day
+	failing    bool
+	failLogged time.Time
 }
 
 // New loads the counters kept since the last report.
@@ -347,11 +352,39 @@ func (s *Service) Run() {
 		last, _ := strconv.ParseInt(s.db.Meta(kSent), 10, 64)
 		if s.Enabled() && s.db.Meta(kAck) == "1" && s.configured() && time.Since(time.Unix(last, 0)) >= sendEvery {
 			if err := s.Send(); err != nil {
-				log.Printf("analytics: %v", err)
+				if line := s.failed(err, time.Now()); line != "" {
+					log.Print(line)
+				}
+			} else if line := s.sent(); line != "" {
+				log.Print(line)
 			}
 		}
 		t.Reset(30 * time.Minute)
 	}
+}
+
+// failed records a report that could not be sent and returns the line to
+// log: the first failure, then at most one a day while it keeps failing
+// ("" = nothing). Run checks every 30 minutes.
+func (s *Service) failed(err error, now time.Time) string {
+	if s.failing && now.Sub(s.failLogged) < 24*time.Hour {
+		return ""
+	}
+	first := !s.failing
+	s.failing, s.failLogged = true, now
+	if first {
+		return fmt.Sprintf("analytics: %v (logged again once a day while it fails)", err)
+	}
+	return fmt.Sprintf("analytics: still failing: %v", err)
+}
+
+// sent ends a run of failures: the line to log, or "".
+func (s *Service) sent() string {
+	if !s.failing {
+		return ""
+	}
+	s.failing = false
+	return "analytics: sent again"
 }
 
 // Stop ends Run and saves the counters.

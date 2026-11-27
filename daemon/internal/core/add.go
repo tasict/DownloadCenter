@@ -42,6 +42,9 @@ type AddOptions struct {
 	Trackers    []string
 	ContentOf   string // merge as another source of this task (same content)
 	Proxy       string // URL tasks: "" or "auto", "none" or a proxy profile id
+	// URL tasks: do not check the server's certificate (the add window's
+	// switch, the API's skip_cert_check; every other way in checks)
+	SkipCertCheck bool
 }
 
 // AddResult describes the outcome of one add.
@@ -354,6 +357,7 @@ func (m *Manager) AddURL(raw string, o AddOptions) (*AddResult, error) {
 	t.Options.Headers = o.Headers
 	t.Options.OutName = o.OutName
 	t.Options.Proxy = o.Proxy
+	t.Options.SkipCertCheck = o.SkipCertCheck
 	t.Options.AccountMode, t.Options.AccountID = o.AccountMode, o.AccountID
 	if t.Options.AccountMode == "" {
 		t.Options.AccountMode = "auto"

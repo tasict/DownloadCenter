@@ -56,6 +56,9 @@ type AddRequest struct {
 	MetadataOnly bool   // magnet: fetch the metadata (.torrent) only
 	Guard        bool   // refuse loopback and the NAS's own addresses (a regular user's task, one added through a token, a torrent with the public tracker list)
 	NoPages      bool   // URLs: a web page (text/html) in place of the file is an error
+	// URLs: the server's certificate is not checked (HTTPS and FTPS, every
+	// redirect; the task's own choice)
+	SkipCertCheck bool
 	// UntrustedDir: the torrent's destination is treated as a folder other
 	// accounts can change (the core sends it for every torrent). The engine
 	// then downloads and seeds only in Dir, which must be a folder only root

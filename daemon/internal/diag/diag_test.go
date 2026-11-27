@@ -47,6 +47,8 @@ func TestRedactor(t *testing.T) {
 		{"2026/11/27 10:00:05 peer 192.168.1.5:6881 and 127.0.0.1:18780 (libtorrent 2.0.15.0)", "2026/11/27 10:00:05 peer <IP>:6881 and 127.0.0.1:18780 (libtorrent 2.0.15.0)"},
 		{"2026/11/27 10:00:05 libtorrent: 10.1.2.3 refused, version: 10.1.2.4, v10.1.2.5", "2026/11/27 10:00:05 libtorrent: <IP> refused, version: <IP>, v<IP>"},
 		{"2026/11/27 10:00:05 dc-bt ready (libtorrent/2.0.15.0, version 1.8.0.1)", "2026/11/27 10:00:05 dc-bt ready (libtorrent/2.0.15.0, version 1.8.0.1)"},
+		// What the start of the torrent engine logs (until 1.4.4 libtorrent's version alone, which read as an address)
+		{"2026/11/27 17:18:54 libtorrent: started dc-bt 1.8 (libtorrent 2.0.15.0, pid 14435)", "2026/11/27 17:18:54 libtorrent: started dc-bt 1.8 (libtorrent 2.0.15.0, pid 14435)"},
 		{"2026/11/27 10:00:06 listening on [fe80::265e:beff:fe90:b9a9%qvs0]:6881", "2026/11/27 10:00:06 listening on [<IP>]:6881"},
 		{"2026/11/27 10:00:07 auth: grant alice: failed", "2026/11/27 10:00:07 auth: grant <account 1>: failed"},
 		{"2026/11/27 10:00:08 photoshop.log and photos", "2026/11/27 10:00:08 photoshop.log and <name in task 01234567>"},

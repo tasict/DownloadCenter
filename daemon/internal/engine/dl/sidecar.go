@@ -51,6 +51,10 @@ type versionInfo struct {
 	LibSSH    string   `json:"libssh"`
 	HTTP2     bool     `json:"http2"`
 	Protocols []string `json:"protocols"`
+	// dc-dl 1.5: candidate intermediates (chain, need_issuer) and the
+	// per-request skip of the certificate check
+	Chain         bool `json:"chain"`
+	SkipCertCheck bool `json:"skip_cert_check"`
 }
 
 func (s *sidecar) sockPath() string { return filepath.Join(s.dataDir, "run", "dc-dl.sock") }
@@ -73,6 +77,18 @@ func isClosed(ch chan struct{}) bool {
 	default:
 		return false
 	}
+}
+
+// chains: dc-dl 1.5 takes candidate intermediates and reports a missing issuer.
+func (s *sidecar) chains() bool {
+	v := s.versions()
+	return v != nil && v.Chain
+}
+
+// skipsCheck: dc-dl 1.5 can skip the certificate check of a request.
+func (s *sidecar) skipsCheck() bool {
+	v := s.versions()
+	return v != nil && v.SkipCertCheck
 }
 
 // followsItself: dc-dl 1.2 and newer leave redirects to dcd when asked.
@@ -245,6 +261,10 @@ type xreq struct {
 	Proxy   string   `json:"proxy,omitempty"`
 	Guard   bool     `json:"guard,omitempty"`
 	Follow  *bool    `json:"follow,omitempty"` // false: redirects come back to dcd (dc-dl 1.2)
+	// dc-dl 1.5: candidate intermediates (base64 DER; untrusted, they can
+	// only complete a chain) and the task's skip of the certificate check
+	Chain         []string `json:"chain,omitempty"`
+	SkipCertCheck bool     `json:"skip_cert_check,omitempty"`
 }
 
 // hframe is what dc-dl knows about the response before the data.
@@ -271,6 +291,9 @@ type eframe struct {
 	Error          string `json:"error"`
 	Blocked        bool   `json:"blocked"`
 	HostKeyChanged bool   `json:"hostkey_changed"`
+	// The server's certificate could not be verified for want of an
+	// issuer (dc-dl 1.5): the certificate and where its issuer is
+	NeedIssuer *needIssuer `json:"need_issuer"`
 }
 
 // xfer reads the frames of one transfer; its Read returns the data, then
@@ -424,5 +447,9 @@ func (x *xfer) fail() *dlError {
 	if server == "" {
 		server = x.url
 	}
-	return curlError(e.Code, e.Error, server)
+	de := curlError(e.Code, e.Error, server)
+	if e.Code == 60 {
+		de.issuer = e.NeedIssuer
+	}
+	return de
 }

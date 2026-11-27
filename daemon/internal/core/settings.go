@@ -389,6 +389,19 @@ func (m *Manager) profileURL(p *ProxyProfile) string {
 	return scheme + "://" + auth + net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
 }
 
+// RegularProxyURL is the proxy URL ("" = direct) a regular user's request
+// to rawURL would use, whoever asks: the rule for addresses the package
+// fetches on its own behalf, such as a missing intermediate certificate a
+// server's certificate points to. An error means it must not connect (a
+// proxy is required and none applies).
+func (m *Manager) RegularProxyURL(rawURL string) (string, error) {
+	p, err := m.ProxyFor("", rawURL, false)
+	if err != nil {
+		return "", err
+	}
+	return m.profileURL(p), nil
+}
+
 // DefaultURLProxy is the proxy of URL downloads that choose nothing
 // (page link extraction, hoster account checks).
 func (m *Manager) DefaultURLProxy() string { return m.ProxyURL(m.Settings().Proxy.URLDefault) }

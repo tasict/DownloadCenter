@@ -8,10 +8,15 @@
 // transfer is paused until the socket drains. See PROTOCOL.md.
 
 #include <curl/curl.h>
+#include <openssl/evp.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 #include "json.hpp"
 
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
@@ -27,7 +32,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -37,13 +44,17 @@
 
 using json = nlohmann::json;
 
-static const char *VERSION = "1.4";
+static const char *VERSION = "1.5";
 static const size_t MAX_PENDING = 256 * 1024; // buffered for dcd before the transfer pauses
 static const size_t MAX_REQUEST = 1 << 20;
 static const int MAX_CONNS = 256;
 static const size_t MAX_HEADER_LINE = 4096;   // longer response header lines are cut
 static const size_t MAX_HEADER_BYTES = 65536; // and lines past this many bytes dropped
 static const char *ALLOWED = "http,https,ftp,ftps,sftp,scp";
+static const size_t MAX_CHAIN = 8;      // candidate intermediates in one request
+static const int MAX_CHAIN_DER = 16384; // bytes of one candidate (DER)
+static const size_t MAX_ISSUER_URLS = 4; // caIssuers addresses reported
+static const size_t MAX_ISSUER_URL = 1024;
 
 static volatile sig_atomic_t g_stop = 0;
 static std::string g_knownHosts, g_caFile, g_caPath;
@@ -169,6 +180,148 @@ static bool forbidden(const struct sockaddr *sa)
 	return false;
 }
 
+// --- certificate chains ------------------------------------------------------
+
+// Verify belongs to one transfer and to every SSL_CTX libcurl makes for it.
+// It carries the candidate intermediates dcd sends (chain) and, when the
+// verification fails for want of an issuer, the certificate that lacks one
+// and where its issuer can be fetched (caIssuers). An SSL_CTX may outlive
+// the transfer (a pooled connection), so it holds its own reference.
+struct Verify
+{
+	int refs = 1;
+	std::vector<X509 *> extra;
+	std::string needCert;              // base64 DER of the certificate without an issuer
+	std::vector<std::string> needURLs; // its caIssuers addresses
+	~Verify()
+	{
+		for (X509 *x : extra)
+			X509_free(x);
+	}
+};
+
+static void unref(Verify *v)
+{
+	if (v && --v->refs == 0)
+		delete v;
+}
+
+static int g_exIdx = -1;
+
+static void exFree(void *, void *ptr, CRYPTO_EX_DATA *, int, long, void *) { unref((Verify *)ptr); }
+
+static std::string b64(const unsigned char *p, int n)
+{
+	std::string out(4 * ((n + 2) / 3) + 1, '\0');
+	int m = EVP_EncodeBlock((unsigned char *)&out[0], p, n);
+	out.resize(m > 0 ? m : 0);
+	return out;
+}
+
+// certFrom decodes one base64 DER certificate (nullptr when it is not one).
+static X509 *certFrom(const std::string &s)
+{
+	if (s.empty() || s.size() % 4 != 0 || s.size() > (size_t)MAX_CHAIN_DER / 3 * 4 + 4)
+		return nullptr;
+	std::vector<unsigned char> der(s.size() / 4 * 3 + 1);
+	int n = EVP_DecodeBlock(der.data(), (const unsigned char *)s.data(), (int)s.size());
+	if (n <= 0)
+		return nullptr;
+	const unsigned char *p = der.data();
+	return d2i_X509(nullptr, &p, n);
+}
+
+// noteIssuer keeps the certificate whose issuer was not found and its
+// caIssuers URIs (printable, http or https, bounded).
+static void noteIssuer(Verify *v, X509 *cert)
+{
+	if (!cert)
+		return;
+	unsigned char *der = nullptr;
+	int n = i2d_X509(cert, &der);
+	if (n <= 0 || n > MAX_CHAIN_DER)
+	{
+		OPENSSL_free(der);
+		return;
+	}
+	v->needCert = b64(der, n);
+	OPENSSL_free(der);
+	v->needURLs.clear();
+	AUTHORITY_INFO_ACCESS *aia = (AUTHORITY_INFO_ACCESS *)X509_get_ext_d2i(cert, NID_info_access, nullptr, nullptr);
+	if (!aia)
+		return;
+	for (int i = 0; i < sk_ACCESS_DESCRIPTION_num(aia) && v->needURLs.size() < MAX_ISSUER_URLS; i++)
+	{
+		ACCESS_DESCRIPTION *ad = sk_ACCESS_DESCRIPTION_value(aia, i);
+		if (OBJ_obj2nid(ad->method) != NID_ad_ca_issuers || ad->location->type != GEN_URI)
+			continue;
+		ASN1_IA5STRING *u = ad->location->d.uniformResourceIdentifier;
+		std::string s((const char *)ASN1_STRING_get0_data(u), ASN1_STRING_length(u));
+		bool ok = s.size() <= MAX_ISSUER_URL && (s.compare(0, 7, "http://") == 0 || s.compare(0, 8, "https://") == 0);
+		for (char ch : s)
+			if (ch <= ' ' || ch > '~')
+				ok = false;
+		if (ok)
+			v->needURLs.push_back(s);
+	}
+	AUTHORITY_INFO_ACCESS_free(aia);
+}
+
+// onVerify replaces OpenSSL's chain verification for one handshake: the
+// candidates join the certificates the server sent, as untrusted ones only.
+// The chain must still end at an authority of the CA file; nothing here is
+// ever trusted by itself.
+static int onVerify(X509_STORE_CTX *x, void *arg)
+{
+	Verify *v = (Verify *)arg;
+	STACK_OF(X509) *peer = X509_STORE_CTX_get0_untrusted(x);
+	STACK_OF(X509) *all = nullptr;
+	if (!v->extra.empty())
+	{
+		all = peer ? sk_X509_dup(peer) : sk_X509_new_null();
+		if (all)
+		{
+			for (X509 *e : v->extra)
+				sk_X509_push(all, e);
+			X509_STORE_CTX_set0_untrusted(x, all);
+		}
+	}
+	int ok = X509_verify_cert(x);
+	if (all)
+	{
+		X509_STORE_CTX_set0_untrusted(x, peer);
+		sk_X509_free(all);
+	}
+	if (ok <= 0)
+	{
+		int err = X509_STORE_CTX_get_error(x);
+		if (err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY || err == X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE ||
+			err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT)
+			noteIssuer(v, X509_STORE_CTX_get_current_cert(x));
+	}
+	return ok;
+}
+
+// onSslCtx runs once libcurl has set up an SSL_CTX, its CA store included.
+static CURLcode onSslCtx(CURL *, void *sslctx, void *ud)
+{
+	SSL_CTX *ctx = (SSL_CTX *)sslctx;
+	Verify *v = (Verify *)ud;
+	Verify *old = (Verify *)SSL_CTX_get_ex_data(ctx, g_exIdx);
+	if (old != v)
+	{
+		v->refs++;
+		if (SSL_CTX_set_ex_data(ctx, g_exIdx, v) != 1)
+		{
+			v->refs--;
+			return CURLE_OUT_OF_MEMORY;
+		}
+		unref(old);
+	}
+	SSL_CTX_set_cert_verify_callback(ctx, onVerify, v);
+	return CURLE_OK;
+}
+
 // --- connections -----------------------------------------------------------
 
 struct Conn
@@ -191,6 +344,7 @@ struct Conn
 	size_t headerBytes = 0;
 	char err[CURL_ERROR_SIZE] = "";
 	std::string url;
+	Verify *verify = nullptr; // transfers that verify the server's certificate
 };
 
 static std::map<int, Conn *> g_conns;
@@ -269,6 +423,7 @@ static void closeConn(Conn *c)
 	}
 	if (c->hdrs)
 		curl_slist_free_all(c->hdrs);
+	unref(c->verify);
 	close(c->fd);
 	g_conns.erase(c->fd);
 	delete c;
@@ -412,7 +567,8 @@ static void versionReply(Conn *c)
 		protos.push_back(*p);
 	json j = {{"dcdl", VERSION}, {"curl", v->version}, {"ssl", v->ssl_version ? v->ssl_version : ""},
 			  {"libssh", v->libssh_version ? v->libssh_version : ""}, {"nghttp2", v->nghttp2_version ? v->nghttp2_version : ""},
-			  {"http2", (v->features & CURL_VERSION_HTTP2) != 0}, {"aes_hw", g_aesHW}, {"protocols", protos}};
+			  {"http2", (v->features & CURL_VERSION_HTTP2) != 0}, {"aes_hw", g_aesHW}, {"protocols", protos},
+			  {"chain", true}, {"skip_cert_check", true}};
 	std::string s = j.dump() + "\n";
 	c->out.append(s);
 	c->finished = true;
@@ -458,6 +614,30 @@ static void start(Conn *c, const std::string &line)
 		fail(c, "unsupported protocol");
 		return;
 	}
+	bool skipCert = flag(r, "skip_cert_check", false);
+	if (scheme != "sftp" && scheme != "scp" && !skipCert)
+	{
+		c->verify = new Verify;
+		auto ch = r.find("chain");
+		if (ch != r.end())
+		{
+			if (!ch->is_array() || ch->size() > MAX_CHAIN)
+			{
+				fail(c, "bad chain");
+				return;
+			}
+			for (const auto &item : *ch)
+			{
+				X509 *x = item.is_string() ? certFrom(item.get<std::string>()) : nullptr;
+				if (!x)
+				{
+					fail(c, "bad chain");
+					return;
+				}
+				c->verify->extra.push_back(x);
+			}
+		}
+	}
 	CURL *e = curl_easy_init();
 	if (!e)
 	{
@@ -502,6 +682,19 @@ static void start(Conn *c, const std::string &line)
 		curl_easy_setopt(e, CURLOPT_CAINFO, g_caFile.c_str());
 	if (!g_caPath.empty())
 		curl_easy_setopt(e, CURLOPT_CAPATH, g_caPath.c_str());
+	if (skipCert)
+	{
+		// The task skips the certificate check. libcurl keeps such
+		// connections and TLS sessions apart from verifying ones: the
+		// verify flags are part of its connection match and session key
+		curl_easy_setopt(e, CURLOPT_SSL_VERIFYPEER, 0L);
+		curl_easy_setopt(e, CURLOPT_SSL_VERIFYHOST, 0L);
+	}
+	else if (c->verify)
+	{
+		curl_easy_setopt(e, CURLOPT_SSL_CTX_FUNCTION, onSslCtx);
+		curl_easy_setopt(e, CURLOPT_SSL_CTX_DATA, c->verify);
+	}
 	std::string ua = str(r, "ua");
 	curl_easy_setopt(e, CURLOPT_USERAGENT, ua.empty() ? "DownloadCenter/1.0" : ua.c_str());
 	if (flag(r, "head", false))
@@ -572,7 +765,11 @@ static void finish(Conn *c, CURLcode res)
 		msg = "address is not allowed";
 	if (c->hostKeyChanged)
 		msg = "the server's host key changed";
-	frameJSON(c, 'E', {{"code", (int)res}, {"error", res == CURLE_OK ? "" : msg}, {"blocked", c->blocked}, {"hostkey_changed", c->hostKeyChanged}});
+	json end = {{"code", (int)res}, {"error", res == CURLE_OK ? "" : msg}, {"blocked", c->blocked}, {"hostkey_changed", c->hostKeyChanged}};
+	// The server's certificate lacks an issuer dcd may fetch (see Verify)
+	if (res == CURLE_PEER_FAILED_VERIFICATION && c->verify && !c->verify->needCert.empty())
+		end["need_issuer"] = {{"cert", c->verify->needCert}, {"urls", c->verify->needURLs}};
+	frameJSON(c, 'E', end);
 	curl_multi_remove_handle(g_multi, c->easy);
 	curl_easy_cleanup(c->easy);
 	c->easy = nullptr;
@@ -626,11 +823,111 @@ static bool readAll(const std::string &p, std::string &out)
 	return ok;
 }
 
-// mergeCA writes the system's CA file and the package's list into one file
-// beside the socket: libcurl takes a single CA file (with the hashed folder
-// besides), and the package's list must add to the system's, never replace
-// it. Returns the file, or "" (then the system's alone).
-static std::string mergeCA(const std::string &sysFile, const std::string &extra, const std::string &sock)
+// pemCerts returns the PEM certificate blocks of s (what OpenSSL reads from
+// a CA file or a hashed folder: CERTIFICATE and TRUSTED CERTIFICATE).
+static std::vector<std::string> pemCerts(const std::string &s)
+{
+	std::vector<std::string> out;
+	size_t pos = 0;
+	for (;;)
+	{
+		size_t b = s.find("-----BEGIN ", pos);
+		if (b == std::string::npos)
+			break;
+		size_t le = s.find("-----", b + 11);
+		if (le == std::string::npos || le - b > 64)
+			break;
+		std::string label = s.substr(b + 11, le - (b + 11));
+		std::string endMark = "-----END " + label + "-----";
+		size_t e = s.find(endMark, le);
+		if (e == std::string::npos)
+			break;
+		e += endMark.size();
+		if (label == "CERTIFICATE" || label == "TRUSTED CERTIFICATE")
+			out.push_back(s.substr(b, e - b));
+		pos = e;
+	}
+	return out;
+}
+
+static std::string squash(const std::string &s)
+{
+	std::string out;
+	for (char ch : s)
+		if (ch != '\n' && ch != '\r' && ch != ' ' && ch != '\t')
+			out.push_back(ch);
+	return out;
+}
+
+// hashName: the names OpenSSL looks certificates up by in a hashed folder
+// (8 hex digits, a dot, a number). Other files there are never trusted.
+static bool hashName(const char *n)
+{
+	int i = 0;
+	for (; i < 8; i++)
+		if (!((n[i] >= '0' && n[i] <= '9') || (n[i] >= 'a' && n[i] <= 'f')))
+			return false;
+	if (n[i++] != '.' || !n[i])
+		return false;
+	for (; n[i]; i++)
+		if (n[i] < '0' || n[i] > '9')
+			return false;
+	return true;
+}
+
+// hashedCerts appends to all the certificates of the hashed folders (a
+// colon-separated list, like SSL_CERT_DIR) that it does not hold yet, and
+// returns how many. Folding them into the CA file lets libcurl keep one
+// parsed store for all connections: it parses the CA file again for every
+// connection while a CApath is set.
+static int hashedCerts(const std::string &dirs, std::string &all)
+{
+	std::set<std::string> seen;
+	for (const std::string &b : pemCerts(all))
+		seen.insert(squash(b));
+	int added = 0;
+	size_t start = 0;
+	while (start <= dirs.size())
+	{
+		size_t colon = dirs.find(':', start);
+		std::string dir = dirs.substr(start, colon == std::string::npos ? std::string::npos : colon - start);
+		start = colon == std::string::npos ? dirs.size() + 1 : colon + 1;
+		if (dir.empty())
+			continue;
+		DIR *d = opendir(dir.c_str());
+		if (!d)
+			continue;
+		std::vector<std::string> names;
+		while (struct dirent *de = readdir(d))
+			if (hashName(de->d_name))
+				names.push_back(de->d_name);
+		closedir(d);
+		std::sort(names.begin(), names.end());
+		for (const std::string &n : names)
+		{
+			std::string p = dir + "/" + n, body;
+			struct stat st;
+			if (stat(p.c_str(), &st) != 0 || !S_ISREG(st.st_mode) || st.st_size > (1 << 20) || !readAll(p, body))
+				continue;
+			for (const std::string &b : pemCerts(body))
+				if (seen.insert(squash(b)).second)
+				{
+					if (!all.empty() && all.back() != '\n')
+						all.push_back('\n');
+					all += b + "\n";
+					added++;
+				}
+		}
+	}
+	return added;
+}
+
+// mergeCA writes the system's CA file, the certificates of its hashed
+// folder and the package's list into one file beside the socket: libcurl
+// then needs no hashed folder, and the package's list must add to the
+// system's, never replace it. Returns the file, or "" (then the system's
+// alone, file and folder as they are).
+static std::string mergeCA(const std::string &sysFile, const std::string &sysDir, const std::string &extra, const std::string &sock, int &fromDir)
 {
 	std::string all, more;
 	if (!readAll(extra, more) || more.empty())
@@ -643,6 +940,7 @@ static std::string mergeCA(const std::string &sysFile, const std::string &extra,
 	if (!all.empty() && all.back() != '\n')
 		all.push_back('\n');
 	all += more;
+	fromDir = hashedCerts(sysDir, all);
 	size_t slash = sock.find_last_of('/');
 	std::string out = (slash == std::string::npos ? std::string(".") : sock.substr(0, slash)) + "/dc-dl-ca.pem";
 	// Only root may change it: whoever can, adds authorities
@@ -716,16 +1014,25 @@ int main(int argc, char **argv)
 		g_caPath = envDir;
 	else if (exists("/etc/ssl/certs"))
 		g_caPath = "/etc/ssl/certs";
-	std::string sysFile = g_caFile;
+	std::string sysFile = g_caFile, sysDir = g_caPath;
+	int fromDir = 0;
 	if (!caList.empty())
 	{
-		std::string merged = mergeCA(g_caFile, caList, sock);
+		std::string merged = mergeCA(g_caFile, g_caPath, caList, sock, fromDir);
 		if (!merged.empty())
+		{
+			// The hashed folder is in the file now: without a CApath libcurl
+			// keeps the parsed store for every connection (CA cache)
 			g_caFile = merged;
+			g_caPath.clear();
+		}
 	}
 	if (g_aesHW)
 		g_aesHW = aesGcmInHardware();
 	if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK)
+		return 1;
+	g_exIdx = SSL_CTX_get_ex_new_index(0, nullptr, nullptr, nullptr, exFree);
+	if (g_exIdx < 0)
 		return 1;
 	g_multi = curl_multi_init();
 	// dcd splits a download into ranges to get one TCP connection each.
@@ -739,8 +1046,10 @@ int main(int argc, char **argv)
 		dlog("cannot listen on %s: %s", sock.c_str(), strerror(errno));
 		return 1;
 	}
-	dlog("dc-dl %s started (%s), CA %s%s%s, %s", VERSION, curl_version(), sysFile.empty() ? g_caPath.c_str() : sysFile.c_str(),
-		 g_caFile != sysFile ? " and " : "", g_caFile != sysFile ? caList.c_str() : "",
+	std::string ca = sysFile.empty() ? sysDir : sysFile;
+	if (g_caFile != sysFile)
+		ca += (ca.empty() ? "" : " and ") + caList + ", " + std::to_string(fromDir) + " more from " + (sysDir.empty() ? "no hashed folder" : sysDir);
+	dlog("dc-dl %s started (%s), CA %s, %s", VERSION, curl_version(), ca.c_str(),
 		 g_aesHW ? "AES-GCM in hardware" : "no AES hardware, ChaCha20 first");
 
 	std::vector<struct curl_waitfd> wfds;

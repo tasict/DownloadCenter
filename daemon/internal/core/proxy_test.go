@@ -123,3 +123,31 @@ type supportsAll struct{ engine.Engine }
 func (supportsAll) Name() string                    { return "builtin" }
 func (supportsAll) Supports(string) bool            { return true }
 func (supportsAll) ApplyGlobal(engine.Global) error { return nil }
+
+// The proxy for an address the package fetches itself (a missing
+// intermediate certificate) follows that address, whatever proxy the task
+// that needed it uses: a task host on the no-proxy list does not send the
+// fetch from its certificate authority direct, and when regular users must
+// use a proxy and none applies, nothing is fetched.
+func TestAIAProxyRule(t *testing.T) {
+	m := testManager(t)
+	s := m.Settings()
+	s.Proxy.Profiles = []ProxyProfile{{ID: "b", Name: "B", Type: "http", Host: "10.0.0.2", Port: 3128, NoProxy: "dl.example.net"}}
+	s.Proxy.URLDefault = "b"
+	if err := m.SaveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := m.ProxyFor("", "https://dl.example.net/f.iso", false); p != nil || err != nil {
+		t.Fatalf("task: %v %v", p, err)
+	}
+	if u, err := m.RegularProxyURL("http://crt.example.com/inter.crt"); u != "http://10.0.0.2:3128" || err != nil {
+		t.Fatalf("certificate authority: %q %v", u, err)
+	}
+	s = m.Settings()
+	s.Proxy.URLDefault = ""
+	s.Proxy.RequireForUsers = true
+	m.SaveSettings(s)
+	if _, err := m.RegularProxyURL("http://crt.example.com/inter.crt"); !errors.Is(err, ErrProxyRequired) {
+		t.Fatalf("required proxy: %v", err)
+	}
+}

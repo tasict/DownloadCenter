@@ -437,7 +437,7 @@
 		var compose = !!opts.compose;
 		var me = DC.S.me, admin = DC.isAdmin(), defs = me.defaults || {};
 		var one = null, single = null, files = null, picks = null, meta = null, free = -1, closed = false, contentOf = '', probeTimer = null, dupNote = false, privSame = '', waitProbe = false;
-		var hasBt = false, hasUrl = false, gen = 0, title = '', start = null, typing = null;
+		var hasBt = false, hasUrl = false, hasLink = false, gen = 0, title = '', start = null, typing = null;
 		var body = h('div', {'class':'addbody'}), sum = h('div', {'class':'sum num'}), leadEl = h('p', {'class':'lead'});
 		var lastFolder = DC.pref('last_folder') || defs.folder || '';
 		var folder = admin ? folderPicker('addFolder', lastFolder, false, function(){ refreshFree(); }, {noFree:true}) : null;
@@ -468,6 +468,12 @@
 				syncOptions();
 			}, function(){});
 		}
+		/* Links the NAS downloads itself (not magnets or .torrent links) may skip the server's certificate check; on by default
+		   (decided by the user). A server that only leaves out its intermediate certificates does not need it: the NAS fetches those. */
+		var certRow = DC.toggle('addSkipCert', DC.t('Skip certificate check'),
+			DC.t('Downloads even when the server\'s certificate cannot be verified. Anyone between the NAS and the server could then read or change the download, including account details sent with it.'), true);
+		var certBox = certRow.querySelector('input');
+		certRow.hidden = true;
 		function proxyOffered(){ return !!(pxInfo && !pxInfo.loading && ((pxInfo.profiles || []).length || pxInfo['default'] || pxInfo.by_site || !pxInfo.can_direct)); }
 		var seededOpt = h('option', {value:'seeded', text:DC.t('Remove when seeded')});
 		var auto = h('select', {id:'addAuto'}, [h('option', {value:'', text:DC.t('Keep in list')}), h('option', {value:'completed', text:DC.t('Remove when downloaded')}), seededOpt]);
@@ -488,6 +494,7 @@
 			acct.hidden = acctLabel.hidden = !hasUrl;
 			if(!hasUrl) manual.hidden = true; else { manual.hidden = acct.value !== 'manual'; loadAccounts(); loadProxies(); }
 			pxSel.hidden = pxLabel.hidden = !hasUrl || !proxyOffered();
+			certRow.hidden = !hasLink;
 			seededOpt.hidden = seededOpt.disabled = !(hasBt || pageUrl);
 			if(seededOpt.disabled && auto.value === 'seeded') auto.value = 'completed';
 		}
@@ -628,10 +635,11 @@
 			if(single && single.kind === 'page'){ pageUrl = single.text; items = []; single = null; }
 			one = single && (single.kind === 'magnet' || single.kind === 'torrentfile') ? single : null;
 			files = picks = meta = null; contentOf = ''; dupNote = false; privSame = ''; waitProbe = false;
-			hasBt = false; hasUrl = !!pageUrl;
+			hasBt = false; hasUrl = hasLink = !!pageUrl;
 			for(i = 0; i < items.length; i++){
 				if(items[i].kind === 'magnet' || items[i].kind === 'torrentfile') hasBt = true;
 				if((items[i].kind === 'url' || items[i].kind === 'torrent') && !items[i].host) hasUrl = true;
+				if(items[i].kind === 'url') hasLink = true;
 			}
 			syncOptions();
 			clear(body);
@@ -772,7 +780,8 @@
 				acctLabel, acct,
 				pxLabel, pxSel,
 				h('label', {'for':'addAuto', text:DC.t('When finished')}), auto]),
-			manual
+			manual,
+			certRow
 		], function(close){
 			start = btn(null, DC.t('Start download'), function(){ go(close); }, 'pri');
 			start.disabled = true;
@@ -796,6 +805,7 @@
 			var a = accountBody();
 			if(a) o.account = a;
 			if(hasUrl && !pxSel.hidden && pxSel.value && pxSel.value !== 'auto') o.proxy = pxSel.value;
+			if(hasLink) o.skip_cert_check = certBox.checked;
 			return o;
 		}
 		function finished(r, n){

@@ -722,6 +722,7 @@ func (m *Manager) buildAdd(t *Task) (engine.AddRequest, error) {
 		return req, err
 	}
 	t.ProxyUsed = req.Proxy
+	req.SkipCertCheck = t.Options.SkipCertCheck
 	// Regular users cannot reach the NAS itself through a download
 	req.Guard = !m.isAdminOwner(t.Owner) || t.Options.Guarded
 	return req, nil
@@ -833,6 +834,48 @@ func (m *Manager) SetProxy(hash, choice string) error {
 	}
 	m.markDirty(t)
 	m.Log(hash, "Proxy setting changed")
+	go m.Kick()
+	return nil
+}
+
+// SetSkipCertCheck turns the certificate check of a URL task off (on true)
+// or on. A running download reconnects with the new setting and continues
+// from its control file; a task that stopped with an error is queued again.
+func (m *Manager) SetSkipCertCheck(hash string, skip bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.live[hash]
+	if !ok {
+		return ErrNotFound
+	}
+	if t.Kind == KindBT {
+		return ErrUnsupported
+	}
+	if t.Options.SkipCertCheck == skip && t.State != StError {
+		return nil
+	}
+	changed := t.Options.SkipCertCheck != skip
+	t.Options.SkipCertCheck = skip
+	if t.State != StDone && !m.moving[hash] {
+		if e := m.engineOf(t); e != nil && t.EngineRef != "" {
+			e.Remove(t.EngineRef)
+		}
+		t.EngineRef = ""
+		delete(m.running, hash)
+		delete(m.applied, hash)
+		if t.State == StError {
+			t.State, t.ErrorCode, t.ErrorMsg = StQueued, "", ""
+			t.Options.AutoRetries, t.Options.RetryAt = 0, 0
+		}
+	}
+	m.markDirty(t)
+	if changed {
+		if skip {
+			m.Log(hash, "Certificate check turned off for this task")
+		} else {
+			m.Log(hash, "Certificate check turned on for this task")
+		}
+	}
 	go m.Kick()
 	return nil
 }

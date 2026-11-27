@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,10 +33,11 @@ const (
 type dlError struct {
 	code      string
 	msg       string
-	transient bool // worth another connection attempt
-	perConn   bool // may only mean "no more connections" (other connections still work)
-	restart   bool // start the file over (changed on the server, ranges ignored)
-	noRanges  bool // with restart: the server ignores ranges
+	transient bool        // worth another connection attempt
+	perConn   bool        // may only mean "no more connections" (other connections still work)
+	restart   bool        // start the file over (changed on the server, ranges ignored)
+	noRanges  bool        // with restart: the server ignores ranges
+	issuer    *needIssuer // a certificate without an issuer, which may be fetched (aia.go)
 }
 
 func (e *dlError) Error() string { return e.code + ": " + e.msg }
@@ -76,7 +78,7 @@ func isHTTP(u string) bool {
 // checks every address it connects to (see also fetchHTTP).
 func (t *task) request(ctx context.Context, rng string, head bool) (xreq, error) {
 	raw := t.uri()
-	r := xreq{URL: raw, Range: rng, Head: head, User: t.req.User, Pass: t.req.Pass, Proxy: t.req.Proxy, Guard: t.req.Guard}
+	r := xreq{URL: raw, Range: rng, Head: head, User: t.req.User, Pass: t.req.Pass, Proxy: t.req.Proxy, Guard: t.req.Guard, SkipCertCheck: t.req.SkipCertCheck}
 	if isHTTP(raw) {
 		// Transparent compression would break byte ranges
 		r.Headers = append(append([]string{}, t.req.Headers...), "Accept-Encoding: identity")
@@ -120,12 +122,12 @@ var redirectSafe = map[string]bool{"accept": true, "accept-encoding": true, "acc
 func (t *task) fetchHTTP(ctx context.Context, r xreq) (*xfer, context.CancelFunc, error) {
 	if !t.e.sc.followsItself() {
 		// An older dc-dl: libcurl follows the redirects itself
-		return t.e.sc.transfer(ctx, r)
+		return t.transfer(ctx, r)
 	}
 	no := false
 	r.Follow = &no
 	for hops := 0; ; hops++ {
-		x, cancel, err := t.e.sc.transfer(ctx, r)
+		x, cancel, err := t.transfer(ctx, r)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -275,7 +277,51 @@ func (t *task) send(ctx context.Context, rng string, head bool) (*xfer, context.
 	if err != nil {
 		return nil, nil, err
 	}
-	return t.e.sc.transfer(ctx, r)
+	return t.transfer(ctx, r)
+}
+
+// transfer sends r to dc-dl. When the server's certificate cannot be
+// verified for want of an issuer, the issuer is fetched from the address
+// the certificate names and r is sent again with it as a candidate, up to
+// maxChainLevels times. Requests to a host carry the candidates found for
+// it before.
+func (t *task) transfer(ctx context.Context, r xreq) (*xfer, context.CancelFunc, error) {
+	sc := t.e.sc
+	// What dc-dl can do is known once it runs (a crashed one is started
+	// again here; when that fails, transfer reports it)
+	if sc.ensure() == nil && r.SkipCertCheck && !sc.skipsCheck() {
+		return nil, nil, &dlError{code: engine.ErrUnknown, msg: "This download needs a newer download engine"}
+	}
+	if r.SkipCertCheck || !sc.chains() {
+		return sc.transfer(ctx, r)
+	}
+	host := ""
+	if u, err := url.Parse(r.URL); err == nil {
+		host = u.Hostname()
+	}
+	tried := map[string]bool{}
+	for level := 0; ; level++ {
+		r.Chain = t.e.chains.forHost(host)
+		x, cancel, err := sc.transfer(ctx, r)
+		var de *dlError
+		if err == nil || level >= maxChainLevels || !errors.As(err, &de) || de.issuer == nil || tried[de.issuer.Cert] || host == "" {
+			return x, cancel, err
+		}
+		tried[de.issuer.Cert] = true
+		if !t.e.chains.complete(ctx, host, de.issuer, r.Proxy) {
+			return nil, nil, err
+		}
+		t.mu.Lock()
+		first := !t.chained[host]
+		if t.chained == nil {
+			t.chained = map[string]bool{}
+		}
+		t.chained[host] = true
+		t.mu.Unlock()
+		if first {
+			t.e.logf(t.ref, "The server "+host+" does not send its complete certificate chain; the missing certificate was fetched from its certificate authority")
+		}
+	}
 }
 
 func (t *task) openHTTP(ctx context.Context, from, to int64, probe bool) (*stream, *info, error) {
@@ -486,6 +532,9 @@ func curlError(code int, msg, server string) *dlError {
 	return &dlError{code: engine.ErrUnknown, msg: msg}
 }
 
+// verifyCode is OpenSSL's number after its verify message, " (23)".
+var verifyCode = regexp.MustCompile(` \(\d+\)$`)
+
 // certError explains a server certificate libcurl did not accept by the
 // reason in its message (OpenSSL's verify result or libcurl's host name
 // check) and names the server, which after a redirect is not the link's
@@ -512,7 +561,11 @@ func certError(server, reason string) *dlError {
 		tpl = "The certificate of {0} has expired or is not valid yet; check the NAS's date and time"
 	default:
 		tpl = "The certificate of {0} cannot be verified ({1})"
+		// libcurl words it by where the check failed: in the handshake, or
+		// after it (dc-dl 1.5 checks the chain itself, see aia.go)
 		reason = strings.TrimPrefix(reason, "SSL certificate problem: ")
+		reason = strings.TrimPrefix(reason, "SSL certificate OpenSSL verify result: ")
+		reason = verifyCode.ReplaceAllString(reason, "")
 		if reason == "" {
 			reason = "curl error 60"
 		}

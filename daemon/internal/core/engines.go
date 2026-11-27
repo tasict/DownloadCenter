@@ -210,7 +210,10 @@ func engineError(code, msg string) (string, string) {
 		t = "Download failed"
 	}
 	if msg != "" && !strings.Contains(t, msg) && code != engine.ErrNoTransport && code != engine.ErrHostKey {
-		t += " (" + truncate(msg, 160) + ")"
+		// Long enough for an engine's message with a host name in it (a
+		// certificate refused by a server of up to 253 characters): a cut
+		// message is no longer translated
+		t += " (" + truncate(msg, 512) + ")"
 	}
 	if code == "" {
 		code = "engine"

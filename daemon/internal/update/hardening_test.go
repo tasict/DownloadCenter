@@ -86,7 +86,7 @@ func TestInstallerScriptValues(t *testing.T) {
 	evil := "$(touch " + mark + ")`touch " + mark + "`'\"\n" + "; touch " + mark
 	st := state{From: evil, To: evil, Restore: filepath.Join(work, "dc-"+evil+".db"), Started: 1}
 	sc := s.script(st, filepath.Join(work, "pkg.qpkg"))
-	if !strings.HasPrefix(sc, "#!/bin/sh\n") || !strings.Contains(sc, "umask 022\n") || !strings.Contains(sc, "unset TMPDIR\n") {
+	if !strings.HasPrefix(sc, "#!/bin/sh\n") || !strings.Contains(sc, "umask 022\n") || !strings.Contains(sc, "unset TMPDIR\n") || !strings.Contains(sc, "\ncd /\n") {
 		t.Errorf("script head:\n%s", sc)
 	}
 	if out, err := exec.Command("/bin/sh", "-n", "-c", sc).CombinedOutput(); err != nil {

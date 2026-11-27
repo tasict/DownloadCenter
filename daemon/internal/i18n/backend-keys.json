@@ -378,6 +378,10 @@
 	"The certificate of {0} has expired or is not valid yet; check the NAS's date and time",
 	"The certificate of {0} was issued for another host name",
 	"The certificate of {0} cannot be verified ({1})",
+	"The server {0} does not send its complete certificate chain; the missing certificate was fetched from its certificate authority",
+	"This download needs a newer download engine",
+	"Certificate check turned off for this task",
+	"Certificate check turned on for this task",
 	"The files already in the destination folder are used",
 	"Checking the files already in the destination folder"
 ]

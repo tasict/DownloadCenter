@@ -939,6 +939,8 @@ func (s *Service) script(st state, pkg string) string {
 	var b strings.Builder
 	// Every value is quoted: none of them is ever read as shell code
 	b.WriteString("#!/bin/sh\n# Written by dcd: installs a Download Center package, detached from dcd\numask 022\n# dcd's own temporary folder is not the installer's\nunset TMPDIR\n")
+	// The installer replaces the folder dcd ran in: start from one that stays
+	b.WriteString("cd /\n")
 	fmt.Fprintf(&b, "exec >> %s 2>&1\n", q(filepath.Join(s.data, "logs", "update.log")))
 	fmt.Fprintf(&b, "printf '%%s update %%s -> %%s\\n' \"$(date '+%%Y-%%m-%%d %%H:%%M:%%S')\" %s %s\n", q(st.From), q(st.To))
 	fmt.Fprintf(&b, "%s stop\n", q(filepath.Join(s.root, "DownloadCenter.sh")))
@@ -958,6 +960,7 @@ func (s *Service) script(st state, pkg string) string {
 
 func launch(script string) error {
 	cmd := exec.Command("/bin/sh", script)
+	cmd.Dir = "/"
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err

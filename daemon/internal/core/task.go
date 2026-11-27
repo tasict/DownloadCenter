@@ -65,12 +65,13 @@ type TaskOptions struct {
 	Official       bool           `json:"official,omitempty"` // imported, data in @DownloadStationTempFiles
 	UpBaseline     int64          `json:"-"`
 	Magnet         string         `json:"magnet,omitempty"`
-	ResumeFile     string         `json:"resume_file,omitempty"` // official .fastresume to try (libtorrent)
-	LastActive     int64          `json:"last_active,omitempty"` // last time data moved (stall detection)
-	Proxy          string         `json:"proxy,omitempty"`       // URL tasks: "" automatic, "none" or a proxy profile id
-	Guarded        bool           `json:"guarded,omitempty"`     // connections guarded whoever the owner is (added through a token or a chat)
-	AdoptFrom      string         `json:"adopt_from,omitempty"`  // torrents: data of the same name was in this destination folder when added
-	Adopted        bool           `json:"adopted,omitempty"`     // torrents: the engine took over the data at DataPath (it stays there)
+	ResumeFile     string         `json:"resume_file,omitempty"`     // official .fastresume to try (libtorrent)
+	LastActive     int64          `json:"last_active,omitempty"`     // last time data moved (stall detection)
+	Proxy          string         `json:"proxy,omitempty"`           // URL tasks: "" automatic, "none" or a proxy profile id
+	Guarded        bool           `json:"guarded,omitempty"`         // connections guarded whoever the owner is (added through a token or a chat)
+	SkipCertCheck  bool           `json:"skip_cert_check,omitempty"` // URL tasks: the server's certificate is not checked (absent: checked, as for every task before 1.4.5)
+	AdoptFrom      string         `json:"adopt_from,omitempty"`      // torrents: data of the same name was in this destination folder when added
+	Adopted        bool           `json:"adopted,omitempty"`         // torrents: the engine took over the data at DataPath (it stays there)
 }
 
 // Task is a row of the tasks table plus live engine figures.

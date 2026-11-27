@@ -57,9 +57,10 @@ type TaskJSON struct {
 	Sequential  bool           `json:"sequential"`
 	Imported    bool           `json:"imported,omitempty"`
 	Caller      string         `json:"caller"`
-	DiagCode    string         `json:"diag_code,omitempty"`  // detail, administrators signed in to the interface: the task in diagnostic exports
-	Proxy       string         `json:"proxy,omitempty"`      // URL tasks: auto, none or a profile id
-	ProxyName   string         `json:"proxy_name,omitempty"` // detail: the profile in use ("" = direct)
+	DiagCode    string         `json:"diag_code,omitempty"`       // detail, administrators signed in to the interface: the task in diagnostic exports
+	Proxy       string         `json:"proxy,omitempty"`           // URL tasks: auto, none or a profile id
+	SkipCert    *bool          `json:"skip_cert_check,omitempty"` // URL tasks: the server's certificate is not checked
+	ProxyName   string         `json:"proxy_name,omitempty"`      // detail: the profile in use ("" = direct)
 	ProxyError  string         `json:"proxy_error,omitempty"`
 	RemovedAt   int64          `json:"removed_at,omitempty"`
 	QueueRank   int            `json:"queue_rank,omitempty"` // place among the tasks of its kind waiting for a slot
@@ -118,8 +119,15 @@ func (s *Server) taskJSON(p *auth.Principal, t *core.Task, withBits bool) TaskJS
 	}
 	if t.State == core.StError {
 		j.Error = map[string]any{"code": t.ErrorCode, "message": t.ErrorMsg}
+		// The message reaches clients translated: say in a field that the
+		// server's certificate was refused (the details offer to skip it)
+		if t.Kind != core.KindBT && certFailure(t.ErrorMsg) {
+			j.Error["certificate"] = true
+		}
 	}
 	if t.Kind != core.KindBT {
+		skip := t.Options.SkipCertCheck
+		j.SkipCert = &skip
 		j.Proxy = t.Options.Proxy
 		if j.Proxy == "" {
 			j.Proxy = "auto"
@@ -132,6 +140,15 @@ func (s *Server) taskJSON(p *auth.Principal, t *core.Task, withBits bool) TaskJS
 		j.Bitfield, j.Pieces = t.Bitfield, t.NumPieces
 	}
 	return j
+}
+
+// certFailure: a URL task stopped because the server's certificate could
+// not be verified. The core stores the engine's reason in brackets after
+// the code's text: "Download failed (unknown error) (The certificate of …)"
+// (dl.certError; the wording up to 1.4.3 too).
+func certFailure(msg string) bool {
+	return strings.Contains(msg, "(The certificate of ") ||
+		strings.Contains(msg, "(The server's certificate cannot be verified; the list of trusted certificate authorities on the NAS may be out of date)")
 }
 
 func round1(f float64) float64 { return float64(int64(f*10+0.5)) / 10 }
@@ -282,6 +299,8 @@ type addBody struct {
 	Headers   []string `json:"headers"`
 	Name      string   `json:"name"`
 	Proxy     string   `json:"proxy"` // URL tasks: "" or "auto", "none" or a proxy profile id
+	// URL tasks: do not check the server's certificate (absent: checked)
+	SkipCertCheck *bool `json:"skip_cert_check"`
 }
 
 func (b *addBody) options(p *auth.Principal, r *http.Request) core.AddOptions {
@@ -314,6 +333,7 @@ func (b *addBody) options(p *auth.Principal, r *http.Request) core.AddOptions {
 		o.Headers = b.Headers
 	}
 	o.OutName = sanitizeName(b.Name)
+	o.SkipCertCheck = b.SkipCertCheck != nil && *b.SkipCertCheck
 	return o
 }
 
@@ -886,6 +906,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request, p *auth.Princ
 		Sequential *bool   `json:"sequential"`
 		AutoRemove *string `json:"auto_remove"`
 		Proxy      *string `json:"proxy"` // URL tasks: auto, none or a profile id
+		SkipCert   *bool   `json:"skip_cert_check"`
 	}
 	if err := Decode(r, &b); err != nil {
 		Error(w, 400, "bad_request", err.Error())
@@ -971,6 +992,12 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request, p *auth.Princ
 	}
 	if b.Proxy != nil {
 		if err := s.M.SetProxy(t.Hash, *b.Proxy); err != nil {
+			Fail(w, err)
+			return
+		}
+	}
+	if b.SkipCert != nil {
+		if err := s.M.SetSkipCertCheck(t.Hash, *b.SkipCert); err != nil {
 			Fail(w, err)
 			return
 		}

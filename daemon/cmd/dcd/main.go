@@ -259,6 +259,9 @@ func serve(args []string) {
 	removeAria2(*root, data)
 	ue := dl.New(filepath.Join(*root, "bin", "dc-dl"), data)
 	ue.Logf = m.Log
+	// A missing intermediate certificate is fetched with the proxy a regular
+	// user's request to its address would use, not the task's choice
+	ue.AIAProxy = m.RegularProxyURL
 	if err := ue.Start(); err != nil {
 		log.Printf("url engine: %v (URLs cannot be downloaded until dc-dl runs)", err)
 	}

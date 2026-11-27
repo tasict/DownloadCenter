@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -263,5 +264,28 @@ func TestViaAgent(t *testing.T) {
 		if got := via(caller); got != want || !allowed[got] {
 			t.Errorf("%q: %q, want %q", caller, got, want)
 		}
+	}
+}
+
+// A report that keeps failing is logged when it starts failing, then once
+// a day, and once more when it goes through again: not every 30 minutes.
+func TestSendFailureLoggedOnce(t *testing.T) {
+	s := &Service{}
+	err := errors.New("send: dial tcp 0.0.0.0:443: connect: connection refused")
+	start := time.Now()
+	var lines []string
+	for i := 0; i < 96; i++ { // two days of checks
+		if l := s.failed(err, start.Add(time.Duration(i)*30*time.Minute)); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 2 || !strings.Contains(lines[0], "connection refused") || !strings.HasPrefix(lines[1], "analytics: still failing") {
+		t.Fatalf("logged %d lines: %q", len(lines), lines)
+	}
+	if s.sent() != "analytics: sent again" || s.sent() != "" {
+		t.Fatal("recovery not logged once")
+	}
+	if l := s.failed(err, start.Add(49*time.Hour)); l == "" || strings.Contains(l, "still") {
+		t.Fatalf("a new run of failures: %q", l)
 	}
 }
