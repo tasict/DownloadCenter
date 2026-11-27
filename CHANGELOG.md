@@ -2,6 +2,16 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.4.5
+
+- Some servers send their own certificate without the intermediate certificate that links it to a trusted authority. Browsers fetch the missing certificate themselves, and now Download Center does too, so such downloads no longer stop with "the server does not send its complete certificate chain". The missing certificate is fetched over plain HTTP from the address the server's certificate names, only from public addresses, and is only used to complete the chain: the chain still has to end at an authority the NAS trusts.
+- New downloads from links can skip the server's certificate check: the add window has a "Skip certificate check" switch, on by default, and the task details can change it for a task that has not finished. A task that stopped because the server's certificate could not be verified offers "Skip certificate check and retry". With the switch on, a download goes ahead even when the certificate is self-signed, expired or for another name, but nothing then protects its connection from being read or changed on the way, account details sent with it included. Tasks added before this version, and tasks added through the API, Qget and other clients, chat commands, AI agents, the Deskpane widget or the import, keep checking certificates unless the switch is turned off in their details.
+- The REST API takes `skip_cert_check` when adding a task (`POST /api/v1/tasks`) and when changing one (`PATCH /api/v1/tasks/{id}`), and reports it for URL tasks; the `error` of a URL task stopped by a refused certificate has `"certificate": true`.
+- New HTTPS connections start faster: the download engine now reads the list of certificate authorities once instead of for every connection.
+- A usage report that cannot be sent is logged when it starts failing and then once a day, not every 30 minutes.
+- The log line written when the torrent engine starts names the versions of dc-bt and libtorrent; problem reports no longer show it as an address.
+- Updates no longer write "getcwd" warnings into the update log.
+
 ## 1.4.4
 
 - When a download stops because the server's certificate is refused, the message now names that server, which after a redirect may not be the host in the link, and says why: the server does not send its complete certificate chain, the certificate is self-signed or comes from an authority the NAS does not trust, it has expired or is not valid yet (check the NAS's date and time), or it was issued for another name. Until now every such download said that the NAS's list of certificate authorities might be out of date.
