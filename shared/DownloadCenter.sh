@@ -213,6 +213,27 @@ dcd_stop() {
 	rm -f "$PIDFILE" "${DATA}/run/ready"
 }
 
+# start, stop and the watchdog never run at the same time (QTS's boot, App
+# Center and cron may start them together): a lock folder, taken over when
+# a script that died left it more than 2 minutes ago. The argument is how
+# many seconds to wait for it (0: give up at once).
+svc_lock() {
+	mkdir -p "${DATA}/run"
+	l="${DATA}/run/svc.lock"
+	i=0
+	while ! mkdir "$l" 2>/dev/null; do
+		if [ -n "$(find "$l" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
+			rmdir "$l" 2>/dev/null
+			continue
+		fi
+		[ $i -ge "$1" ] && return 1
+		i=$((i + 1))
+		sleep 1
+	done
+	trap "rmdir '$l' 2>/dev/null" EXIT
+	return 0
+}
+
 # --- Main ---
 
 case "$1" in
@@ -222,6 +243,7 @@ case "$1" in
 			echo "$QPKG_NAME is disabled."
 			exit 1
 		fi
+		svc_lock 90 || { echo "$QPKG_NAME: another start or stop is still running."; exit 1; }
 		ensure_files
 		install_icons
 		write_apache_conf
@@ -234,6 +256,9 @@ case "$1" in
 		;;
 
 	stop)
+		# Stopping goes ahead even when the lock cannot be had (QTS gives a
+		# stop 60 s in all)
+		svc_lock 15
 		cron_remove
 		dcd_stop
 		rm -f "$APACHE_CONF"
@@ -251,6 +276,11 @@ case "$1" in
 	watchdog)
 		ENABLED=$(/sbin/getcfg "$QPKG_NAME" Enable -u -d FALSE -f "$CONF")
 		[ "$ENABLED" = "TRUE" ] || exit 0
+		# All well: nothing is written (the disks can sleep)
+		dcd_pid >/dev/null && [ -f "$APACHE_CONF" ] && exit 0
+		# A start or stop in progress: nothing to do this minute; else look
+		# again under the lock
+		svc_lock 0 || exit 0
 		if ! dcd_pid >/dev/null; then
 			# The system log gets one line an hour at most, with the number
 			# of restarts since the last line (data/run/watchdog: "<time> <count>")
