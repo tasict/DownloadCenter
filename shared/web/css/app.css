@@ -1122,7 +1122,7 @@ a.linkish:hover{text-decoration:underline;text-underline-offset:3px}
 .spark .area.d{fill:color-mix(in srgb,var(--fd) 24%,transparent)}
 .spark .area.u{fill:color-mix(in srgb,var(--fu) 24%,transparent)}
 .spark .mid{stroke:var(--sep);stroke-width:1}
-.dr-foot a.btn,.srcs a.btn{text-decoration:none}
+a.btn{text-decoration:none}
 .toggle input[type=checkbox]{margin-left:auto}
 .inline .toggle input[type=checkbox]{margin-left:0}
 @container (max-width:560px){

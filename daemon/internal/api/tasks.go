@@ -57,6 +57,7 @@ type TaskJSON struct {
 	Sequential  bool           `json:"sequential"`
 	Imported    bool           `json:"imported,omitempty"`
 	Caller      string         `json:"caller"`
+	DiagCode    string         `json:"diag_code,omitempty"`  // detail, administrators signed in to the interface: the task in diagnostic exports
 	Proxy       string         `json:"proxy,omitempty"`      // URL tasks: auto, none or a profile id
 	ProxyName   string         `json:"proxy_name,omitempty"` // detail: the profile in use ("" = direct)
 	ProxyError  string         `json:"proxy_error,omitempty"`
@@ -714,6 +715,9 @@ func (s *Server) taskRoutes() {
 			return
 		}
 		j := s.taskJSON(p, t, true)
+		if p.Admin && p.Via == "session" && !p.Agent {
+			j.DiagCode = s.M.DiagCode(t.Hash)
+		}
 		j.QueueRank = s.M.QueueRanks()[t.Hash]
 		j.Private = t.Kind == core.KindBT && s.M.TorrentPrivate(t.Hash)
 		if t.Kind == core.KindBT {

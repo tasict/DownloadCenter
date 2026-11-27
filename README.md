@@ -80,6 +80,10 @@ Download Center is released under the [MIT License](LICENSE).
 
 The engines are statically linked with third-party libraries (libtorrent, Boost, OpenSSL, curl, nghttp2, libssh2, zlib, JSON for Modern C++, musl and the GCC runtime), and `dcd` with Go modules (modernc.org/sqlite and its dependencies). Their licenses and notices are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which is also included in every package. The installer script that QNAP's QDK adds to a `.qpkg` is QNAP's own and is licensed under the GNU GPL.
 
+## Reporting a problem
+
+Open an issue on GitHub with the bug report form. Administrators can attach the file from **Settings → About and updates → Download logs**: the logs of Download Center's background programs, mainly their errors, with what was downloaded and account names left out (tasks appear as diagnostic codes, which the same page can look up). The files in the package's `data/logs` folder are not filtered; please do not attach them to a public issue.
+
 ## Support the project
 
 Download Center has no ads and no paid version. If it is useful to you, you can [buy me a boba](https://tasict.bobaboba.me) (paid by card, no PayPal account needed) or [tip with PayPal](https://paypal.me/tasict).

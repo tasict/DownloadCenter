@@ -78,7 +78,7 @@ var uiKeys = set(
 	"session", "layout_desktop", "layout_phone", "layout_embedded", "theme_light", "theme_dark", "theme_auto",
 	"details", "tab_info", "tab_files", "tab_preview", "tab_peers", "tab_log",
 	"sort_queue", "sort_status", "sort_progress", "sort_eta", "sort_elapsed", "sort_added", "sort_finished",
-	"set_dl", "set_sched", "set_users", "set_acct", "set_token", "set_notify", "set_import", "set_about",
+	"set_dl", "set_sched", "set_users", "set_acct", "set_token", "set_notify", "set_import", "set_about", "diag_logs", "diag_find",
 	"add_paste", "add_text", "add_drop", "add_pick", "add_clip", "add_merge",
 	"pick_mode", "pick_all", "pick_range", "clear_done", "bulk", "queue_move", "stream_on", "preview_play", "preview_subs", "subs_enc", "open_folder", "open_on_phone",
 	"token_agent", "agent_copy_claude", "agent_copy_other", "skill_download",

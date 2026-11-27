@@ -16,6 +16,7 @@ import (
 	"downloadcenter/internal/api"
 	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
+	"downloadcenter/internal/diag"
 	"downloadcenter/internal/engine/lt"
 	"downloadcenter/internal/hosters"
 	"downloadcenter/internal/importer"
@@ -56,6 +57,7 @@ func registerExtensions(srv *api.Server, m *core.Manager, au *auth.Service, root
 	importer.Register(srv, m, au)
 	stoppers = append(stoppers, notify.Register(srv, m, au, data))
 	stoppers = append(stoppers, update.Register(srv, m, root, data))
+	diag.Register(srv, m, root, data)
 	stoppers = append(stoppers, search.Register(srv, m, root, data))
 	analytics.SearchCounts = search.Counts
 	stoppers = append(stoppers, analytics.Register(srv, m, root, data))

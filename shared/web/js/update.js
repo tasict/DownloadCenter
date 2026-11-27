@@ -235,6 +235,7 @@
 					DC.api.put('analytics', {enabled:el.checked}).then(function(r){ DC.S.me.analytics = r; }, function(e){ el.checked = !el.checked; DC.toast(DC.errText(e)); });
 				})
 			]) : null,
+			problems(),
 			sec('link', DC.t('Links'), DC.t('The website, source code and problem reports are on GitHub; links open in a new tab.'), [
 				ext(DC.t('Website'), DC.t('Features, installation and downloads'), DC.lang === 'TCH' ? SITE + 'zh-TW/' : SITE),
 				ext(DC.t('Source code'), DC.t('Public on GitHub under the MIT License'), REPO),
@@ -242,6 +243,27 @@
 				ext(DC.t('Report a problem'), DC.t('Found a problem or have a suggestion? Open an issue on GitHub and include version {version} ({arch})', {version:v.current, arch:v.arch || '?'}), REPO + '/issues')
 			]),
 			sec('files', DC.t('What\'s new'), null, [releases(v)])
+		]);
+	}
+
+	/* Problem reports: the logs of the background programs (the server leaves out what was downloaded and account names), and
+	   the task behind a diagnostic code that such a file shows */
+	function problems(){
+		var input = h('input', {type:'text', id:'diagCode', maxlength:8, autocapitalize:'off', autocomplete:'off', spellcheck:'false', 'class':'mono', placeholder:'3f2a91c0'});
+		function find(){
+			var code = input.value.replace(/\s+/g, '').toLowerCase();
+			if(!/^[0-9a-f]{8}$/.test(code)){ DC.toast(DC.t('A diagnostic code has 8 characters, 0–9 and a–f.')); return; }
+			DC.track('diag_find');
+			DC.api.get('diagnostics/code/' + code).then(function(r){
+				if(r.removed_at) DC.toast(DC.t('This task was removed from the list on {time}.', {time:DC.ftime(r.removed_at)}));
+				else location.hash = '#task/' + r.id;
+			}, function(e){ DC.toast(e.status === 404 ? DC.t('No task has this diagnostic code.') : DC.errText(e)); });
+		}
+		input.onkeydown = function(ev){ if(ev.key === 'Enter'){ ev.preventDefault(); find(); } };
+		return DC.sec('error', DC.t('Problem reports'), DC.t('The logs of Download Center’s background programs, mainly their errors, to attach to a problem report. The file leaves out what was downloaded and account names; tasks appear as diagnostic codes.'), [
+			DC.fieldDiv(DC.t('Logs'), DC.t('The last 2 MB of each log, within the task history'),
+				h('a', {'class':'ib btn', href:DC.api.url('diagnostics/logs'), download:'', onclick:function(){ DC.track('diag_logs'); }}, [icon('down'), h('span', {text:DC.t('Download logs')})])),
+			DC.fieldDiv(DC.t('Find a task'), DC.t('The diagnostic code of a task, as the logs show it (also in the task’s details)'), [input, btn('search', DC.t('Find'), find)])
 		]);
 	}
 

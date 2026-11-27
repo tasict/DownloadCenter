@@ -167,6 +167,11 @@
 			for(k = 0; k < parts.length; k++){ if(k){ el.appendChild(document.createTextNode('/')); el.appendChild(h('wbr')); } el.appendChild(document.createTextNode(parts[k])); }
 			return h('dd', {'class':'pathdd'}, [el, ibtn('copy', DC.t('Copy path'), function(){ DC.copyText(text, el); })]);
 		}
+		/* Administrators: how this task appears in the diagnostic export (Settings › About and updates) */
+		function diagCode(code){
+			var el = h('span', {'class':'mono', text:code});
+			return h('dd', {'class':'pathdd'}, [el, ibtn('copy', DC.t('Copy code'), function(){ DC.copyText(code, el); })]);
+		}
 		kv = h('dl', {'class':'kv num'}, [
 			h('dt', {text:DC.t('Status')}), h('dd', {text:stateText}),
 			h('dt', {text:DC.t('Progress')}), h('dd', {text:DC.t('{pct}%, {done} / {size}', {pct:Math.floor(t.progress || 0), done:DC.fsize(t.done), size:DC.fsize(t.size)})}),
@@ -184,6 +189,7 @@
 			t.auto_remove ? h('dt', {text:DC.t('When finished')}) : null, t.auto_remove ? h('dd', {text:t.auto_remove === 'completed' ? DC.t('Remove from the list when the download finishes') : DC.t('Remove from the list when seeding finishes')}) : null,
 			t.comment ? h('dt', {text:DC.t('Help')}) : null, t.comment ? h('dd', {text:t.comment}) : null,
 			h('dt', {text:DC.t('Added on')}), h('dd', {text:DC.ftime(t.created_at)}),
+			t.diag_code ? h('dt', {text:DC.t('Diagnostic code')}) : null, t.diag_code ? diagCode(t.diag_code) : null,
 			t.finished_at ? h('dt', {text:DC.t('Finished at')}) : null, t.finished_at ? h('dd', {text:DC.ftime(t.finished_at)}) : null,
 			admin ? h('dt', {text:DC.t('Owner')}) : null, admin ? h('dd', {text:t.owner + (t.caller && t.caller !== 'Download Center' ? DC.t(' ({caller})', {caller:t.caller}) : '')}) : null,
 			pxText ? h('dt', {text:DC.t('Proxy')}) : null,
