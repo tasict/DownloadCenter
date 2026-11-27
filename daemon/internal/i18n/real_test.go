@@ -26,6 +26,12 @@ func TestShippedDictionaries(t *testing.T) {
 		{"JPN", "找不到這個任務", "このタスクが見つかりません"},
 		{"TCH", "找不到這個任務", "找不到這個任務"},
 		{"JPN", "dial tcp: lookup example.com: no such host", "dial tcp: lookup example.com: no such host"},
+		// a server's certificate: the host is kept, the reason of the generic one is not translated
+		{"TCH", "The certificate of dl.example.net cannot be verified: the server does not send its complete certificate chain, or its certificate authority is not trusted",
+			"無法驗證 dl.example.net 的憑證：伺服器沒有送出完整的憑證鏈，或它的憑證授權單位不受信任"},
+		{"TCH", "Error: The certificate of dl.example.net was issued for another host name", "錯誤：dl.example.net 的憑證是發給其他主機名稱的"},
+		{"GER", "The certificate of dl.example.net cannot be verified (certificate revoked)", "Das Zertifikat von dl.example.net kann nicht überprüft werden (certificate revoked)"},
+		{"TCH", "The server's certificate cannot be verified; the list of trusted certificate authorities on the NAS may be out of date", "無法驗證伺服器的憑證；NAS 上受信任的憑證授權單位清單可能已過時"},
 	}
 	for _, c := range cases {
 		if got := T(c.lang, c.in); got != c.want {

@@ -84,7 +84,8 @@ func TestCAList(t *testing.T) {
 		e.Add(c.ref, engine.AddRequest{URIs: []string{c.srv.URL + "/f.bin"}, Dir: out})
 		if !c.ok {
 			st := waitFor(t, e, c.ref, engine.Error, 10*time.Second)
-			if !strings.Contains(st.ErrorMsg, "certificate cannot be verified") {
+			// The server sends no authority dc-dl knows: named, with the reason
+			if st.ErrorMsg != "The certificate of 127.0.0.1 cannot be verified: the server does not send its complete certificate chain, or its certificate authority is not trusted" {
 				t.Fatalf("unknown authority: %s %s", st.ErrorCode, st.ErrorMsg)
 			}
 			continue
@@ -95,6 +96,42 @@ func TestCAList(t *testing.T) {
 	// Whoever can change the merged list could add authorities: only root
 	if fi, err := os.Stat(filepath.Join(dir, "run", "dc-dl-ca.pem")); err != nil || fi.Mode().Perm() != 0600 {
 		t.Fatalf("merged list: %v %v", fi.Mode(), err)
+	}
+}
+
+// A certificate libcurl refuses (CURLcode 60) is explained by its reason
+// and names the server that sent it: after a redirect, not the link's host.
+func TestCertError(t *testing.T) {
+	for _, c := range []struct{ reason, want string }{
+		{"SSL certificate problem: unable to get local issuer certificate",
+			"The certificate of dl.example.net cannot be verified: the server does not send its complete certificate chain, or its certificate authority is not trusted"},
+		{"SSL certificate problem: unable to verify the first certificate",
+			"The certificate of dl.example.net cannot be verified: the server does not send its complete certificate chain, or its certificate authority is not trusted"},
+		{"SSL certificate problem: self-signed certificate",
+			"The certificate of dl.example.net cannot be verified: it is self-signed or issued by a certificate authority the NAS does not trust"},
+		{"SSL certificate problem: self signed certificate in certificate chain",
+			"The certificate of dl.example.net cannot be verified: it is self-signed or issued by a certificate authority the NAS does not trust"},
+		{"SSL certificate problem: certificate has expired",
+			"The certificate of dl.example.net has expired or is not valid yet; check the NAS's date and time"},
+		{"SSL certificate problem: certificate is not yet valid",
+			"The certificate of dl.example.net has expired or is not valid yet; check the NAS's date and time"},
+		{"SSL: no alternative certificate subject name matches target host name 'dl.example.net'",
+			"The certificate of dl.example.net was issued for another host name"},
+		{"SSL: certificate subject name 'a.example.net' does not match target hostname 'dl.example.net'",
+			"The certificate of dl.example.net was issued for another host name"},
+		{"SSL: certificate subject name 'self-signed.has-expired.example' does not match target hostname 'dl.example.net'",
+			"The certificate of dl.example.net was issued for another host name"},
+		{"SSL certificate problem: certificate revoked",
+			"The certificate of dl.example.net cannot be verified (certificate revoked)"},
+		{"", "The certificate of dl.example.net cannot be verified (curl error 60)"},
+	} {
+		e := curlError(60, c.reason, "https://user:pw@dl.example.net:8443/f/x.zip?k=1")
+		if e.code != engine.ErrUnknown || e.transient || e.msg != c.want {
+			t.Errorf("%q: %s %v %q", c.reason, e.code, e.transient, e.msg)
+		}
+	}
+	if e := curlError(60, "SSL certificate problem: certificate has expired", "https://[2001:db8::1]/f"); !strings.HasPrefix(e.msg, "The certificate of 2001:db8::1 has expired") {
+		t.Errorf("IPv6: %q", e.msg)
 	}
 }
 

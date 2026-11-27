@@ -277,6 +277,7 @@ type eframe struct {
 // io.EOF or the transfer's error.
 type xfer struct {
 	conn net.Conn
+	url  string // the address requested
 	r    *bufio.Reader
 	h    hframe
 	left int
@@ -306,7 +307,7 @@ func (s *sidecar) transfer(ctx context.Context, r xreq) (*xfer, context.CancelFu
 		cancel()
 		return nil, nil, &dlError{code: engineDownCode, msg: "dc-dl: " + err.Error(), transient: true}
 	}
-	x := &xfer{conn: c, r: bufio.NewReaderSize(c, 128<<10)}
+	x := &xfer{conn: c, url: r.URL, r: bufio.NewReaderSize(c, 128<<10)}
 	c.SetReadDeadline(time.Now().Add(headerTimeout))
 	typ, n, err := x.frame()
 	if err == nil && typ != 'H' {
@@ -340,7 +341,7 @@ func (s *sidecar) transfer(ctx context.Context, r xreq) (*xfer, context.CancelFu
 	c.SetReadDeadline(time.Time{})
 	if x.end != nil && x.end.Code != 0 {
 		cancel()
-		return nil, nil, x.end.err()
+		return nil, nil, x.fail()
 	}
 	return x, cancel, nil
 }
@@ -368,7 +369,7 @@ func (x *xfer) Read(p []byte) (int, error) {
 	for x.left == 0 {
 		if x.end != nil {
 			if x.end.Code != 0 {
-				return 0, x.end.err()
+				return 0, x.fail()
 			}
 			return 0, io.EOF
 		}
@@ -408,13 +409,20 @@ func (x *xfer) Read(p []byte) (int, error) {
 
 func (x *xfer) Close() error { return x.conn.Close() }
 
-// err maps the end of a failed transfer to the engine's error codes.
-func (e *eframe) err() *dlError {
+// fail maps the end of a failed transfer to the engine's error codes. The
+// server is the address libcurl last asked (an older dc-dl follows
+// redirects itself), else the one requested.
+func (x *xfer) fail() *dlError {
+	e := x.end
 	switch {
 	case e.Blocked:
 		return &dlError{code: engineBlockedCode, msg: "address is not allowed"}
 	case e.HostKeyChanged:
 		return &dlError{code: engineHostKeyCode, msg: e.Error}
 	}
-	return curlError(e.Code, e.Error)
+	server := x.h.URL
+	if server == "" {
+		server = x.url
+	}
+	return curlError(e.Code, e.Error, server)
 }

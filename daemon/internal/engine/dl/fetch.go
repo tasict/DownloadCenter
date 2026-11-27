@@ -451,8 +451,9 @@ func fileError(code string, err error) *dlError {
 }
 
 // curlError maps a libcurl result (CURLcode, the same numbers as the curl
-// tool's exit codes) to the engine's codes.
-func curlError(code int, msg string) *dlError {
+// tool's exit codes) to the engine's codes; server is the address the
+// failed request went to.
+func curlError(code int, msg, server string) *dlError {
 	if msg == "" {
 		msg = "curl error " + strconv.Itoa(code)
 	}
@@ -480,8 +481,41 @@ func curlError(code int, msg string) *dlError {
 	case 1:
 		return &dlError{code: engine.ErrUnknown, msg: "unsupported protocol"}
 	case 60:
-		// On old firmware the system's list of authorities is the usual cause
-		return &dlError{code: engine.ErrUnknown, msg: "The server's certificate cannot be verified; the list of trusted certificate authorities on the NAS may be out of date"}
+		return certError(server, msg)
 	}
 	return &dlError{code: engine.ErrUnknown, msg: msg}
+}
+
+// certError explains a server certificate libcurl did not accept by the
+// reason in its message (OpenSSL's verify result or libcurl's host name
+// check) and names the server, which after a redirect is not the link's
+// host. The usual causes need different remedies: a server that leaves
+// out its intermediate certificates (browsers fetch or keep those, libcurl
+// does not), a private authority or an intercepting proxy, the NAS's clock,
+// a certificate for another name.
+func certError(server, reason string) *dlError {
+	host := server
+	if u, err := url.Parse(server); err == nil && u.Hostname() != "" {
+		host = u.Hostname()
+	}
+	r := strings.ToLower(reason)
+	var tpl string
+	switch {
+	// First: this message quotes names, which may contain the other words
+	case strings.Contains(r, "subject name") || strings.Contains(r, "hostname mismatch"):
+		tpl = "The certificate of {0} was issued for another host name"
+	case strings.Contains(r, "local issuer") || strings.Contains(r, "get issuer certificate") || strings.Contains(r, "verify the first certificate"):
+		tpl = "The certificate of {0} cannot be verified: the server does not send its complete certificate chain, or its certificate authority is not trusted"
+	case strings.Contains(r, "self-signed") || strings.Contains(r, "self signed"):
+		tpl = "The certificate of {0} cannot be verified: it is self-signed or issued by a certificate authority the NAS does not trust"
+	case strings.Contains(r, "has expired") || strings.Contains(r, "not yet valid"):
+		tpl = "The certificate of {0} has expired or is not valid yet; check the NAS's date and time"
+	default:
+		tpl = "The certificate of {0} cannot be verified ({1})"
+		reason = strings.TrimPrefix(reason, "SSL certificate problem: ")
+		if reason == "" {
+			reason = "curl error 60"
+		}
+	}
+	return &dlError{code: engine.ErrUnknown, msg: strings.NewReplacer("{0}", host, "{1}", reason).Replace(tpl)}
 }

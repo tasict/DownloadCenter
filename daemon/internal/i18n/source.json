@@ -1766,6 +1766,11 @@
 		"The downloaded file was not deleted: something else has its name now",
 		"Check the plugin at this address first, then install it with the sha256 that the check returned",
 		"The server's certificate cannot be verified; the list of trusted certificate authorities on the NAS may be out of date",
+		"The certificate of {0} cannot be verified: the server does not send its complete certificate chain, or its certificate authority is not trusted",
+		"The certificate of {0} cannot be verified: it is self-signed or issued by a certificate authority the NAS does not trust",
+		"The certificate of {0} has expired or is not valid yet; check the NAS's date and time",
+		"The certificate of {0} was issued for another host name",
+		"The certificate of {0} cannot be verified ({1})",
 		"The files already in the destination folder are used",
 		"Checking the files already in the destination folder"
 	],
