@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"downloadcenter/internal/engine"
+	"downloadcenter/internal/logfiles"
 )
 
 // headerTimeout: how long a transfer may go without its first frame (dc-dl
@@ -137,11 +138,11 @@ func (s *sidecar) spawn() error {
 	cmd := exec.Command(s.bin, args...)
 	cmd.Dir = s.dataDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	lf, _ := os.OpenFile(filepath.Join(s.dataDir, "logs", "dc-dl.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	// Bounded like every log in data/logs (dcd cuts it while dc-dl runs)
+	logPath := filepath.Join(s.dataDir, "logs", "dc-dl.log")
+	logfiles.Rotate(logPath, logfiles.Max)
+	lf, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if lf != nil {
-		if st, err := lf.Stat(); err == nil && st.Size() > 4<<20 {
-			lf.Truncate(0)
-		}
 		cmd.Stdout, cmd.Stderr = lf, lf
 	}
 	if err := cmd.Start(); err != nil {

@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Task states (package level; the V4 layer maps them to its integers).
@@ -410,9 +411,25 @@ func (m *Manager) storeFiles(tx *sql.Tx, hash string, files []FileRow) error {
 	return nil
 }
 
-// Log appends a line to a task's log.
+// Log appends a line to a task's log. The same message as the task's last
+// line within 10 minutes adds nothing (a task that keeps retrying would
+// otherwise fill its log); the daily pass keeps the last TaskLogMax lines.
 func (m *Manager) Log(hash, msg string) {
+	var last string
+	var at int64
+	if m.db.QueryRow(`SELECT msg, time FROM task_log WHERE hash = ? ORDER BY id DESC LIMIT 1`, hash).Scan(&last, &at) == nil &&
+		last == msg && time.Now().Unix()-at < 600 {
+		return
+	}
 	m.db.X(`INSERT INTO task_log (hash, time, msg) VALUES (?, strftime('%s','now'), ?)`, hash, msg)
+}
+
+// TaskLogMax is how many lines of its log a task keeps.
+const TaskLogMax = 200
+
+// trimTaskLogs keeps the last TaskLogMax lines of every task's log.
+func (m *Manager) trimTaskLogs() {
+	m.db.X(`DELETE FROM task_log WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY hash ORDER BY id DESC) AS n FROM task_log) WHERE n > ?)`, TaskLogMax)
 }
 
 // LogLine is one task log entry.

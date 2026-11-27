@@ -22,6 +22,7 @@ import (
 	"downloadcenter/internal/auth"
 	"downloadcenter/internal/core"
 	"downloadcenter/internal/engine/dl"
+	"downloadcenter/internal/logfiles"
 	"downloadcenter/internal/netutil"
 	"downloadcenter/internal/phpbox"
 	"downloadcenter/internal/qts"
@@ -111,8 +112,7 @@ func readPort(path string, def int) int {
 func rotateLog(data string) {
 	logs := filepath.Join(data, "logs")
 	cur := filepath.Join(logs, "dcd.log")
-	var out, st syscall.Stat_t
-	if syscall.Fstat(1, &out) != nil || syscall.Stat(cur, &st) != nil || out.Dev != st.Dev || out.Ino != st.Ino {
+	if !logfiles.StdioIs(cur) {
 		return
 	}
 	unclean := 0
@@ -128,16 +128,9 @@ func rotateLog(data string) {
 		os.Remove(crash)
 		os.Link(cur, crash)
 	}
-	if os.Rename(cur, filepath.Join(logs, "dcd.log.1")) != nil {
+	if logfiles.RotateStdio(cur) != nil {
 		return
 	}
-	f, err := os.OpenFile(cur, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
-	if err != nil {
-		return
-	}
-	syscall.Dup3(int(f.Fd()), 1, 0)
-	syscall.Dup3(int(f.Fd()), 2, 0)
-	f.Close()
 	if unclean > 0 {
 		log.Printf("the previous dcd (pid %d) did not stop cleanly; its log is kept as dcd.log.crash", unclean)
 	}
@@ -203,6 +196,16 @@ func serve(args []string) {
 	// Written by dcd itself: the shell's $! is not always this process
 	os.WriteFile(filepath.Join(data, "run", "dcd.pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0600)
 	rotateLog(data)
+	// The same message again within a minute is counted, not repeated; the
+	// files in data/logs stay within their limits (checked every minute)
+	dedup := logfiles.NewDedup(os.Stderr)
+	log.SetOutput(dedup)
+	go func() {
+		for range time.Tick(time.Minute) {
+			dedup.Flush()
+			logfiles.Maintain(filepath.Join(data, "logs"))
+		}
+	}()
 	// Temporary files (such as large uploads) stay in the package's private
 	// folder, not in the NAS's small shared /tmp
 	tmp := filepath.Join(data, "tmp")

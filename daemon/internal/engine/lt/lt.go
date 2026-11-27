@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"downloadcenter/internal/engine"
+	"downloadcenter/internal/logfiles"
 )
 
 // Available reports whether the dc-bt binary exists and is executable.
@@ -318,12 +319,10 @@ func (e *Engine) spawn() error {
 	cmd := exec.Command(e.bin, append(args, caArgs(e.CAFile, "libtorrent")...)...)
 	cmd.Dir = e.dataDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	lf, _ := os.OpenFile(filepath.Join(e.dataDir, "logs", "dc-bt.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if lf != nil {
-		if st, err := lf.Stat(); err == nil && st.Size() > 4<<20 {
-			lf.Truncate(0)
-		}
-	}
+	// Bounded like every log in data/logs (dcd cuts it while dc-bt runs)
+	logPath := filepath.Join(e.dataDir, "logs", "dc-bt.log")
+	logfiles.Rotate(logPath, logfiles.Max)
+	lf, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	cmd.Stdout, cmd.Stderr = lf, lf
 	if err := cmd.Start(); err != nil {
 		if lf != nil {
