@@ -123,15 +123,27 @@ func (m *Manager) Retry(hash string) error {
 // also deletes the downloaded data; a task whose data is still in its
 // @DownloadCenterTemp folder always loses that folder.
 func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
+	t, e, ref, err := m.takeOut(hash, deleteData)
+	if err != nil {
+		return err
+	}
+	if e != nil && ref != "" {
+		e.Remove(ref)
+	}
+	return m.removeRest(t, hash, deleteData, auto)
+}
+
+// takeOut is the part of Remove under m.mu: the task leaves the live list
+// (unlocked by defer, so that a panic cannot leave m.mu locked).
+func (m *Manager) takeOut(hash string, deleteData bool) (*Task, engine.Engine, string, error) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	t, ok := m.live[hash]
 	if !ok {
-		m.mu.Unlock()
-		return ErrNotFound
+		return nil, nil, "", ErrNotFound
 	}
 	if m.moving[hash] || t.State == StMoving {
-		m.mu.Unlock()
-		return ErrMoving
+		return nil, nil, "", ErrMoving
 	}
 	e := m.engineOf(t)
 	ref := t.EngineRef
@@ -148,11 +160,11 @@ func (m *Manager) Remove(hash string, deleteData bool, auto bool) error {
 	t.Options.DataDeleted = deleteData
 	t.EngineRef = ""
 	m.saveTask(t)
-	m.mu.Unlock()
+	return t, e, ref, nil
+}
 
-	if e != nil && ref != "" {
-		e.Remove(ref)
-	}
+// removeRest deletes what a removed task leaves behind.
+func (m *Manager) removeRest(t *Task, hash string, deleteData, auto bool) error {
 	finished := t.State == StDone
 	if t.Kind != KindBT {
 		if !finished {

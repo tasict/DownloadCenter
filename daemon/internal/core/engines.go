@@ -75,7 +75,7 @@ func (m *Manager) applyEngines(old Settings) {
 		g := m.GlobalFor(name)
 		if err := e.ApplyGlobal(g); err != nil {
 			if strings.Contains(err.Error(), "restart required") {
-				go m.restartEngine(e, g)
+				m.goRestartEngine(e, g)
 			} else {
 				log.Printf("core: apply %s: %v", name, err)
 			}
@@ -102,23 +102,33 @@ func (m *Manager) applyEngines(old Settings) {
 // restartEngine restarts an engine; tasks are re-added by the next tick.
 func (m *Manager) restartEngine(e engine.Engine, g engine.Global) {
 	log.Printf("core: restarting %s for new settings", e.Name())
-	m.mu.Lock()
-	m.restarting[e.Name()] = true
-	for h, t := range m.live {
-		if m.engineOf(t) == e {
-			delete(m.running, h)
-			delete(m.applied, h)
+	func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.restarting[e.Name()] = true
+		for h, t := range m.live {
+			if m.engineOf(t) == e {
+				delete(m.running, h)
+				delete(m.applied, h)
+			}
 		}
-	}
-	m.mu.Unlock()
+	}()
+	// Cleared however the restart ends, a panic in it included
+	defer func() {
+		m.mu.Lock()
+		delete(m.restarting, e.Name())
+		delete(m.down, e.Name())
+		m.mu.Unlock()
+		m.Kick()
+	}()
 	if err := e.Restart(g); err != nil {
 		log.Printf("core: restart %s: %v", e.Name(), err)
 	}
-	m.mu.Lock()
-	delete(m.restarting, e.Name())
-	delete(m.down, e.Name())
-	m.mu.Unlock()
-	m.Kick()
+}
+
+// goRestartEngine restarts an engine in the background (see goSafe).
+func (m *Manager) goRestartEngine(e engine.Engine, g engine.Global) {
+	goSafe("engine restart", func() { m.restartEngine(e, g) })
 }
 
 // tempRoots lists the @DownloadCenterTemp folders that may exist: the

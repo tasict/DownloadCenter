@@ -1151,7 +1151,7 @@ func (m *Manager) downloadDone(t *Task, st *engine.Status, e engine.Engine) {
 	}
 	m.TaskEvent("task.completed", t, nil)
 	if t.AutoRemove == "completed" {
-		go m.autoRemove(t.Hash)
+		m.goAutoRemove(t.Hash)
 	}
 }
 
@@ -1279,7 +1279,7 @@ func (m *Manager) torrentMoved(t *Task, st *engine.Status, e engine.Engine) {
 		return
 	}
 	if report && t.AutoRemove == "completed" {
-		go m.autoRemove(t.Hash)
+		m.goAutoRemove(t.Hash)
 	}
 }
 
@@ -1467,8 +1467,13 @@ func (m *Manager) finish(t *Task) {
 	m.saveTask(t)
 	m.Log(t.Hash, "Done")
 	if t.AutoRemove == "completed" || t.AutoRemove == "seeded" {
-		go m.autoRemove(t.Hash)
+		m.goAutoRemove(t.Hash)
 	}
+}
+
+// goAutoRemove removes a finished task in the background (see goSafe).
+func (m *Manager) goAutoRemove(hash string) {
+	goSafe("auto remove", func() { m.autoRemove(hash) })
 }
 
 func (m *Manager) autoRemove(hash string) {
@@ -1782,6 +1787,7 @@ func (m *Manager) minute() {
 		cut := now.Unix() - int64(s.HistoryDays)*86400
 		m.db.X(`DELETE FROM task_files WHERE hash IN (SELECT hash FROM tasks WHERE removed_at > 0 AND removed_at < ?)`, cut)
 		m.db.X(`DELETE FROM task_log WHERE hash IN (SELECT hash FROM tasks WHERE removed_at > 0 AND removed_at < ?)`, cut)
+		m.trimTaskLogs()
 		m.db.X(`DELETE FROM tasks WHERE removed_at > 0 AND removed_at < ?`, cut)
 		m.db.X(`DELETE FROM events WHERE time < ?`, now.Unix()-30*86400)
 		m.db.X(`DELETE FROM audit WHERE time < ?`, now.Unix()-90*86400)
