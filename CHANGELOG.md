@@ -2,6 +2,14 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.4.3
+
+- New: Settings › About and updates › Problem reports. Administrators can download the logs of Download Center's background programs, mainly their errors, as one file to attach to a problem report. The file leaves out what was downloaded and who downloaded it: task names, file names, links, host names, addresses and account names are replaced, and tasks appear as diagnostic codes. A task's details show administrators its diagnostic code, and the same settings page finds the task behind a code.
+- Logs no longer grow without limit: Download Center's own log and the logs of the two download engines keep 2 MB each plus one older copy, the update log 1 MB and the watchdog log 256 KB. A message repeated within a minute is written once with the number of repeats, and nothing is written while nothing happens.
+- A task's log keeps its last 200 lines, and the same message within 10 minutes is not added again, so a task that keeps retrying no longer fills its log.
+- Starting, stopping and the watchdog no longer run at the same time, and the watchdog writes nothing while Download Center runs normally.
+- A failure while removing a finished task or restarting a download engine for new settings now ends only that piece of work instead of the whole program.
+
 ## 1.4.2
 
 - When the service script lost track of a running Download Center, its watchdog started another copy every minute: URL downloads were interrupted, uploads in progress failed and the system log showed "dcd was not running; restarting" every minute. Only one copy now runs per installation, the service script finds the running one again, and stopping or updating the package stops it.
