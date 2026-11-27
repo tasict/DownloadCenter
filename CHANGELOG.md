@@ -2,6 +2,10 @@
 
 Each release has a section here; `tools/release.sh` refuses to release a version without one, and the section becomes the GitHub release notes. Versions follow semantic versioning; a version with a suffix such as `1.1.0-beta.1` is published as a pre-release.
 
+## 1.4.4
+
+- When a download stops because the server's certificate is refused, the message now names that server, which after a redirect may not be the host in the link, and says why: the server does not send its complete certificate chain, the certificate is self-signed or comes from an authority the NAS does not trust, it has expired or is not valid yet (check the NAS's date and time), or it was issued for another name. Until now every such download said that the NAS's list of certificate authorities might be out of date.
+
 ## 1.4.3
 
 - New: Settings › About and updates › Problem reports. Administrators can download the logs of Download Center's background programs, mainly their errors, as one file to attach to a problem report. The file leaves out what was downloaded and who downloaded it: task names, file names, links, host names, addresses and account names are replaced, and tasks appear as diagnostic codes. A task's details show administrators its diagnostic code, and the same settings page finds the task behind a code.
